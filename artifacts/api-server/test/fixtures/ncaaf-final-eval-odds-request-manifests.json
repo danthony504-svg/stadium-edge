@@ -1,0 +1,2771 @@
+{
+  "generatedAt": "2026-10-17T12:17:47.447Z",
+  "phase": "C_D",
+  "paidRetrieval": false,
+  "separateHardCaps": {
+    "closeH2h": 2000,
+    "earlyClvH2h": 2200,
+    "note": "Approve and spend each cap independently"
+  },
+  "closeOnlyH2h": {
+    "id": "FINAL_EVAL_close_h2h_only",
+    "purpose": "FINAL_EVAL moneyline closes (eval-only) — markets=h2h only",
+    "generatedAt": "2026-10-17T12:17:47.445Z",
+    "paidRetrieval": false,
+    "mode": "dry_run_manifest_only",
+    "oddsApiKey": "UNSET",
+    "sport": "americanfootball_ncaaf",
+    "markets": [
+      "h2h"
+    ],
+    "regions": [
+      "us"
+    ],
+    "nGames": 132,
+    "nPrimaryBuckets": 70,
+    "nBucketsToFetch": 70,
+    "nBucketsSkipped": 0,
+    "creditsPerBucket": 10,
+    "creditMath": {
+      "formula": "10 × markets × regions",
+      "baseCredits": 700,
+      "retryBufferCredits": 175,
+      "retryBufferPolicy": "25% of base for commence/previousTimestamp retries",
+      "hardCap": 2000,
+      "fitsInHardCap": true,
+      "note": "Hard caps are separate per manifest — do not share spend across close and early CLV without new approval"
+    },
+    "deduplication": {
+      "againstTuningCloseBuckets": 176,
+      "fileCacheDir": "/opt/cursor/artifacts/ncaaf-e2b-close-snapshots",
+      "fileCacheCount": 0,
+      "keyFormula": "sport|mode|markets|regions|snapshotBucketIso"
+    },
+    "timingNotes": [
+      "date= kickoff truncated to UTC minute",
+      "API returns closest snapshot ≤ date (5-minute intervals)",
+      "Reject snapshotTimestamp >= commence after retries → MISSING_DATA",
+      "Midday slate snaps are not closes"
+    ],
+    "coverageLimitations": [
+      "h2h only — no spreads/totals/ALTs in this manifest",
+      "Requires paid Odds historical plan; ODDS_API_KEY unset here",
+      "FINAL_EVAL membership must be FBS–FBS filtered at score time",
+      "Does not include early T−24h (see CLV manifest)",
+      "TUNING close archive buckets skipped only when identical minute bucket overlaps (rare for FINAL_EVAL)"
+    ],
+    "twoSided": {
+      "required": true,
+      "extract": [
+        "closeMlHome",
+        "closeMlAway"
+      ],
+      "neverInventAwayFromVigFree": true
+    },
+    "requests": [
+      {
+        "bucketIso": "2025-10-17T23:00:00Z",
+        "eventIds": [
+          "401754564"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-17T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T00:00:00Z",
+        "eventIds": [
+          "401752872"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T16:00:00Z",
+        "eventIds": [
+          "401752745",
+          "401754566"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T16:45:00Z",
+        "eventIds": [
+          "401752744"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T16:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T16:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T19:30:00Z",
+        "eventIds": [
+          "401752877",
+          "401752878",
+          "401752742"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T20:00:00Z",
+        "eventIds": [
+          "401756923",
+          "401762487"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T20:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T20:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T21:30:00Z",
+        "eventIds": [
+          "401752739"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T21:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T21:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T22:30:00Z",
+        "eventIds": [
+          "401752876",
+          "401752951"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T22:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T22:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T23:00:00Z",
+        "eventIds": [
+          "401752743"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T23:30:00Z",
+        "eventIds": [
+          "401752738",
+          "401752871",
+          "401762490"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T23:45:00Z",
+        "eventIds": [
+          "401752740"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T23:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-18T23:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-19T00:00:00Z",
+        "eventIds": [
+          "401756924",
+          "401756926"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-19T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-19T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T16:00:00Z",
+        "eventIds": [
+          "401752885",
+          "401754571",
+          "401752750",
+          "401754573",
+          "401762494"
+        ],
+        "nEvents": 5,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T19:30:00Z",
+        "eventIds": [
+          "401752751",
+          "401752752",
+          "401756931",
+          "401752880"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T20:00:00Z",
+        "eventIds": [
+          "401756933",
+          "401756930"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T20:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T20:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T20:15:00Z",
+        "eventIds": [
+          "401752749"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T20:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T20:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T23:00:00Z",
+        "eventIds": [
+          "401752886",
+          "401754572"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T23:30:00Z",
+        "eventIds": [
+          "401752748",
+          "401754570",
+          "401752881"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T23:45:00Z",
+        "eventIds": [
+          "401752747"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T23:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-25T23:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-26T00:00:00Z",
+        "eventIds": [
+          "401756929"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-26T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-26T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T23:00:00Z",
+        "eventIds": [
+          "401762497"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-10-31T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T16:00:00Z",
+        "eventIds": [
+          "401752889",
+          "401752758",
+          "401754581",
+          "401756938"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T19:00:00Z",
+        "eventIds": [
+          "401754580"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T19:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T19:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T19:30:00Z",
+        "eventIds": [
+          "401752887",
+          "401752755",
+          "401754583",
+          "401756941"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T19:45:00Z",
+        "eventIds": [
+          "401754576"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T19:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T19:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T23:00:00Z",
+        "eventIds": [
+          "401752756",
+          "401752890"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T23:30:00Z",
+        "eventIds": [
+          "401754579",
+          "401752757",
+          "401752892"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-01T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-02T02:15:00Z",
+        "eventIds": [
+          "401756942"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-02T02:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-02T02:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T02:00:00Z",
+        "eventIds": [
+          "401752896"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T17:00:00Z",
+        "eventIds": [
+          "401752893",
+          "401752762",
+          "401756945"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T18:00:00Z",
+        "eventIds": [
+          "401752897"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T18:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T18:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T20:30:00Z",
+        "eventIds": [
+          "401752763",
+          "401752898",
+          "401754587"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T21:00:00Z",
+        "eventIds": [
+          "401752764"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T21:30:00Z",
+        "eventIds": [
+          "401752899"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T21:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-08T21:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-09T00:00:00Z",
+        "eventIds": [
+          "401754589",
+          "401754585"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-09T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-09T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-09T00:30:00Z",
+        "eventIds": [
+          "401752759",
+          "401757166"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-09T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-09T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T00:30:00Z",
+        "eventIds": [
+          "401754591"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T02:00:00Z",
+        "eventIds": [
+          "401752904"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T17:00:00Z",
+        "eventIds": [
+          "401752901",
+          "401752772",
+          "401754597",
+          "401752905",
+          "401762510",
+          "401756951"
+        ],
+        "nEvents": 6,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T20:30:00Z",
+        "eventIds": [
+          "401752765",
+          "401756953",
+          "401754592",
+          "401752907"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T20:35:00Z",
+        "eventIds": [
+          "401754593"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T20:35:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T20:35:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T20:40:00Z",
+        "eventIds": [
+          "401754595"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T20:40:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T20:40:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T21:15:00Z",
+        "eventIds": [
+          "401752771"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T21:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-15T21:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-16T00:00:00Z",
+        "eventIds": [
+          "401752769",
+          "401756949"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-16T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-16T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-16T00:30:00Z",
+        "eventIds": [
+          "401752900",
+          "401752766"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-16T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-16T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-16T03:15:00Z",
+        "eventIds": [
+          "401756950"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-16T03:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-16T03:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T17:00:00Z",
+        "eventIds": [
+          "401752912",
+          "401752778",
+          "401754603"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-22T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T17:45:00Z",
+        "eventIds": [
+          "401752776"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T17:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-22T17:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T20:30:00Z",
+        "eventIds": [
+          "401752911",
+          "401754604",
+          "401752782",
+          "401752780"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-22T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T20:45:00Z",
+        "eventIds": [
+          "401762515"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T20:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-22T20:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T21:00:00Z",
+        "eventIds": [
+          "401756960",
+          "401752914",
+          "401756957"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-22T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-23T00:00:00Z",
+        "eventIds": [
+          "401754601"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-23T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-23T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-23T00:30:00Z",
+        "eventIds": [
+          "401752775",
+          "401752915"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-23T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-23T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-23T01:00:00Z",
+        "eventIds": [
+          "401756955",
+          "401756956"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-23T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-23T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T17:00:00Z",
+        "eventIds": [
+          "401752788",
+          "401756964"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-28T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T20:30:00Z",
+        "eventIds": [
+          "401752786"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-28T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T00:30:00Z",
+        "eventIds": [
+          "401752924",
+          "401752792"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-29T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T02:00:00Z",
+        "eventIds": [
+          "401756961"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-29T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T17:00:00Z",
+        "eventIds": [
+          "401752921",
+          "401756968",
+          "401754611"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-29T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T18:00:00Z",
+        "eventIds": [
+          "401756963"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T18:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-29T18:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T20:30:00Z",
+        "eventIds": [
+          "401752917",
+          "401752789",
+          "401752791"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-29T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-30T00:00:00Z",
+        "eventIds": [
+          "401754613"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-30T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-30T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-30T00:30:00Z",
+        "eventIds": [
+          "401752784",
+          "401752919",
+          "401762518"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-30T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-30T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-30T01:00:00Z",
+        "eventIds": [
+          "401754609"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-30T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-30T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-30T03:30:00Z",
+        "eventIds": [
+          "401754614"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-30T03:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-11-30T03:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-06T00:00:00Z",
+        "eventIds": [
+          "401777352"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-06T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-12-06T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-06T01:00:00Z",
+        "eventIds": [
+          "401777324"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-06T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-12-06T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-06T17:00:00Z",
+        "eventIds": [
+          "401777327"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-06T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-12-06T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-06T21:00:00Z",
+        "eventIds": [
+          "401777351"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-06T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-12-06T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-07T01:00:00Z",
+        "eventIds": [
+          "401777353",
+          "401777328"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-07T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_close|h2h|us|2025-12-07T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      }
+    ]
+  },
+  "earlyTwoSidedClv": {
+    "id": "FINAL_EVAL_early_t24h_h2h_twosided",
+    "purpose": "Coach CLV early two-sided ML (~T−24h) for clean E1 — markets=h2h; never invent away",
+    "generatedAt": "2026-10-17T12:17:47.447Z",
+    "paidRetrieval": false,
+    "mode": "dry_run_manifest_only",
+    "oddsApiKey": "UNSET",
+    "sport": "americanfootball_ncaaf",
+    "markets": [
+      "h2h"
+    ],
+    "regions": [
+      "us"
+    ],
+    "nGames": 132,
+    "nPrimaryBuckets": 70,
+    "nBucketsToFetch": 70,
+    "nBucketsSkipped": 0,
+    "creditsPerBucket": 10,
+    "creditMath": {
+      "formula": "10 × markets × regions",
+      "baseCredits": 700,
+      "retryBufferCredits": 175,
+      "retryBufferPolicy": "25% of base for commence/previousTimestamp retries",
+      "hardCap": 2200,
+      "fitsInHardCap": true,
+      "note": "Hard caps are separate per manifest — do not share spend across close and early CLV without new approval"
+    },
+    "deduplication": {
+      "againstTuningCloseBuckets": 0,
+      "fileCacheDir": "/opt/cursor/artifacts/ncaaf-e2b-early-snapshots",
+      "fileCacheCount": 0,
+      "keyFormula": "sport|mode|markets|regions|snapshotBucketIso"
+    },
+    "timingNotes": [
+      "date= kickoff − 24h truncated to UTC minute",
+      "Need two-sided American ML (home+away) from real books",
+      "R1: fixture home-only fallback insufficient for C1 on clean path",
+      "R2: away ML only from this early cache",
+      "Selection timestamp must be recorded for CLV"
+    ],
+    "coverageLimitations": [
+      "Early snapshot cache currently EMPTY (0 files)",
+      "Home-only selection-prices fixture cannot supply away ML under R1–R2",
+      "Separate hard cap from close-only manifest — do not co-mingle spend",
+      "Phase-e CLV fail (n=15, meanClv<0) is failed evidence on prior stamp — remake on clean E1 after cache exists",
+      "Paid historical only; key unset — manifest is pre-retrieval"
+    ],
+    "twoSided": {
+      "required": true,
+      "extract": [
+        "closeMlHome",
+        "closeMlAway"
+      ],
+      "neverInventAwayFromVigFree": true
+    },
+    "requests": [
+      {
+        "bucketIso": "2025-10-16T23:00:00Z",
+        "eventIds": [
+          "401754564"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-16T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-16T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T00:00:00Z",
+        "eventIds": [
+          "401752872"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T16:00:00Z",
+        "eventIds": [
+          "401752745",
+          "401754566"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T16:45:00Z",
+        "eventIds": [
+          "401752744"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T16:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T16:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T19:30:00Z",
+        "eventIds": [
+          "401752877",
+          "401752878",
+          "401752742"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T20:00:00Z",
+        "eventIds": [
+          "401756923",
+          "401762487"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T20:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T20:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T21:30:00Z",
+        "eventIds": [
+          "401752739"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T21:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T21:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T22:30:00Z",
+        "eventIds": [
+          "401752876",
+          "401752951"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T22:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T22:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T23:00:00Z",
+        "eventIds": [
+          "401752743"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T23:30:00Z",
+        "eventIds": [
+          "401752738",
+          "401752871",
+          "401762490"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-17T23:45:00Z",
+        "eventIds": [
+          "401752740"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-17T23:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-17T23:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-18T00:00:00Z",
+        "eventIds": [
+          "401756924",
+          "401756926"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-18T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-18T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T16:00:00Z",
+        "eventIds": [
+          "401752885",
+          "401754571",
+          "401752750",
+          "401754573",
+          "401762494"
+        ],
+        "nEvents": 5,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T19:30:00Z",
+        "eventIds": [
+          "401752751",
+          "401752752",
+          "401756931",
+          "401752880"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T20:00:00Z",
+        "eventIds": [
+          "401756933",
+          "401756930"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T20:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T20:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T20:15:00Z",
+        "eventIds": [
+          "401752749"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T20:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T20:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T23:00:00Z",
+        "eventIds": [
+          "401752886",
+          "401754572"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T23:30:00Z",
+        "eventIds": [
+          "401752748",
+          "401754570",
+          "401752881"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-24T23:45:00Z",
+        "eventIds": [
+          "401752747"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-24T23:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-24T23:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-25T00:00:00Z",
+        "eventIds": [
+          "401756929"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-25T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-25T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-30T23:00:00Z",
+        "eventIds": [
+          "401762497"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-30T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-30T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T16:00:00Z",
+        "eventIds": [
+          "401752889",
+          "401752758",
+          "401754581",
+          "401756938"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T16:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T16:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T19:00:00Z",
+        "eventIds": [
+          "401754580"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T19:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T19:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T19:30:00Z",
+        "eventIds": [
+          "401752887",
+          "401752755",
+          "401754583",
+          "401756941"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T19:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T19:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T19:45:00Z",
+        "eventIds": [
+          "401754576"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T19:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T19:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T23:00:00Z",
+        "eventIds": [
+          "401752756",
+          "401752890"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T23:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T23:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-10-31T23:30:00Z",
+        "eventIds": [
+          "401754579",
+          "401752757",
+          "401752892"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-10-31T23:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-10-31T23:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-01T02:15:00Z",
+        "eventIds": [
+          "401756942"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-01T02:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-01T02:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T02:00:00Z",
+        "eventIds": [
+          "401752896"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T17:00:00Z",
+        "eventIds": [
+          "401752893",
+          "401752762",
+          "401756945"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T18:00:00Z",
+        "eventIds": [
+          "401752897"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T18:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T18:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T20:30:00Z",
+        "eventIds": [
+          "401752763",
+          "401752898",
+          "401754587"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T21:00:00Z",
+        "eventIds": [
+          "401752764"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-07T21:30:00Z",
+        "eventIds": [
+          "401752899"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-07T21:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-07T21:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T00:00:00Z",
+        "eventIds": [
+          "401754589",
+          "401754585"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-08T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-08T00:30:00Z",
+        "eventIds": [
+          "401752759",
+          "401757166"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-08T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-08T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T00:30:00Z",
+        "eventIds": [
+          "401754591"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T02:00:00Z",
+        "eventIds": [
+          "401752904"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T17:00:00Z",
+        "eventIds": [
+          "401752901",
+          "401752772",
+          "401754597",
+          "401752905",
+          "401762510",
+          "401756951"
+        ],
+        "nEvents": 6,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T20:30:00Z",
+        "eventIds": [
+          "401752765",
+          "401756953",
+          "401754592",
+          "401752907"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T20:35:00Z",
+        "eventIds": [
+          "401754593"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T20:35:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T20:35:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T20:40:00Z",
+        "eventIds": [
+          "401754595"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T20:40:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T20:40:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-14T21:15:00Z",
+        "eventIds": [
+          "401752771"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-14T21:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-14T21:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T00:00:00Z",
+        "eventIds": [
+          "401752769",
+          "401756949"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-15T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T00:30:00Z",
+        "eventIds": [
+          "401752900",
+          "401752766"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-15T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-15T03:15:00Z",
+        "eventIds": [
+          "401756950"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-15T03:15:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-15T03:15:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-21T17:00:00Z",
+        "eventIds": [
+          "401752912",
+          "401752778",
+          "401754603"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-21T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-21T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-21T17:45:00Z",
+        "eventIds": [
+          "401752776"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-21T17:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-21T17:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-21T20:30:00Z",
+        "eventIds": [
+          "401752911",
+          "401754604",
+          "401752782",
+          "401752780"
+        ],
+        "nEvents": 4,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-21T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-21T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-21T20:45:00Z",
+        "eventIds": [
+          "401762515"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-21T20:45:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-21T20:45:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-21T21:00:00Z",
+        "eventIds": [
+          "401756960",
+          "401752914",
+          "401756957"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-21T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-21T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T00:00:00Z",
+        "eventIds": [
+          "401754601"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-22T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T00:30:00Z",
+        "eventIds": [
+          "401752775",
+          "401752915"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-22T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-22T01:00:00Z",
+        "eventIds": [
+          "401756955",
+          "401756956"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-22T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-22T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-27T17:00:00Z",
+        "eventIds": [
+          "401752788",
+          "401756964"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-27T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-27T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-27T20:30:00Z",
+        "eventIds": [
+          "401752786"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-27T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-27T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T00:30:00Z",
+        "eventIds": [
+          "401752924",
+          "401752792"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-28T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T02:00:00Z",
+        "eventIds": [
+          "401756961"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T02:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-28T02:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T17:00:00Z",
+        "eventIds": [
+          "401752921",
+          "401756968",
+          "401754611"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-28T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T18:00:00Z",
+        "eventIds": [
+          "401756963"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T18:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-28T18:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-28T20:30:00Z",
+        "eventIds": [
+          "401752917",
+          "401752789",
+          "401752791"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-28T20:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-28T20:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T00:00:00Z",
+        "eventIds": [
+          "401754613"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-29T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T00:30:00Z",
+        "eventIds": [
+          "401752784",
+          "401752919",
+          "401762518"
+        ],
+        "nEvents": 3,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T00:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-29T00:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T01:00:00Z",
+        "eventIds": [
+          "401754609"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-29T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-11-29T03:30:00Z",
+        "eventIds": [
+          "401754614"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-11-29T03:30:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-11-29T03:30:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-05T00:00:00Z",
+        "eventIds": [
+          "401777352"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-05T00:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-12-05T00:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-05T01:00:00Z",
+        "eventIds": [
+          "401777324"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-05T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-12-05T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-05T17:00:00Z",
+        "eventIds": [
+          "401777327"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-05T17:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-12-05T17:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-05T21:00:00Z",
+        "eventIds": [
+          "401777351"
+        ],
+        "nEvents": 1,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-05T21:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-12-05T21:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      },
+      {
+        "bucketIso": "2025-12-06T01:00:00Z",
+        "eventIds": [
+          "401777353",
+          "401777328"
+        ],
+        "nEvents": 2,
+        "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+        "query": {
+          "regions": "us",
+          "markets": "h2h",
+          "oddsFormat": "american",
+          "date": "2025-12-06T01:00:00Z"
+        },
+        "dedupeKey": "americanfootball_ncaaf|historical_early_t24h|h2h|us|2025-12-06T01:00:00Z",
+        "creditsIfFetched": 10,
+        "skipHttp": false,
+        "skipReason": null
+      }
+    ]
+  }
+}

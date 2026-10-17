@@ -1,6 +1,6 @@
 # Clean research-only NCAAF engine — architecture & milestones (design freeze)
 
-**Status:** DESIGN **FROZEN** · **clean E1 α=1.15 FROZEN** · ATS tuning **STOPPED** · ML-only validation **plan only** ([`ncaaf-clean-ml-only-validation-plan.md`](./ncaaf-clean-ml-only-validation-plan.md)) · **FINAL_EVAL untouched** · no retrieval this turn  
+**Status:** DESIGN **FROZEN** · clean E1 α=1.15 · **Phase A harness executed** · **B/C/D/E prepared** ([`ncaaf-clean-phase-a-e-prep.md`](./ncaaf-clean-phase-a-e-prep.md)) · FINAL_EVAL **unscored** · no paid retrieval  
 **Branch:** `cursor/ncaaf-clean-engine-design-8b51`  
 **Date:** 2026-10-17  
 **Supersedes as research path:** drive residual/shrink restoration and team-strength v0 (both **archived**, not extended)  

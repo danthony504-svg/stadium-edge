@@ -94,54 +94,37 @@ P3: *No market enabled solely because another passes.* ML validation may proceed
 
 Ordered; **stop** until human authorizes the next paid/free build step. This turn executes **nothing** beyond this plan.
 
-### Phase A — Freeze & harness (no Odds spend) — *ready now*
+### Phase A — Freeze & harness (no Odds spend) — **DONE this turn**
 
-1. Keep clean E1 α=1.15 frozen; ATS tuning remains stopped.  
-2. Add (when coding authorized) a **moneyline-only** score harness on clean E1 that:
-   - scores M1–M4 only;
-   - reports S2 as **out-of-scope / separate**;
-   - refuses to read closes into features;
-   - refuses to label FINAL_EVAL PASS from TUNING.  
-3. Document stamp + α in every report header.
+1. Clean E1 α=1.15 frozen; ATS tuning stopped.  
+2. ML-only harness + unit tests landed (`mlOnlyHarness.ts`, `ncaafClean.mlOnlyHarness.test.ts`).  
+3. TUNING screen report: `ncaaf-clean-ml-only-harness-tuning.md` (`finalPass=false`).
 
-**Cost:** $0 · **FINAL_EVAL:** still untouched
+**Cost:** $0 · **FINAL_EVAL:** unscored
 
-### Phase B — Independent FINAL_EVAL fixture build (free ESPN first)
+### Phase B — Independent FINAL_EVAL membership (free ESPN) — **PREPARED this turn**
 
-4. **Authorize** free ESPN pull for 2025 w8+ (+ completed 2026 RS) into new fixtures (e.g. `ncaaf-final-eval-*-games.json`) — **separate** from TUNING.  
-5. Apply verified FBS–FBS tags; withhold FBS–FCS / unrated as today.  
-6. Venue sidecar recovery (free ESPN `neutralSite`) before evaluableSupported claims.  
-7. **Do not** score acceptance until closes exist.
+4. Membership + exclusions defined: `ncaaf-final-eval-membership.md` (included n from ESPN week boards; FBS–FBS filter).  
+5. Games fixture with `outcomeSealed=true`: `ncaaf-final-eval-membership-games.json`.  
+6. Causal state recipe documented (seed 2024 → TUNING walk → sealed FINAL_EVAL carry-forward).  
+7. **Not scored.** Venue sidecar enrichment deferred until scoring auth.
 
-**Cost:** $0 ESPN · **Still no Odds** until Phase C approved
+**Cost:** $0 ESPN · **Still no Odds**
 
-### Phase C — FINAL_EVAL close ML retrieval (paid — needs explicit approval)
+### Phase C — FINAL_EVAL close ML retrieval (paid) — **MANIFEST ONLY**
 
-8. Confirm `ODDS_API_KEY` + remaining credits on a **paid** plan.  
-9. Dry-run minute-bucket manifest for FINAL_EVAL games (`h2h` preferred for ML-only; optional `h2h,spreads` if shared with later ATS).  
-10. Hard credit cap (example): **~2 000** for `h2h`-only 2025 w8–15; raise only with written approval.  
-11. Pull → join → eval-only archive; never features.  
-12. **Single** frozen E1 α=1.15 score on FINAL_EVAL → report M1–M4 once.
+8–12. Dry-run manifest + **hard cap 2000** credits: see `ncaaf-final-eval-odds-request-manifests.md` (close-only `h2h`).  
+**Not fetched this turn.**
 
-**Cost:** ~1.5k–2k credits (`h2h`) or ~3k+ (`h2h,spreads`) per window · **Not this turn**
+### Phase D — Coach selection / CLV early snaps (paid) — **MANIFEST ONLY**
 
-### Phase D — Coach selection / CLV on clean E1 (paid early snaps — separate approval)
+13–16. Separate dry-run manifest + **hard cap 2200** (early T−24h `h2h`). Caps independent of Phase C.  
+**Not fetched this turn.**
 
-13. Authorize **early T−24h two-sided** historical `h2h` cache for the CLV window (FINAL_EVAL and/or forward).  
-14. Apply R1–R4; never invent away ML.  
-15. Run Coach pick CLV on **clean E1** stamp; apply C1–C6 unchanged.  
-16. If C1–C3 fail again → **Failed evidence** (not missing); do not lower C2.
+### Phase E — Injury validation (E4) — **PREPARED INACTIVE**
 
-**Cost:** same order as a close pull for that window · **Not this turn**
-
-### Phase E — Injury validation (E4)
-
-17. Continue **forward** ESPN pre-kick collector ($0) for future slates.  
-18. Historical holdout: only if a provider proves `captureTimestamp ≤ kickoff` — **review before any purchase**.  
-19. Join null-safe labels; run known vs unknown \|edge\| segment test.  
-20. E4 remains **OPEN** until that evidence exists.
-
-**Cost:** $0 forward; paid historical **blocked** until timing proof
+17. Collector requires `NCAAF_INJURY_COLLECTOR_ACTIVE=1`; default inactive (`ncaaf-forward-injury-collector-prep.json`).  
+18–20. Historical backfill still blocked without timing proof.
 
 ### Phase F — Human gate (E6)
 

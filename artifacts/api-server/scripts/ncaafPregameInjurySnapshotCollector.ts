@@ -42,6 +42,28 @@ async function main(): Promise<number> {
   console.log("══ NCAAF pregame injury snapshot collector (draft) ══");
   console.log("NCAAF_GAME_LINE_SIM_VALIDATED is NOT flipped.");
 
+  const active = ["1", "true", "yes"].includes(
+    String(process.env.NCAAF_INJURY_COLLECTOR_ACTIVE ?? "")
+      .trim()
+      .toLowerCase(),
+  );
+  if (!active) {
+    console.log(
+      JSON.stringify(
+        {
+          status: "INACTIVE",
+          reason:
+            "NCAAF_INJURY_COLLECTOR_ACTIVE not set — prepared but not activated (Phase E)",
+          prepFixture: "test/fixtures/ncaaf-forward-injury-collector-prep.json",
+          hint: "Set NCAAF_INJURY_COLLECTOR_ACTIVE=1 to freeze a forward ESPN snapshot",
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
   const captureTimestamp = new Date().toISOString();
   const res = await fetch(ESPN, {
     headers: { "User-Agent": "stadium-edge-e4-snapshot/1.0" },

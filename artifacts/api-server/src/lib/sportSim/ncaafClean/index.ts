@@ -67,3 +67,37 @@ export type { CleanSupportDecision } from "./support.ts";
 
 export { predictScoreMargin } from "./predictScoreMargin.ts";
 export type { PredictScoreMarginOpts } from "./predictScoreMargin.ts";
+
+export {
+  CLEAN_E1_ALPHA,
+  CLEAN_E1_CANDIDATE_ID,
+  predictE1Frozen,
+} from "./e1Frozen.ts";
+export type {
+  E1FrozenPrediction,
+  E1FrozenPredictFail,
+  E1FrozenPredictOk,
+} from "./e1Frozen.ts";
+
+export {
+  CLV_CRITERIA,
+  evaluateClvCriteria,
+  evaluateMlCriteria,
+  finalMlAcceptanceLabel,
+  ML_CRITERIA,
+  ML_ONLY_POLICY,
+} from "./mlOnlyCriteria.ts";
+export type {
+  ClvCriterionResult,
+  ClvMetricInputs,
+  MlCriterionResult,
+  MlMetricInputs,
+} from "./mlOnlyCriteria.ts";
+
+export { runMlOnlyHarness } from "./mlOnlyHarness.ts";
+export type {
+  MlCloseRow,
+  MlHarnessGame,
+  MlHarnessOpts,
+  MlHarnessReport,
+} from "./mlOnlyHarness.ts";
