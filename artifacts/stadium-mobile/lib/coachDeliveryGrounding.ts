@@ -12,6 +12,7 @@ import {
   pickHasPlayerGameGroundingMismatch,
   type CoachReliabilityGroundingPick,
 } from "./coachReliabilityGrounding.ts";
+import { withholdUnverifiableSeatedGrades } from "./coachSimProvenance.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
 export type DeliveryGroundingResult = {
@@ -91,7 +92,9 @@ export function applyDeliveryGroundingGate(opts: {
     }
   }
 
-  const finalPicks = target > 0 ? out.slice(0, target) : out;
+  const sliced = target > 0 ? out.slice(0, target) : out;
+  // Recompute edge/EV after substitutions; withhold unverifiable grades.
+  const finalPicks = withholdUnverifiableSeatedGrades(sliced);
   return {
     picks: finalPicks,
     removedCount,

@@ -578,9 +578,9 @@ test("topUpTicketFromQualifiedScored respects max 2 legs per game on 10-leg asks
   assert.ok(byGame.size >= 5, `expected ≥5 games, got ${byGame.size}`);
 });
 
-test("topUp relaxes per-game game-line cap on thin 2-game slate after props seats", () => {
-  // Phone: Chargers@Bills + Panthers@Browns only — 4 game lines stuck under max-2,
-  // with more period/alt mains already cleared. Props fill first; then relax.
+test("topUp preserves default per-game game-line cap on thin 2-game slate (honest shortfall)", () => {
+  // Phone: Chargers@Bills + Panthers@Browns only — 4 game lines at max-2.
+  // Props fill first; period/alt rungs must NOT raise the same-game cap.
   const g1 = "Los Angeles Chargers @ Buffalo Bills";
   const g2 = "Carolina Panthers @ Cleveland Browns";
   const short = [
@@ -642,19 +642,21 @@ test("topUp relaxes per-game game-line cap on thin 2-game slate after props seat
     ...propPool,
     ...periodAlts,
   ];
-  // Props first (mirrors buildScanResult order), then top-up with relax.
   const withProps = fillReservedPropSlots(short, scored, 10);
-  assert.ok(withProps.filter((p) => p.isProp).length >= 2, "props get seats before relax");
+  assert.ok(withProps.filter((p) => p.isProp).length >= 2, "props get seats before game-line fill");
   const topped = topUpTicketFromQualifiedScored(withProps, scored, 10);
-  assert.ok(topped.length >= 8, `expected thin-slate fill ≥8, got ${topped.length}`);
-  assert.ok(topped.filter((p) => p.isProp).length >= 2, "props retained after game-line relax");
-  assert.ok(
-    topped.some((p) => /1H|Q1|Q2|Alt|Moneyline/i.test(p.market)),
-    "period/alt/ML rungs fill remaining seats",
-  );
+  assert.ok(topped.filter((p) => p.isProp).length >= 2, "props retained");
+  const byGame = new Map<string, number>();
+  for (const p of topped.filter((x) => !x.isProp)) {
+    byGame.set(p.game!, (byGame.get(p.game!) ?? 0) + 1);
+  }
+  assert.ok((byGame.get(g1) ?? 0) <= 2, `g1 stacked ${byGame.get(g1)} game-lines`);
+  assert.ok((byGame.get(g2) ?? 0) <= 2, `g2 stacked ${byGame.get(g2)} game-lines`);
+  // Thin 2-game slate cannot hit 10 under default max-2 — honest shortfall.
+  assert.ok(topped.length < 10, `expected honest shortfall <10, got ${topped.length}`);
 });
 
-test("topUp relaxes game-line cap when no props qualify on 2-game board", () => {
+test("topUp does not raise game-line cap when no props qualify on 2-game board", () => {
   const g1 = "Los Angeles Chargers @ Buffalo Bills";
   const g2 = "Carolina Panthers @ Cleveland Browns";
   const short = [
@@ -677,7 +679,8 @@ test("topUp relaxes game-line cap when no props qualify on 2-game board", () => 
     leg({ game: g2, market: "1H Spread", pick: "Panthers +1.5", odds: -110 }, 79, mainScore),
   ];
   const topped = topUpTicketFromQualifiedScored(short, scored, 10);
-  assert.ok(topped.length >= 8, `expected ≥8 from period/alt relax, got ${topped.length}`);
+  // Default max 2 game-lines/game × 2 games = 4; no progressive raise.
+  assert.equal(topped.length, 4, `expected honest shortfall at 4, got ${topped.length}`);
   assert.equal(topped.filter((p) => p.isProp).length, 0);
 });
 
