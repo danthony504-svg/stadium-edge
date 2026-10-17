@@ -1,0 +1,295 @@
+{
+  "title": "NCAAF restoration release package",
+  "generatedAt": "2026-10-17T18:02:28.987Z",
+  "branch": "cursor/ncaaf-restoration-e2e-3645",
+  "shas": {
+    "restorationTip": "c64999c11c365b2e0f675153b14b47f17fbffe4a",
+    "finalEvalArchiveBase": "b000b2bbec08b015bca220d42dd44319be16fa3c",
+    "frozenFinalEvalScoreCommit": "b9772e541cf9a785fe45a4fe0298aa088d49e7ee",
+    "e4CompletionPathCommit": "b000b2bbec08b015bca220d42dd44319be16fa3c"
+  },
+  "productGates": {
+    "legacyMaster": false,
+    "perMarket": {
+      "moneyline": false,
+      "spreads": false,
+      "totals": false,
+      "alts": false
+    }
+  },
+  "markets": {
+    "moneyline": {
+      "status": "PASS_METRICS_PRODUCT_BLOCKED",
+      "productValidated": false,
+      "evidence": "ncaaf-final-eval-frozen-score.json (immutable)",
+      "blockers": [
+        "E4 OPEN_INSUFFICIENT_DATA",
+        "E6 not requested"
+      ]
+    },
+    "spreads": {
+      "status": "FAIL_VS_COIN_SEPARATE_GATE",
+      "productValidated": false,
+      "evidence": "ncaaf-tuning-close-joined-m3s2.json",
+      "blockers": [
+        "ATS discrimination weak (Brier ≥ 0.25 vs coin); model replacement path open — not residual retune on FINAL_EVAL"
+      ]
+    },
+    "totals": {
+      "status": "INSUFFICIENT_DATA",
+      "productValidated": false,
+      "evidence": "phase-e missing closeTotal",
+      "blockers": [
+        "No closing totals archive in vendored fixtures"
+      ]
+    },
+    "alts": {
+      "status": "INSUFFICIENT_DATA",
+      "productValidated": false,
+      "evidence": "phase-e missing altPostedPrices",
+      "blockers": [
+        "No posted ALT prices archive"
+      ]
+    }
+  },
+  "finalEvalImmutable": true,
+  "retunedAgainstFinalEval": false,
+  "thresholdsLowered": false,
+  "injury": {
+    "status": "OPEN_INSUFFICIENT_DATA",
+    "path": "forward_espn_prospective + parallel ScoreTape Explorer $0",
+    "mBaseFrozen": true,
+    "mInjOnFrozenMl": false,
+    "collectorActivated": false
+  },
+  "costs": {
+    "thisTurnUsd": 0,
+    "paidOddsHttp": 0,
+    "pendingAuthorization": [
+      {
+        "market": "moneyline",
+        "dependency": "E4 prospective joins (forward ESPN) — $0",
+        "cost": "$0",
+        "authorized": false
+      },
+      {
+        "market": "spreads",
+        "dependency": "Model discrimination fix (cache-only research) before more Odds",
+        "cost": "$0 research; Odds only if new close juice needed for S4",
+        "authorized": false
+      },
+      {
+        "market": "totals",
+        "dependency": "Odds historical closing totals",
+        "cost": "paid Odds credits — not authorized this turn",
+        "authorized": false
+      },
+      {
+        "market": "alts",
+        "dependency": "Odds historical alternate_spreads prices",
+        "cost": "paid Odds credits — not authorized this turn",
+        "authorized": false
+      }
+    ]
+  },
+  "deployment": {
+    "productionDeploy": false,
+    "ota": false,
+    "unlock": false,
+    "voice": "paused",
+    "previewPublication": "limited to existing cap/provenance candidate only — not this branch"
+  },
+  "rollback": {
+    "steps": [
+      "Do not merge unlock commits; product gates remain false on this tip",
+      "If preview tip drifts: republish authorized cap/provenance SHA only",
+      "Revert this branch tip to archive base b000b2bb if needed: git reset --hard b000b2bb",
+      "FINAL_EVAL fixtures are immutable — never restore by editing frozen score JSON"
+    ]
+  },
+  "lockedCriteria": {
+    "ml": {
+      "M1_minN": 200,
+      "M2_brierLt": 0.25,
+      "M3_maxDeltaVsMarket": 0.02,
+      "M4_maxAbsBias": 0.08
+    },
+    "spreads": {
+      "S1_minN": 200,
+      "S2_brierLt": 0.25,
+      "S3_settlementClearedRequired": true,
+      "S4_requireMarketAtsWhenJuicePresent": true
+    },
+    "totals": {
+      "T1_requireCloseTotalArchive": true,
+      "T2_minN": 200,
+      "T3_brierLt": 0.25
+    },
+    "alts": {
+      "A1_requirePostedAltPrices": true,
+      "A2_minN": 100
+    },
+    "mlPolicy": {
+      "spreadsMarket": "BLOCKED_SEPARATE_GATE",
+      "totalsMarket": "BLOCKED_SEPARATE_GATE",
+      "altsMarket": "BLOCKED_SEPARATE_GATE",
+      "s2DoesNotAutoFailMl": true,
+      "noCrossMarketUnlock": true,
+      "tuningM3IsNotFinalPass": true,
+      "closesForbiddenInFeatures": true,
+      "finalEvalScoringRequiresExplicitFlag": true,
+      "injuryAdjustForbiddenOnFrozenMl": true,
+      "voice": "paused",
+      "ncaafGate": false
+    },
+    "marketPolicy": {
+      "noCrossMarketUnlock": true,
+      "s2DoesNotAutoFailMl": true,
+      "missingDataIsInsufficientNotFail": true,
+      "finalEvalImmutable": true,
+      "voice": "paused"
+    }
+  },
+  "diagnosis": {
+    "generatedAt": "2026-10-17T18:02:28.984Z",
+    "paidHttp": 0,
+    "finalEvalRetuned": false,
+    "productGates": {
+      "moneyline": false,
+      "spreads": false,
+      "totals": false,
+      "alts": false
+    },
+    "legacyMasterGate": false,
+    "policy": {
+      "noCrossMarketUnlock": true,
+      "s2DoesNotAutoFailMl": true,
+      "missingDataIsInsufficientNotFail": true,
+      "finalEvalImmutable": true,
+      "voice": "paused"
+    },
+    "moneyline": {
+      "frozenStamp": "ncaaf-score-margin-v1-research",
+      "metricsClear": true,
+      "productValidated": false,
+      "readiness": "METRICS_CLEAR_PRODUCT_BLOCKED",
+      "source": "ncaaf-final-eval-frozen-score.json (immutable)"
+    },
+    "spreads": {
+      "productValidated": false,
+      "readiness": "NOT_READY_FAIL_VS_COIN",
+      "criteria": [
+        {
+          "id": "S1",
+          "pass": true,
+          "detail": "nAts=200",
+          "evidenceClass": "passed"
+        },
+        {
+          "id": "S2",
+          "pass": false,
+          "detail": "atsBrier=0.264",
+          "evidenceClass": "failed"
+        },
+        {
+          "id": "S3",
+          "pass": true,
+          "detail": "settlementCleared=true",
+          "evidenceClass": "passed"
+        },
+        {
+          "id": "S4",
+          "pass": null,
+          "detail": "MISSING_DATA — no close ATS juice; coin-only path",
+          "evidenceClass": "insufficient"
+        }
+      ],
+      "measured": {
+        "nAts": 200,
+        "atsBrier": 0.264,
+        "settlementCleared": true,
+        "marketAtsJuicePresent": false,
+        "source": "ncaaf-tuning-close-joined-m3s2.json"
+      },
+      "gap": "ATS discrimination weak (Brier ≥ 0.25 vs coin); model replacement path open — not residual retune on FINAL_EVAL",
+      "nextFix": "Separate ATS research candidate with free inputs (neutral/conference + rest) on TUNING nested folds only; fresh FINAL_EVAL once locked — never lower S2"
+    },
+    "totals": {
+      "productValidated": false,
+      "readiness": "NOT_READY_NO_CLOSING_TOTALS",
+      "criteria": [
+        {
+          "id": "T1",
+          "pass": null,
+          "detail": "INSUFFICIENT_DATA — no closing totals archive",
+          "evidenceClass": "insufficient"
+        },
+        {
+          "id": "T2",
+          "pass": null,
+          "detail": "unscored — waiting on T1",
+          "evidenceClass": "insufficient"
+        },
+        {
+          "id": "T3",
+          "pass": null,
+          "detail": "unscored — waiting on T1",
+          "evidenceClass": "insufficient"
+        }
+      ],
+      "gap": "No closing totals archive in vendored fixtures",
+      "nextFix": "Authorized Odds historical pull with markets including totals — consolidate purchase request; do not invent closes"
+    },
+    "alts": {
+      "productValidated": false,
+      "readiness": "NOT_READY_NO_POSTED_ALT_PRICES",
+      "criteria": [
+        {
+          "id": "A1",
+          "pass": null,
+          "detail": "INSUFFICIENT_DATA — no posted ALT prices",
+          "evidenceClass": "insufficient"
+        },
+        {
+          "id": "A2",
+          "pass": null,
+          "detail": "unscored — waiting on A1",
+          "evidenceClass": "insufficient"
+        }
+      ],
+      "gap": "No posted ALT prices archive",
+      "nextFix": "Authorized Odds historical pull with alternate_spreads (+ alternate_totals if needed) — consolidate purchase request"
+    },
+    "independence": {
+      "p3": true,
+      "note": "ML metrics clear does not unlock spreads/totals/ALTs; S2 fail does not invalidate ML",
+      "crossUnlockAttempts": 0
+    },
+    "dataDependencies": [
+      {
+        "market": "moneyline",
+        "dependency": "E4 prospective joins (forward ESPN) — $0",
+        "cost": "$0",
+        "authorized": false
+      },
+      {
+        "market": "spreads",
+        "dependency": "Model discrimination fix (cache-only research) before more Odds",
+        "cost": "$0 research; Odds only if new close juice needed for S4",
+        "authorized": false
+      },
+      {
+        "market": "totals",
+        "dependency": "Odds historical closing totals",
+        "cost": "paid Odds credits — not authorized this turn",
+        "authorized": false
+      },
+      {
+        "market": "alts",
+        "dependency": "Odds historical alternate_spreads prices",
+        "cost": "paid Odds credits — not authorized this turn",
+        "authorized": false
+      }
+    ]
+  }
+}
