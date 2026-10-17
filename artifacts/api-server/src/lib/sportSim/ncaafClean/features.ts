@@ -5,6 +5,11 @@
 
 import { identitiesFromFixtureRow } from "./identity.ts";
 import type { SubdivisionFixture } from "../ncaafSubdivision.ts";
+import {
+  venueInfoFromSidecarRow,
+  venueSidecarIndex,
+  type VenueSidecarRow,
+} from "./venueSidecar.ts";
 import type {
   AvailabilityInput,
   CleanFixtureGameRow,
@@ -16,8 +21,13 @@ import type {
 } from "./types.ts";
 
 /**
- * Attempt venue recovery from optional fixture fields.
+ * Attempt venue recovery from optional fixture fields / sidecar-applied fields.
  * Unresolved → kind stays `unknown` (never rewritten to neutral).
+ *
+ * Rules (frozen):
+ * - Neutral ONLY when neutralSite === true (explicit).
+ * - Home ONLY when neutralSite === false (explicit).
+ * - Do not infer neutral from missing fields, bowl flags alone, or team order.
  */
 export function recoverVenue(row: CleanFixtureGameRow): VenueInfo {
   const explicit = String(row.venueKind ?? "")
@@ -27,17 +37,13 @@ export function recoverVenue(row: CleanFixtureGameRow): VenueInfo {
     if (explicit === "neutral") {
       return {
         kind: "neutral",
-        neutralReason: row.bowl
-          ? "bowl"
-          : row.conferenceChampionship
-            ? "conference_championship"
-            : "unspecified",
+        neutralReason: "unspecified",
         venueId: row.venueId ?? null,
         source: "explicit_field",
       };
     }
     return {
-      kind: explicit,
+      kind: explicit as "home" | "unknown",
       venueId: row.venueId ?? null,
       source: "explicit_field",
     };
@@ -46,19 +52,14 @@ export function recoverVenue(row: CleanFixtureGameRow): VenueInfo {
   if (row.neutralSite === true || row.isNeutral === true) {
     return {
       kind: "neutral",
-      neutralReason: row.bowl
-        ? "bowl"
-        : row.conferenceChampionship
-          ? "conference_championship"
-          : "neutral_site",
+      neutralReason: "neutral_site",
       venueId: row.venueId ?? null,
       source: "recovered",
     };
   }
-  if (row.bowl === true || row.conferenceChampionship === true) {
+  if (row.neutralSite === false || row.isNeutral === false) {
     return {
-      kind: "neutral",
-      neutralReason: row.bowl ? "bowl" : "conference_championship",
+      kind: "home",
       venueId: row.venueId ?? null,
       source: "recovered",
     };
@@ -175,9 +176,22 @@ export function buildPregameFromFixtureRow(
     fixture?: SubdivisionFixture;
     homePriorKickoffIso?: string | null;
     awayPriorKickoffIso?: string | null;
+    /** Prefer sidecar row when present (joined by eventId+season). */
+    venueSidecarRow?: VenueSidecarRow | null;
+    /** If true, look up default TUNING venue sidecar by eventId+season. */
+    useVenueSidecar?: boolean;
   },
 ): CleanGamePregame {
   const ids = identitiesFromFixtureRow(row, opts?.fixture);
+  let venue: VenueInfo;
+  if (opts?.venueSidecarRow) {
+    venue = venueInfoFromSidecarRow(opts.venueSidecarRow);
+  } else if (opts?.useVenueSidecar) {
+    const hit = venueSidecarIndex().get(`${row.eventId}:${row.season}`);
+    venue = venueInfoFromSidecarRow(hit);
+  } else {
+    venue = recoverVenue(row);
+  }
   return {
     eventId: row.eventId,
     season: row.season,
@@ -185,7 +199,7 @@ export function buildPregameFromFixtureRow(
     kickoffIso: row.kickoffIso,
     home: ids.home,
     away: ids.away,
-    venue: recoverVenue(row),
+    venue,
     rest: buildRestInfo({
       kickoffIso: row.kickoffIso,
       homePriorKickoffIso: opts?.homePriorKickoffIso,

@@ -27,6 +27,14 @@ export {
 } from "./features.ts";
 
 export {
+  loadVenueSidecar,
+  resetVenueSidecarCache,
+  venueInfoFromSidecarRow,
+  venueSidecarIndex,
+} from "./venueSidecar.ts";
+export type { VenueSidecarDoc, VenueSidecarRow } from "./venueSidecar.ts";
+
+export {
   CLEAN_BASE_MARGIN_SD,
   CLEAN_BASE_TOTAL_SD,
   CLEAN_HFA_POINTS,

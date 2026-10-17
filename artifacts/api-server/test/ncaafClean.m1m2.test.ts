@@ -15,6 +15,7 @@ import {
   NCAAF_CLEAN_ENGINE_STAMP,
   buildPregameFromFixtureRow,
   cleanUncertainty,
+  loadVenueSidecar,
   ncaafCleanEngineResearchEnabled,
   pHomeCoverFromMargin,
   pHomeMlFromMargin,
@@ -135,6 +136,51 @@ test("venue recovery: unresolved stays unknown — never silent neutral", () => 
     venueKind: "home",
   });
   assert.equal(home.kind, "home");
+
+  const homeFromFlag = recoverVenue({
+    eventId: "4",
+    season: 2025,
+    kickoffIso: "2025-09-01T00:00Z",
+    homeTeamId: "1",
+    awayTeamId: "2",
+    neutralSite: false,
+    venueId: "3833",
+  });
+  assert.equal(homeFromFlag.kind, "home");
+  assert.equal(homeFromFlag.source, "recovered");
+
+  // Bowl alone must NOT infer neutral without explicit neutralSite
+  const bowlOnly = recoverVenue({
+    eventId: "5",
+    season: 2025,
+    kickoffIso: "2025-09-01T00:00Z",
+    homeTeamId: "1",
+    awayTeamId: "2",
+    bowl: true,
+  });
+  assert.equal(bowlOnly.kind, "unknown");
+});
+
+test("venue sidecar joins TUNING games with explicit ESPN flags", () => {
+  const sc = loadVenueSidecar();
+  assert.equal(sc.counts.unresolved, 0);
+  assert.ok(sc.counts.recovered >= 469);
+  const ireland = sc.games.find((g) => g.eventId === "401756846");
+  assert.equal(ireland?.kind, "neutral");
+  assert.equal(ireland?.international, true);
+  const pre = buildPregameFromFixtureRow(
+    {
+      eventId: "401756846",
+      season: 2025,
+      week: 1,
+      kickoffIso: "2025-08-23T16:00Z",
+      homeTeamId: "2306",
+      awayTeamId: "66",
+    },
+    { useVenueSidecar: true },
+  );
+  assert.equal(pre.venue.kind, "neutral");
+  assert.equal(pre.venue.source, "recovered");
 });
 
 test("causal: real FBS ids — update after predict changes next μ", () => {
