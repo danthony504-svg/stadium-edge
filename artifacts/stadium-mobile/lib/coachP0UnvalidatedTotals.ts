@@ -390,3 +390,38 @@ export function wouldStackSameTeamTeamTotals(
     return !!nick && nick === candNick;
   });
 }
+
+function overUnderSide(pick: string): "over" | "under" | null {
+  const p = String(pick ?? "").toLowerCase();
+  if (/\bunder\b/.test(p) || /\bu\s*\d/.test(p)) return "under";
+  if (/\bover\b/.test(p) || /\bo\s*\d/.test(p)) return "over";
+  return null;
+}
+
+/**
+ * Hard block: same-game game total + team total on the same Over/Under side.
+ * Phone: Under 6.5 + Guardians Under 4.5 — highly correlated, not independent
+ * parlay legs. Opposite sides remain allowed (soft correlation still applies).
+ */
+export function wouldStackCorrelatedGameAndTeamTotals(
+  candidate: StackPick,
+  ticket: readonly StackPick[],
+): boolean {
+  if (candidate.isProp) return false;
+  const candGame = normGame(candidate.game);
+  const candSide = overUnderSide(candidate.pick);
+  if (!candGame || !candSide) return false;
+  const candIsGame = isGameTotalMarket(candidate.market);
+  const candIsTeam = isTeamTotalMarket(candidate.market);
+  if (!candIsGame && !candIsTeam) return false;
+
+  return ticket.some((leg) => {
+    if (leg.isProp) return false;
+    if (normGame(leg.game) !== candGame) return false;
+    const legSide = overUnderSide(leg.pick);
+    if (!legSide || legSide !== candSide) return false;
+    const legIsGame = isGameTotalMarket(leg.market);
+    const legIsTeam = isTeamTotalMarket(leg.market);
+    return (candIsGame && legIsTeam) || (candIsTeam && legIsGame);
+  });
+}

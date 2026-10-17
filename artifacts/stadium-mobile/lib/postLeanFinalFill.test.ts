@@ -99,13 +99,12 @@ function gl(
   };
 }
 
-test("production progressive GL policy: target 7 raises to [3,4] only", () => {
+test("production same-game GL policy: default cap holds; progressive raise disabled", () => {
   assert.equal(maxLegsPerGame(7), 2);
   assert.equal(maxPropsPerGame(7), 2);
-  assert.deepEqual(progressiveLegsPerGameRelaxation(7), [3, 4]);
-  assert.deepEqual(progressiveLegsPerGameRelaxation(9), [3, 4, 5]);
-  assert.ok(progressiveLegsPerGameRelaxation(15).includes(4));
-  assert.equal(Math.max(...progressiveLegsPerGameRelaxation(7)), 4);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(7), []);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(9), []);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(15), []);
 });
 
 test("quarter/half period markets are blocked from post-lean fill", () => {
@@ -175,16 +174,15 @@ test("four picks + FG alt leftovers → fills without period markets", () => {
     qualifiedCandidates: [...seated, q2, h2, fgAltA, fgAltB],
     target: 7,
   });
-  assert.ok(out.length >= 5, `expected fill growth, got ${out.length}`);
+  // Single-game slate already holds 2 game-lines (default max for target 7).
+  // Progressive raise is disabled — honest shortfall, no third same-game GL.
+  assert.equal(out.length, 4, `expected honest shortfall at 4, got ${out.length}`);
   assert.equal(out.some((p) => /Q2|2H/i.test(p.market)), false, "no new period fills");
-  // Pre-lean period seats may remain; new adds must be FG.
-  const added = out.filter((p) => !seated.some((s) => s.pick === p.pick));
-  for (const p of added) {
-    assert.equal(isPostLeanFillBlockedPeriodMarket(p), false);
-    assert.ok(p.finalAiScore?.simHit != null);
-    assert.ok(p.odds != null && p.odds !== 0);
-  }
-  assert.ok(out.some((p) => p.pick === "Buccaneers +18.5" || p.pick === "Cowboys +14.5"));
+  assert.equal(
+    out.some((p) => p.pick === "Buccaneers +18.5" || p.pick === "Cowboys +14.5"),
+    false,
+    "FG alts must not breach default same-game cap",
+  );
 });
 
 test("no eligible remaining candidates → unchanged short ticket", () => {
@@ -390,7 +388,7 @@ test("existing game-line and player-prop caps still bind", () => {
     target: 7,
   });
   assert.equal(out.filter((p) => p.isProp).length, 2, "maxPropsPerGame(7)=2");
-  assert.ok(out.filter((p) => !p.isProp).length <= 4, "progressive ceiling 4");
+  assert.ok(out.filter((p) => !p.isProp).length <= 2, "default same-game maxLegsPerGame(7)=2");
   assert.ok(out.length <= 6);
   assert.equal(out.some((p) => /Pickens|Prescott/i.test(p.pick)), false);
   assert.equal(out.some((p) => isPostLeanFillBlockedPeriodMarket(p) && !seated.includes(p)), false);
@@ -431,7 +429,7 @@ test("rejected fingerprints are not reintroduced; lean is not re-run", () => {
   assert.ok(out.length >= baseline.length);
 });
 
-test("requests for 7, 9 and 15 legs honor progressive ceilings without raising them", () => {
+test("requests for 7, 9 and 15 legs honor default same-game cap (no progressive raise)", () => {
   const props = [
     prop("A", "Rec Yds", "A Over 10.5 Rec Yds", -110, { edgePct: 20, simHit: 0.7 }),
     prop("B", "Rec Yds", "B Under 20.5 Rec Yds", -110, { edgePct: 15, simHit: 0.65 }),
@@ -445,8 +443,8 @@ test("requests for 7, 9 and 15 legs honor progressive ceilings without raising t
     gl("Alt Spread", "Buccaneers +14.5", -250, { simHit: 0.85, composite: 8.0 }),
   ];
   for (const target of [7, 9, 15]) {
-    const progressive = progressiveLegsPerGameRelaxation(target);
-    const ceiling = progressive.length ? Math.max(...progressive) : maxLegsPerGame(target);
+    assert.deepEqual(progressiveLegsPerGameRelaxation(target), []);
+    const ceiling = maxLegsPerGame(target);
     const out = topUpAfterMlLean({
       picks: [...props, gls[0]!, gls[1]!],
       qualifiedCandidates: [...props, ...gls],
@@ -455,7 +453,7 @@ test("requests for 7, 9 and 15 legs honor progressive ceilings without raising t
     const glCount = out.filter((p) => !p.isProp).length;
     assert.ok(
       glCount <= ceiling,
-      `target ${target}: glCount ${glCount} exceeds progressive ceiling ${ceiling}`,
+      `target ${target}: glCount ${glCount} exceeds default ceiling ${ceiling}`,
     );
     assert.equal(out.filter((p) => p.isProp).length, Math.min(2, maxPropsPerGame(target)));
     assert.ok(out.length < target || target <= 6);
