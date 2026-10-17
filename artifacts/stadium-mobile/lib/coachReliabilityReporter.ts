@@ -184,7 +184,16 @@ export function buildCoachReliabilityBody(
       : null;
   const corr = correlationId ? { correlationId } : {};
 
-  if (input.scanMissing || input.timedOut) {
+  // Full qualifying ticket already delivered: budget-race / missing-scan flags are
+  // alert labels only — do not page ABSOLUTE_BUDGET / "delivery budget / freeze".
+  // Fall through so grounding / underfill / success (null) classify from picks.
+  const fullTicketDelivered =
+    requested != null &&
+    returned != null &&
+    returned > 0 &&
+    returned >= requested;
+
+  if ((input.scanMissing || input.timedOut) && !fullTicketDelivered) {
     return {
       scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
       scanFailureDetail: input.scanMissing

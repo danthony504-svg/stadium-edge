@@ -1115,15 +1115,20 @@ export async function buildCoachParlay(opts: {
     propsOnly,
     picks,
   });
+  // Budget race may lose while final selection already assembled a full ticket
+  // from `latest` / grace. That is delivery success — not a freeze.
+  const deliveryTimedOut = timed.timedOut && finalLegCount < target;
+  const deliveryScanMissing = !scan && finalLegCount < target;
+
   const body = buildFinalCoachParlayNote({
     target,
     picks,
     propPoolSize,
     propsPending,
     shortfallLead: teamMiss || teamShortfall || shortfall,
-    timedOut: timed.timedOut,
+    timedOut: deliveryTimedOut,
     budgetMs,
-    scanMissing: !scan,
+    scanMissing: deliveryScanMissing,
     // Drop staging scan notes on shortfall — they can claim a larger "qualified"
     // count than the post-lean / post-fill ticket actually delivered.
     scanNote: finalLegCount < target ? undefined : scan?.note,
@@ -1156,15 +1161,15 @@ export async function buildCoachParlay(opts: {
     scanFailureCode: scan?.failureReason?.code ?? null,
     scanFailureDetail: scan?.failureReason?.detail ?? null,
     picks,
-    timedOut: timed.timedOut,
-    scanMissing: !scan,
+    timedOut: deliveryTimedOut,
+    scanMissing: deliveryScanMissing,
   });
 
   return {
     picks,
     note,
     scan,
-    timedOut: timed.timedOut,
+    timedOut: deliveryTimedOut,
     propPoolSize,
     teamGameScopeDiagnostics,
   };
