@@ -32,6 +32,7 @@ import {
   askAllowsNcaafPlayerProps,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
+  propsOnlySportLabelFromAsk,
   finalizeFootballPropMixPicks,
   finalizeGeneralPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
@@ -624,9 +625,7 @@ export async function buildCoachParlay(opts: {
                 })
               : `Staged ${picks.length} matching real lines for the requested market.`;
         } else {
-          const propsSportLabel = askAllowsNcaafPlayerProps(opts.askText)
-            ? "college football"
-            : "football";
+          const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText);
           const recoveryGraded = {
             preferred: built.propLegsScored,
             skill: recovered.propLegsScored,
@@ -702,9 +701,7 @@ export async function buildCoachParlay(opts: {
       propsOnly: true,
       picks,
     });
-    const propsSportLabel = askAllowsNcaafPlayerProps(opts.askText)
-      ? "college football"
-      : "football";
+    const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText);
     // Empty or short ticket: one terminal diagnosis from failDiag
     // (partial/recovery/final agree). Locked-market shortfall copy stays
     // authoritative for explicit market locks.
