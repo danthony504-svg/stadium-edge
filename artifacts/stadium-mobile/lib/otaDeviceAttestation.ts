@@ -3,22 +3,27 @@
  * Read-only classification — does not alter OTA auto-apply or Coach logic.
  */
 
-/** Healthy production OTA for runtime 1.1.0 (greenfield Coach). */
+/** Healthy OTA stream for App Store / TestFlight Build 78+ (greenfield Coach). */
 export const EXPECTED_HEALTHY_RUNTIME = "1.1.0";
-/**
- * Production channel tip after #724 tip-boot fix (supersedes blacklisted 01a13540).
- * Case A no longer requires an exact id match — any non-embedded 1.1.0 tip is healthy.
- */
-export const EXPECTED_HEALTHY_UPDATE_ID = "01a13582-b9f1-72ab-b1c4-d8ed87c1200e";
 export const EXPECTED_HEALTHY_EMBEDDED = false;
 
 export type DeviceAttestationCase = "A" | "B" | "C" | "UNKNOWN";
+
+/** Tip match: true / false when channel tip id is known; null when not probed. */
+export type ChannelTipMatch = boolean | null;
 
 export type DeviceAttestationInput = {
   runtimeVersion: string;
   updateId: string;
   isEmbeddedLaunch: boolean;
   appVersion?: string;
+  /** Expo Updates channel (preview / production / …). */
+  channel?: string | null;
+  /**
+   * Current channel tip update id when known (latestContext / check result).
+   * Not a hardcoded historical constant — omit when unknown.
+   */
+  channelTipUpdateId?: string | null;
 };
 
 export type DeviceAttestationResult = {
@@ -26,7 +31,11 @@ export type DeviceAttestationResult = {
   label: string;
   summary: string;
   recoveryPath: string;
+  /** @deprecated Use matchesChannelTip — retained for older call sites. */
   matchesExpectedUpdateId: boolean;
+  /** true/false when tip known; null when tip unknown. */
+  matchesChannelTip: ChannelTipMatch;
+  channelStreamLabel: string;
   isLegacyRuntime: boolean;
 };
 
@@ -37,8 +46,8 @@ function normalizeId(id: string): string {
     .replace(/^embedded$/i, "");
 }
 
-function isBlankUpdateId(id: string): boolean {
-  const n = normalizeId(id);
+function isBlankUpdateId(id: string | null | undefined): boolean {
+  const n = normalizeId(String(id ?? ""));
   return !n || n === "—" || n === "-" || n === "null" || n === "undefined";
 }
 
@@ -47,9 +56,74 @@ function isLegacyRuntime(runtime: string): boolean {
   return r === "1.0.3" || r === "1.0.0" || r.startsWith("1.0.");
 }
 
+export function normalizeOtaChannelName(
+  channel: string | null | undefined,
+): string {
+  return String(channel ?? "")
+    .toLowerCase()
+    .trim();
+}
+
+/** Screenshot-safe channel stream label (PREVIEW / PRODUCTION / …). */
+export function formatOtaChannelStreamLabel(
+  channel: string | null | undefined,
+): string {
+  const ch = normalizeOtaChannelName(channel);
+  if (ch === "preview") return "PREVIEW";
+  if (ch === "production") return "PRODUCTION";
+  if (ch === "development") return "DEVELOPMENT";
+  if (!ch) return "UNKNOWN";
+  return ch.toUpperCase();
+}
+
+/** Compare running updateId to a known channel tip id. */
+export function resolveChannelTipMatch(opts: {
+  runningUpdateId: string;
+  channelTipUpdateId?: string | null;
+}): ChannelTipMatch {
+  if (isBlankUpdateId(opts.channelTipUpdateId)) return null;
+  if (isBlankUpdateId(opts.runningUpdateId)) return false;
+  return (
+    normalizeId(opts.runningUpdateId) ===
+    normalizeId(String(opts.channelTipUpdateId))
+  );
+}
+
 /**
- * Case A — runtime 1.1.0 + correct updateId → stale Add-to-slip is another renderer.
- * Case B — runtime 1.1.0 + wrong/missing updateId (or embedded) → OTA apply failing.
+ * Best-known channel tip update id from Expo context / live check.
+ * Never falls back to a hardcoded historical id.
+ */
+export function resolveKnownChannelTipUpdateId(opts: {
+  availableUpdateIdFromContext?: string | null;
+  availableUpdateIdFromCheck?: string | null;
+  runningUpdateId?: string | null;
+  /** When false and non-embedded, running update is the tip. */
+  updateAvailable?: boolean | null;
+  isEmbeddedLaunch?: boolean;
+}): string | null {
+  const fromCheck = String(opts.availableUpdateIdFromCheck ?? "").trim();
+  if (!isBlankUpdateId(fromCheck)) return fromCheck;
+  const fromCtx = String(opts.availableUpdateIdFromContext ?? "").trim();
+  if (!isBlankUpdateId(fromCtx)) return fromCtx;
+  if (
+    opts.updateAvailable === false &&
+    !opts.isEmbeddedLaunch &&
+    !isBlankUpdateId(opts.runningUpdateId)
+  ) {
+    return String(opts.runningUpdateId).trim();
+  }
+  return null;
+}
+
+export function formatChannelTipMatchLabel(match: ChannelTipMatch): string {
+  if (match === true) return "yes — running update is current channel tip";
+  if (match === false) return "no — running update differs from known channel tip";
+  return "unknown — channel tip not probed yet";
+}
+
+/**
+ * Case A — runtime 1.1.0 + non-embedded OTA + (when tip known) equals channel tip.
+ * Case B — runtime 1.1.0 but embedded, blank id, or behind known tip.
  * Case C — runtime 1.0.3 / 1.0.0 → binary cannot receive 1.1.0 OTA.
  */
 export function classifyDeviceAttestation(
@@ -57,45 +131,71 @@ export function classifyDeviceAttestation(
 ): DeviceAttestationResult {
   const runtime = String(input.runtimeVersion ?? "").trim();
   const updateId = String(input.updateId ?? "").trim();
-  const matchesExpectedUpdateId =
-    normalizeId(updateId) === normalizeId(EXPECTED_HEALTHY_UPDATE_ID);
+  const channelStreamLabel = formatOtaChannelStreamLabel(input.channel);
+  const matchesChannelTip = resolveChannelTipMatch({
+    runningUpdateId: updateId,
+    channelTipUpdateId: input.channelTipUpdateId,
+  });
   const legacy = isLegacyRuntime(runtime);
 
   if (legacy) {
     return {
       caseId: "C",
       label: "Case C — legacy runtime (cannot receive 1.1.0 OTA)",
-      summary: `Updates.runtimeVersion=${runtime || "—"}. This native binary is not on the 1.1.0 update stream, so the production 1.1.0 greenfield Coach OTA will never apply.`,
+      summary: `channel=${channelStreamLabel}, Updates.runtimeVersion=${runtime || "—"}. This native binary is not on the 1.1.0 update stream, so the 1.1.0 Coach OTA will never apply.`,
       recoveryPath: caseCRecoveryPath(runtime),
       matchesExpectedUpdateId: false,
+      matchesChannelTip,
+      channelStreamLabel,
       isLegacyRuntime: true,
     };
   }
 
-  // Case A: any non-embedded 1.1.0 tip counts as healthy apply (exact tip id drifts every publish).
-  if (
-    runtime === EXPECTED_HEALTHY_RUNTIME &&
-    !input.isEmbeddedLaunch &&
-    !isBlankUpdateId(updateId)
-  ) {
-    return {
-      caseId: "A",
-      label: "Case A — healthy OTA identity; tip is running",
-      summary: `runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${updateId}, isEmbeddedLaunch=false${matchesExpectedUpdateId ? " (matches channel tip constant)" : " (superseding tip — ok)"}.`,
-      recoveryPath:
-        "OTA apply succeeded. If Coach UI still looks stale, trace the renderer — do not assume a missing OTA.",
-      matchesExpectedUpdateId,
-      isLegacyRuntime: false,
-    };
-  }
-
   if (runtime === EXPECTED_HEALTHY_RUNTIME) {
+    // Tip known and running ≠ tip → not healthy Case A (behind / failed apply).
+    if (
+      matchesChannelTip === false &&
+      !input.isEmbeddedLaunch &&
+      !isBlankUpdateId(updateId)
+    ) {
+      return {
+        caseId: "B",
+        label: "Case B — running update is not the known channel tip",
+        summary: `channel=${channelStreamLabel}, runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${updateId}, channelTip=${String(input.channelTipUpdateId).trim()}, isEmbeddedLaunch=false.`,
+        recoveryPath: caseBRecoveryPath(),
+        matchesExpectedUpdateId: false,
+        matchesChannelTip,
+        channelStreamLabel,
+        isLegacyRuntime: false,
+      };
+    }
+
+    if (!input.isEmbeddedLaunch && !isBlankUpdateId(updateId)) {
+      const tipNote =
+        matchesChannelTip === true
+          ? "matches current channel tip"
+          : "channel tip not probed (non-embedded OTA identity OK)";
+      return {
+        caseId: "A",
+        label: "Case A — healthy OTA identity; tip is running",
+        summary: `channel=${channelStreamLabel}, runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${updateId}, isEmbeddedLaunch=false, ${tipNote}.`,
+        recoveryPath:
+          "OTA apply succeeded. If Coach UI still looks stale, trace the renderer — do not assume a missing OTA.",
+        matchesExpectedUpdateId: matchesChannelTip === true,
+        matchesChannelTip,
+        channelStreamLabel,
+        isLegacyRuntime: false,
+      };
+    }
+
     return {
       caseId: "B",
       label: "Case B — OTA check/apply failing or embedded winning",
-      summary: `Runtime is ${EXPECTED_HEALTHY_RUNTIME} but updateId=${updateId || "—"} (channel tip ${EXPECTED_HEALTHY_UPDATE_ID}); isEmbeddedLaunch=${String(input.isEmbeddedLaunch)}.`,
+      summary: `channel=${channelStreamLabel}, runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${updateId || "—"}, isEmbeddedLaunch=${String(input.isEmbeddedLaunch)}, tipMatch=${formatChannelTipMatchLabel(matchesChannelTip)}.`,
       recoveryPath: caseBRecoveryPath(),
       matchesExpectedUpdateId: false,
+      matchesChannelTip,
+      channelStreamLabel,
       isLegacyRuntime: false,
     };
   }
@@ -103,10 +203,12 @@ export function classifyDeviceAttestation(
   return {
     caseId: "UNKNOWN",
     label: "Unknown runtime — capture attestation before any publish",
-    summary: `Unexpected runtimeVersion=${runtime || "—"}, updateId=${updateId || "—"}, appVersion=${input.appVersion ?? "—"}.`,
+    summary: `channel=${channelStreamLabel}, unexpected runtimeVersion=${runtime || "—"}, updateId=${updateId || "—"}, appVersion=${input.appVersion ?? "—"}.`,
     recoveryPath:
       "Copy the full OTA Diagnostics report. Do not publish from ota-recovery. Do not create a native build yet. Confirm the device binary and channel before any recovery action.",
-    matchesExpectedUpdateId,
+    matchesExpectedUpdateId: false,
+    matchesChannelTip,
+    channelStreamLabel,
     isLegacyRuntime: false,
   };
 }
@@ -149,11 +251,18 @@ export function formatAttestationHeadline(result: DeviceAttestationResult): stri
   return `${result.caseId}: ${result.label}`;
 }
 
-export function expectedHealthyLines(): string[] {
+/** Healthy criteria for copy/report — no hardcoded historical updateId. */
+export function expectedHealthyLines(opts?: {
+  channelTipUpdateId?: string | null;
+  channel?: string | null;
+}): string[] {
+  const stream = formatOtaChannelStreamLabel(opts?.channel);
+  const tip = String(opts?.channelTipUpdateId ?? "").trim();
   return [
-    `expected runtimeVersion: ${EXPECTED_HEALTHY_RUNTIME}`,
-    `expected updateId: ${EXPECTED_HEALTHY_UPDATE_ID}`,
-    `expected isEmbeddedLaunch: ${String(EXPECTED_HEALTHY_EMBEDDED)}`,
+    `healthy criteria: runtimeVersion=${EXPECTED_HEALTHY_RUNTIME}, isEmbeddedLaunch=${String(EXPECTED_HEALTHY_EMBEDDED)}, non-blank updateId, equals current ${stream} channel tip when tip is known`,
+    tip && !isBlankUpdateId(tip)
+      ? `known channel tip updateId: ${tip}`
+      : "known channel tip updateId: (not probed)",
   ];
 }
 
