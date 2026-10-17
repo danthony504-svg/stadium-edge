@@ -1,9 +1,9 @@
 {
   "title": "NCAAF restoration release package",
-  "generatedAt": "2026-10-17T18:02:28.987Z",
+  "generatedAt": "2026-10-17T18:02:29.128Z",
   "branch": "cursor/ncaaf-restoration-e2e-3645",
   "shas": {
-    "restorationTip": "c64999c11c365b2e0f675153b14b47f17fbffe4a",
+    "restorationTip": "8c3d2bc47949667f7b340eca6cd5ecf024123063",
     "finalEvalArchiveBase": "b000b2bbec08b015bca220d42dd44319be16fa3c",
     "frozenFinalEvalScoreCommit": "b9772e541cf9a785fe45a4fe0298aa088d49e7ee",
     "e4CompletionPathCommit": "b000b2bbec08b015bca220d42dd44319be16fa3c"
@@ -151,7 +151,7 @@
     }
   },
   "diagnosis": {
-    "generatedAt": "2026-10-17T18:02:28.984Z",
+    "generatedAt": "2026-10-17T18:02:29.124Z",
     "paidHttp": 0,
     "finalEvalRetuned": false,
     "productGates": {
