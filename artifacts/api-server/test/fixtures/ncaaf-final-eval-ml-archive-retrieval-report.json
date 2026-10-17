@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-10-17T13:43:59.148061+00:00",
+  "paidRetrieval": true,
+  "finalEvalScored": false,
+  "spreads": "BLOCKED",
+  "voice": "PAUSED",
+  "ncaafUnlock": false,
+  "deployOta": false,
+  "e1Frozen": "alpha=1.15",
+  "coachSelectionRulesLocked": true,
+  "membershipGames": 408,
+  "quotaProbe": {
+    "ok": true,
+    "status": 200,
+    "x_requests_remaining": "3776412",
+    "x_requests_used": "1223588",
+    "x_requests_last": "0",
+    "creditsCharged": 0
+  },
+  "caps": {
+    "close": 2100,
+    "early": 2100,
+    "combined": 4200
+  },
+  "close": {
+    "matched": 364,
+    "matchedTwoSided": 364,
+    "missing": 44,
+    "creditsSpent": 1680,
+    "hardCap": 2100,
+    "timestampValidity": {
+      "ok": 364,
+      "reject_post_kick": 0,
+      "cache_hits": 0,
+      "http_fetches": 167,
+      "cap_stopped_remaining_games": 0
+    },
+    "stoppedForCap": false,
+    "incomplete": true
+  },
+  "early": {
+    "matched": 364,
+    "matchedTwoSided": 364,
+    "missing": 44,
+    "creditsSpent": 1670,
+    "hardCap": 2100,
+    "timestampValidity": {
+      "ok": 364,
+      "reject_post_kick": 0,
+      "cache_hits": 0,
+      "http_fetches": 167,
+      "cap_stopped_remaining_games": 0
+    },
+    "stoppedForCap": false,
+    "incomplete": true
+  },
+  "creditsConsumed": 3350,
+  "creditsConsumedClose": 1680,
+  "creditsConsumedEarly": 1670,
+  "stoppedFor": null,
+  "coverage": "INCOMPLETE"
+}
