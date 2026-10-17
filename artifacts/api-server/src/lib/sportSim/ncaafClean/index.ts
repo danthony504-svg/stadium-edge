@@ -194,6 +194,23 @@ export {
 export type { InjuryActivationPackage } from "./injuryCollectorActivation.ts";
 
 export {
+  appendFailure,
+  contentSha256,
+  defaultManifest,
+  injuryMinuteBucket,
+  loadManifest,
+  persistInjurySnapshot,
+  saveManifest,
+} from "./injurySnapshotStore.ts";
+export type {
+  FailureRecord,
+  InjurySnapshotPayload,
+  PersistResult,
+  SnapshotManifest,
+  SnapshotManifestEntry,
+} from "./injurySnapshotStore.ts";
+
+export {
   SCORETAPE_DOCS_REST_SAMPLE,
   SCORETAPE_DOCS_WEBHOOK_SAMPLE,
   SCORETAPE_SETUP,
@@ -201,6 +218,16 @@ export {
   verifyScoreTapeDocsSamples,
 } from "./scoreTapeProvenance.ts";
 export type { ScoreTapeProvenanceReport } from "./scoreTapeProvenance.ts";
+
+export {
+  SCORETAPE_EXPLORER_SETUP,
+  SCORETAPE_SECURE_SETUP_STEPS,
+  buildCfbCoverageBlockedReport,
+  evaluateCfbInjuryRows,
+  scoreTapeKeyConfigured,
+  scoreTapeKeyPresence,
+} from "./scoreTapeExplorerSetup.ts";
+export type { CfbCoverageVerdict } from "./scoreTapeExplorerSetup.ts";
 
 export {
   ODDS_PROVIDER,
@@ -211,3 +238,5 @@ export type {
   ManifestGame,
   SpreadsTotalsAltManifestBundle,
 } from "./spreadsTotalsAltOddsManifest.ts";
+
+export { ODDS_RETRIEVAL_HOLD } from "./oddsEvalSplitHold.ts";

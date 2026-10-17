@@ -1,25 +1,27 @@
 /**
- * $0 forward ESPN injury collector — activation package (not activated).
- * Frozen M_base / predictE1Frozen unchanged. No paid APIs.
+ * $0 forward ESPN injury collector — activation package.
+ * Frozen M_base / product gates unchanged. No paid APIs.
  */
 
 export const INJURY_COLLECTOR_ENV = {
   activeFlag: "NCAAF_INJURY_COLLECTOR_ACTIVE",
   activeValue: "1",
-  /** Optional: override output dir (default fixtures path). */
   outDir: "NCAAF_INJURY_SNAPSHOT_DIR",
 } as const;
 
 export const INJURY_COLLECTOR_PATHS = {
   script: "artifacts/api-server/scripts/ncaafPregameInjurySnapshotCollector.ts",
-  defaultOutDir:
+  /** Durable store (gitignored). Fixtures keep a sample pointer only. */
+  durableOutDir: "artifacts/api-server/var/ncaaf-injury-snapshots/",
+  fixtureSampleDir:
     "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
   manifest: "manifest.json",
+  failures: "failures.jsonl",
+  snapshotsSubdir: "snapshots/",
   runner: "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
   unitFile: "artifacts/api-server/scripts/ncaaf-injury-collector.cron",
 } as const;
 
-/** Locked sample floors (same as E4 prospective criteria). */
 export const INJURY_SAMPLE_FLOORS = {
   N1_minDecidedCloseMlWithJoinAttempt: 60,
   N2_minInjuryKnownTrue: 20,
@@ -31,37 +33,45 @@ export const INJURY_SAMPLE_FLOORS = {
 } as const;
 
 /**
- * Cron schedule (UTC): dense around FBS tip windows.
- * Mon–Thu 2×/day; Fri–Sun 4×/day → 14 freezes/week.
+ * Corrected schedule (UTC):
+ * Mon–Thu 2×/day → 8; Fri–Sun 4×/day → 12; **total 20 freezes/week**.
+ * (Prior package incorrectly labeled this as 14.)
  */
 export const INJURY_COLLECTOR_SCHEDULE = {
   timezone: "UTC",
-  /** Mon–Thu 14:00+22:00; Fri–Sun 02:00+14:00+18:00+22:00 UTC */
   crontab: ["0 14,22 * * 1-4", "0 2,14,18,22 * * 5-7"],
-  freezesPerWeek: 14,
+  freezesPerWeek: 20,
+  monThuPerDay: 2,
+  friSunPerDay: 4,
+  monThuDays: 4,
+  friSunDays: 3,
+  math: "4×2 + 3×4 = 20",
   costUsdPerWeek: 0,
   source: "espn_site_api_college_football_injuries",
 } as const;
 
-/** Expected collection to hit N1–N3 in-season. */
 export const INJURY_COLLECTION_PERIOD = {
   typicalWeeks: [3, 6] as const,
   aggressiveWeeks: [2, 3] as const,
+  freezesPerWeek: 20,
   note:
     "Odds-listed FBS only; pre-schedule 25–35% null holdout before week starts; stop when N1–N3 met and membership frozen",
 } as const;
 
 export type InjuryActivationPackage = {
-  status: "PREPARED_INACTIVE";
-  activated: false;
+  status: "ACTIVE" | "PREPARED_INACTIVE";
+  activated: boolean;
   frozenMlUnchanged: true;
+  productGatesUnchanged: true;
   env: typeof INJURY_COLLECTOR_ENV;
   paths: typeof INJURY_COLLECTOR_PATHS;
   schedule: typeof INJURY_COLLECTOR_SCHEDULE;
   storage: {
     root: string;
-    snapshotGlob: string;
+    snapshotsSubdir: string;
     manifest: string;
+    failures: string;
+    dedupe: string[];
     gitPolicy: string;
   };
   sampleFloors: typeof INJURY_SAMPLE_FLOORS;
@@ -72,25 +82,33 @@ export type InjuryActivationPackage = {
     cronInstall: string[];
     activateCommand: string;
     deactivateCommand: string;
-    smokeInactiveCommand: string;
   };
   holds: string[];
 };
 
-export function buildInjuryCollectorActivationPackage(): InjuryActivationPackage {
+export function buildInjuryCollectorActivationPackage(opts?: {
+  activated?: boolean;
+}): InjuryActivationPackage {
+  const activated = opts?.activated === true;
   return {
-    status: "PREPARED_INACTIVE",
-    activated: false,
+    status: activated ? "ACTIVE" : "PREPARED_INACTIVE",
+    activated,
     frozenMlUnchanged: true,
+    productGatesUnchanged: true,
     env: INJURY_COLLECTOR_ENV,
     paths: INJURY_COLLECTOR_PATHS,
     schedule: INJURY_COLLECTOR_SCHEDULE,
     storage: {
-      root: INJURY_COLLECTOR_PATHS.defaultOutDir,
-      snapshotGlob: "espn-cfb-injuries-*.json",
+      root: INJURY_COLLECTOR_PATHS.durableOutDir,
+      snapshotsSubdir: INJURY_COLLECTOR_PATHS.snapshotsSubdir,
       manifest: INJURY_COLLECTOR_PATHS.manifest,
+      failures: INJURY_COLLECTOR_PATHS.failures,
+      dedupe: [
+        "skip if same UTC minuteBucketIso already stored",
+        "skip if identical contentSha256 already stored",
+      ],
       gitPolicy:
-        "Commit snapshots + manifest on collector host or sync to fixtures; never rewrite past kickoff labels; never backfill TUNING/FINAL_EVAL",
+        "Durable store under var/ is gitignored; never rewrite past labels; never backfill TUNING/FINAL_EVAL; never join into frozen M_base",
     },
     sampleFloors: INJURY_SAMPLE_FLOORS,
     expectedCollectionPeriod: INJURY_COLLECTION_PERIOD,
@@ -101,24 +119,23 @@ export function buildInjuryCollectorActivationPackage(): InjuryActivationPackage
       ],
       envToSet: {
         [INJURY_COLLECTOR_ENV.activeFlag]: INJURY_COLLECTOR_ENV.activeValue,
+        [INJURY_COLLECTOR_ENV.outDir]: INJURY_COLLECTOR_PATHS.durableOutDir,
       },
       cronInstall: [
-        `# install (human, after approval):`,
-        `crontab -l 2>/dev/null | cat - ${INJURY_COLLECTOR_PATHS.unitFile} | crontab -`,
-        `# or: sudo cp ${INJURY_COLLECTOR_PATHS.unitFile} /etc/cron.d/ncaaf-injury-collector`,
+        `crontab -l 2>/dev/null | grep -v ncaafInjuryCollectorCron | { cat; cat ${INJURY_COLLECTOR_PATHS.unitFile}; } | crontab -`,
       ],
       activateCommand:
         `cd artifacts/api-server && NCAAF_INJURY_COLLECTOR_ACTIVE=1 ` +
+        `NCAAF_INJURY_SNAPSHOT_DIR=./var/ncaaf-injury-snapshots ` +
         `node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts`,
-      deactivateCommand: `unset NCAAF_INJURY_COLLECTOR_ACTIVE  # and remove cron lines`,
-      smokeInactiveCommand:
-        `cd artifacts/api-server && node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts`,
+      deactivateCommand:
+        "Remove cron lines; unset NCAAF_INJURY_COLLECTOR_ACTIVE",
     },
     holds: [
-      "Do not set NCAAF_INJURY_COLLECTOR_ACTIVE until human authorization",
-      "Do not flip NCAAF_GAME_LINE_SIM_VALIDATED / per-market gates",
-      "Do not apply e4ConservativeAdjust to frozen FINAL_EVAL M_base",
-      "No deploy / OTA required — offline cron on a runner with repo checkout",
+      "Product gates stay false — no NCAAF unlock",
+      "Frozen ML M_base unchanged — no injury adjust on FINAL_EVAL",
+      "No Odds fetch / no paid purchase / no mobile OTA",
+      "ALTs deferred · voice paused",
     ],
   };
 }

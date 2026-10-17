@@ -2,7 +2,7 @@
  * Activation / retrieval prep — no purchase, no fetch, no unlock.
  */
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -15,18 +15,21 @@ import {
   SCORETAPE_SETUP,
 } from "../src/lib/sportSim/ncaafClean/index.ts";
 
-test("injury activation package stays inactive; floors locked", () => {
+test("injury activation package schedule math is 20/week; floors locked", () => {
   const p = buildInjuryCollectorActivationPackage();
-  assert.equal(p.status, "PREPARED_INACTIVE");
-  assert.equal(p.activated, false);
   assert.equal(p.frozenMlUnchanged, true);
-  assert.equal(p.schedule.freezesPerWeek, 14);
+  assert.equal(p.productGatesUnchanged, true);
+  assert.equal(p.schedule.freezesPerWeek, 20);
   assert.equal(p.schedule.costUsdPerWeek, 0);
   assert.equal(INJURY_SAMPLE_FLOORS.N1_minDecidedCloseMlWithJoinAttempt, 60);
   assert.equal(INJURY_SAMPLE_FLOORS.N2_minInjuryKnownTrue, 20);
   assert.ok(p.deploymentDiff.activateCommand.includes("NCAAF_INJURY_COLLECTOR_ACTIVE=1"));
   assert.ok(existsSync(join(process.cwd(), "scripts/ncaafInjuryCollectorCron.sh")));
   assert.ok(existsSync(join(process.cwd(), "scripts/ncaaf-injury-collector.cron")));
+  assert.match(
+    readFileSync(join(process.cwd(), "scripts/ncaaf-injury-collector.cron"), "utf8"),
+    /20 freezes\/week/,
+  );
 });
 
 test("ScoreTape docs samples prove captured_ms schema", () => {

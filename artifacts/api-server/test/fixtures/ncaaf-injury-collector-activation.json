@@ -1,76 +1,129 @@
 {
-  "status": "PREPARED_INACTIVE",
-  "activated": false,
-  "frozenMlUnchanged": true,
-  "env": {
-    "activeFlag": "NCAAF_INJURY_COLLECTOR_ACTIVE",
-    "activeValue": "1",
-    "outDir": "NCAAF_INJURY_SNAPSHOT_DIR"
-  },
-  "paths": {
-    "script": "artifacts/api-server/scripts/ncaafPregameInjurySnapshotCollector.ts",
-    "defaultOutDir": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
-    "manifest": "manifest.json",
-    "runner": "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
-    "unitFile": "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
-  },
-  "schedule": {
-    "timezone": "UTC",
-    "crontab": [
-      "0 14,22 * * 1-4",
-      "0 2,14,18,22 * * 5-7"
-    ],
-    "freezesPerWeek": 14,
-    "costUsdPerWeek": 0,
-    "source": "espn_site_api_college_football_injuries"
-  },
-  "storage": {
-    "root": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
-    "snapshotGlob": "espn-cfb-injuries-*.json",
-    "manifest": "manifest.json",
-    "gitPolicy": "Commit snapshots + manifest on collector host or sync to fixtures; never rewrite past kickoff labels; never backfill TUNING/FINAL_EVAL"
-  },
-  "sampleFloors": {
-    "N1_minDecidedCloseMlWithJoinAttempt": 60,
-    "N2_minInjuryKnownTrue": 20,
-    "N3_minInjuryKnownNull": 20,
-    "N4_minHome": 15,
-    "N4_minAway": 15,
-    "N5_captureBeforeKickoff": true,
-    "N6_neverCoerceNullToFalse": true
-  },
-  "expectedCollectionPeriod": {
-    "typicalWeeks": [
-      3,
-      6
-    ],
-    "aggressiveWeeks": [
-      2,
-      3
-    ],
-    "note": "Odds-listed FBS only; pre-schedule 25–35% null holdout before week starts; stop when N1–N3 met and membership frozen"
-  },
-  "deploymentDiff": {
-    "filesToAdd": [
-      "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
-      "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
-    ],
-    "envToSet": {
-      "NCAAF_INJURY_COLLECTOR_ACTIVE": "1"
+  "generatedAt": "2026-10-17T18:13:38.135Z",
+  "injury": {
+    "status": "ACTIVE",
+    "activated": true,
+    "frozenMlUnchanged": true,
+    "productGatesUnchanged": true,
+    "env": {
+      "activeFlag": "NCAAF_INJURY_COLLECTOR_ACTIVE",
+      "activeValue": "1",
+      "outDir": "NCAAF_INJURY_SNAPSHOT_DIR"
     },
-    "cronInstall": [
-      "# install (human, after approval):",
-      "crontab -l 2>/dev/null | cat - artifacts/api-server/scripts/ncaaf-injury-collector.cron | crontab -",
-      "# or: sudo cp artifacts/api-server/scripts/ncaaf-injury-collector.cron /etc/cron.d/ncaaf-injury-collector"
-    ],
-    "activateCommand": "cd artifacts/api-server && NCAAF_INJURY_COLLECTOR_ACTIVE=1 node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts",
-    "deactivateCommand": "unset NCAAF_INJURY_COLLECTOR_ACTIVE  # and remove cron lines",
-    "smokeInactiveCommand": "cd artifacts/api-server && node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts"
+    "paths": {
+      "script": "artifacts/api-server/scripts/ncaafPregameInjurySnapshotCollector.ts",
+      "durableOutDir": "artifacts/api-server/var/ncaaf-injury-snapshots/",
+      "fixtureSampleDir": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
+      "manifest": "manifest.json",
+      "failures": "failures.jsonl",
+      "snapshotsSubdir": "snapshots/",
+      "runner": "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
+      "unitFile": "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
+    },
+    "schedule": {
+      "timezone": "UTC",
+      "crontab": [
+        "0 14,22 * * 1-4",
+        "0 2,14,18,22 * * 5-7"
+      ],
+      "freezesPerWeek": 20,
+      "monThuPerDay": 2,
+      "friSunPerDay": 4,
+      "monThuDays": 4,
+      "friSunDays": 3,
+      "math": "4×2 + 3×4 = 20",
+      "costUsdPerWeek": 0,
+      "source": "espn_site_api_college_football_injuries"
+    },
+    "storage": {
+      "root": "artifacts/api-server/var/ncaaf-injury-snapshots/",
+      "snapshotsSubdir": "snapshots/",
+      "manifest": "manifest.json",
+      "failures": "failures.jsonl",
+      "dedupe": [
+        "skip if same UTC minuteBucketIso already stored",
+        "skip if identical contentSha256 already stored"
+      ],
+      "gitPolicy": "Durable store under var/ is gitignored; never rewrite past labels; never backfill TUNING/FINAL_EVAL; never join into frozen M_base"
+    },
+    "sampleFloors": {
+      "N1_minDecidedCloseMlWithJoinAttempt": 60,
+      "N2_minInjuryKnownTrue": 20,
+      "N3_minInjuryKnownNull": 20,
+      "N4_minHome": 15,
+      "N4_minAway": 15,
+      "N5_captureBeforeKickoff": true,
+      "N6_neverCoerceNullToFalse": true
+    },
+    "expectedCollectionPeriod": {
+      "typicalWeeks": [
+        3,
+        6
+      ],
+      "aggressiveWeeks": [
+        2,
+        3
+      ],
+      "freezesPerWeek": 20,
+      "note": "Odds-listed FBS only; pre-schedule 25–35% null holdout before week starts; stop when N1–N3 met and membership frozen"
+    },
+    "deploymentDiff": {
+      "filesToAdd": [
+        "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
+        "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
+      ],
+      "envToSet": {
+        "NCAAF_INJURY_COLLECTOR_ACTIVE": "1",
+        "NCAAF_INJURY_SNAPSHOT_DIR": "artifacts/api-server/var/ncaaf-injury-snapshots/"
+      },
+      "cronInstall": [
+        "crontab -l 2>/dev/null | grep -v ncaafInjuryCollectorCron | { cat; cat artifacts/api-server/scripts/ncaaf-injury-collector.cron; } | crontab -"
+      ],
+      "activateCommand": "cd artifacts/api-server && NCAAF_INJURY_COLLECTOR_ACTIVE=1 NCAAF_INJURY_SNAPSHOT_DIR=./var/ncaaf-injury-snapshots node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts",
+      "deactivateCommand": "Remove cron lines; unset NCAAF_INJURY_COLLECTOR_ACTIVE"
+    },
+    "holds": [
+      "Product gates stay false — no NCAAF unlock",
+      "Frozen ML M_base unchanged — no injury adjust on FINAL_EVAL",
+      "No Odds fetch / no paid purchase / no mobile OTA",
+      "ALTs deferred · voice paused"
+    ]
   },
-  "holds": [
-    "Do not set NCAAF_INJURY_COLLECTOR_ACTIVE until human authorization",
-    "Do not flip NCAAF_GAME_LINE_SIM_VALIDATED / per-market gates",
-    "Do not apply e4ConservativeAdjust to frozen FINAL_EVAL M_base",
-    "No deploy / OTA required — offline cron on a runner with repo checkout"
-  ]
+  "storeManifestSummary": {
+    "snapshotCount": 1,
+    "freezesPerWeek": 20,
+    "lastSuccessAt": "2026-10-17T18:13:36.370Z",
+    "consecutiveFailures": 0
+  },
+  "oddsHold": {
+    "status": "HELD",
+    "fetchAuthorized": false,
+    "paidPurchaseAuthorized": false,
+    "altPullAuthorized": false,
+    "voice": "paused",
+    "splits": {
+      "FINAL_EVAL": {
+        "role": "frozen_acceptance_only",
+        "preserveFor": "frozen spread/totals candidate (immutable once scored)",
+        "useForDevelopment": false,
+        "inspectResultsToGuideFixes": false,
+        "manifestPath": "test/fixtures/ncaaf-spreads-totals-alt-odds-manifest.json",
+        "note": "Manifest targets FINAL_EVAL membership — hold until explicit freeze+fetch authorization"
+      },
+      "TUNING": {
+        "role": "development_and_screening_only",
+        "useForDevelopment": true,
+        "closesPresent": {
+          "spreads": true,
+          "totals": false,
+          "path": "test/fixtures/ncaaf-tuning-2025-w1-7-closing-lines.json"
+        },
+        "note": "Develop ATS/rest-tilt against TUNING nested folds only; never retune thresholds against FINAL_EVAL"
+      }
+    },
+    "alts": {
+      "deferred": true,
+      "reason": "Full ALT cohort over 4200 credit cap; not authorized"
+    }
+  }
 }
