@@ -25,7 +25,13 @@ export const NCAAF_FORWARD_REGIONS_LIVE = ["us"] as const;
 /** Historical as-of snaps: one region unless explicitly widened. */
 export const NCAAF_FORWARD_REGIONS_HISTORICAL = ["us"] as const;
 
-export type CollectorMode = "dry_run" | "live_upcoming" | "historical_asof";
+export type CollectorMode =
+  | "dry_run"
+  | "live_upcoming"
+  | "historical_asof"
+  | "historical_close"
+  | "historical_close_spreads_totals"
+  | "historical_early_t24h";
 
 export type CreditEstimate = {
   endpoint: "live_odds" | "historical_odds" | "historical_event_odds" | "espn_injury";

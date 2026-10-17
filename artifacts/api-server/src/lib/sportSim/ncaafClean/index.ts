@@ -182,3 +182,32 @@ export {
   computeAtsRestTilt,
 } from "./atsRestTilt.ts";
 export type { AtsRestTiltResult } from "./atsRestTilt.ts";
+
+export {
+  INJURY_COLLECTION_PERIOD,
+  INJURY_COLLECTOR_ENV,
+  INJURY_COLLECTOR_PATHS,
+  INJURY_COLLECTOR_SCHEDULE,
+  INJURY_SAMPLE_FLOORS,
+  buildInjuryCollectorActivationPackage,
+} from "./injuryCollectorActivation.ts";
+export type { InjuryActivationPackage } from "./injuryCollectorActivation.ts";
+
+export {
+  SCORETAPE_DOCS_REST_SAMPLE,
+  SCORETAPE_DOCS_WEBHOOK_SAMPLE,
+  SCORETAPE_SETUP,
+  buildScoreTapeProvenanceReport,
+  verifyScoreTapeDocsSamples,
+} from "./scoreTapeProvenance.ts";
+export type { ScoreTapeProvenanceReport } from "./scoreTapeProvenance.ts";
+
+export {
+  ODDS_PROVIDER,
+  buildSpreadsTotalsAltManifest,
+} from "./spreadsTotalsAltOddsManifest.ts";
+export type {
+  BucketRequest,
+  ManifestGame,
+  SpreadsTotalsAltManifestBundle,
+} from "./spreadsTotalsAltOddsManifest.ts";

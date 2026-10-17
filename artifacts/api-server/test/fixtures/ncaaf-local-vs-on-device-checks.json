@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-10-17T18:07:11.629Z",
+  "localIntegrationConfirmed": [
+    {
+      "id": "L1",
+      "suite": "artifacts/api-server/test/ncaafClean.marketGates.test.ts",
+      "covers": "per-market gates, ATS harness, E4 prospective, diagnosis",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L2",
+      "suite": "artifacts/api-server/test/ncaafClean.mlOnlyHarness.test.ts",
+      "covers": "frozen E1 α=1.15; FINAL_EVAL never auto-pass",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L3",
+      "suite": "artifacts/api-server/test/ncaafClean.e4Availability.test.ts",
+      "covers": "E4 behavioral policy; null≠false",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L4",
+      "suite": "artifacts/api-server/test/coachReliability.test.ts",
+      "covers": "blocked_unvalidated_market digest-only",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L5",
+      "suite": "artifacts/api-server/test/ncaafPhaseEGates.test.ts",
+      "covers": "NCAAF_GAME_LINE_SIM_VALIDATED stays false",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L6",
+      "suite": "artifacts/api-server/test/ncaafForwardCollector.test.ts",
+      "covers": "credit math, dedupe, activationAllowed",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L7",
+      "suite": "artifacts/stadium-mobile/lib/ncaafMarketGates.test.ts",
+      "covers": "P3 family P0 classification",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L8",
+      "suite": "artifacts/stadium-mobile/lib/ncaafCoachIntegrationPath.test.ts",
+      "covers": "Coach stage checklist; product closed",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L9",
+      "suite": "artifacts/stadium-mobile/lib/coach/buildParlay.test.ts",
+      "covers": "ask-only college P0 exit + short note",
+      "status": "CONFIRMED_LOCAL"
+    },
+    {
+      "id": "L10",
+      "suite": "injury collector smoke (ACTIVE unset)",
+      "covers": "script returns INACTIVE JSON without network freeze",
+      "status": "CONFIRMED_LOCAL"
+    }
+  ],
+  "remainingOnDevice": [
+    {
+      "id": "D1",
+      "check": "Preview iOS ticket with college game-lines ask shows short unavailable copy (not quality-bar)",
+      "blockedBy": "product gates false — expected empty ticket",
+      "status": "REMAINING_ON_DEVICE"
+    },
+    {
+      "id": "D2",
+      "check": "College player-props ask still builds when board has props (gates do not block props)",
+      "blockedBy": "needs live slate + device session",
+      "status": "REMAINING_ON_DEVICE"
+    },
+    {
+      "id": "D3",
+      "check": "Reliability digest on server shows blocked_unvalidated_market after college ask",
+      "blockedBy": "needs deployed/server path receiving mobile events",
+      "status": "REMAINING_ON_DEVICE"
+    },
+    {
+      "id": "D4",
+      "check": "After authorized collector activation: snapshot files appear on runner with captureTimestamp",
+      "blockedBy": "collector not activated",
+      "status": "REMAINING_ON_DEVICE"
+    }
+  ],
+  "notOnDeviceUntilUnlock": [
+    "NCAAF moneyline/spreads/totals graded tickets",
+    "E6 gate flip",
+    "OTA / production deploy verification of unlock"
+  ]
+}

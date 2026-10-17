@@ -24,7 +24,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(here, "../test/fixtures/ncaaf-pregame-injury-snapshots");
+const DEFAULT_OUT = join(here, "../test/fixtures/ncaaf-pregame-injury-snapshots");
+const OUT_DIR = process.env.NCAAF_INJURY_SNAPSHOT_DIR?.trim()
+  ? process.env.NCAAF_INJURY_SNAPSHOT_DIR.trim()
+  : DEFAULT_OUT;
 const MANIFEST = join(OUT_DIR, "manifest.json");
 const ESPN =
   "https://site.api.espn.com/apis/site/v2/sports/football/college-football/injuries";
@@ -53,9 +56,13 @@ async function main(): Promise<number> {
         {
           status: "INACTIVE",
           reason:
-            "NCAAF_INJURY_COLLECTOR_ACTIVE not set — prepared but not activated (Phase E)",
-          prepFixture: "test/fixtures/ncaaf-forward-injury-collector-prep.json",
+            "NCAAF_INJURY_COLLECTOR_ACTIVE not set — prepared but not activated",
+          prepFixture: "test/fixtures/ncaaf-injury-collector-activation.json",
+          cronTemplate: "scripts/ncaaf-injury-collector.cron",
+          runner: "scripts/ncaafInjuryCollectorCron.sh",
+          outDir: OUT_DIR,
           hint: "Set NCAAF_INJURY_COLLECTOR_ACTIVE=1 to freeze a forward ESPN snapshot",
+          frozenMlUnchanged: true,
         },
         null,
         2,

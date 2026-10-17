@@ -1,0 +1,12 @@
+# NCAAF forward injury collector — INSTALL ONLY AFTER AUTHORIZATION.
+# Cost: $0 (ESPN public). Frozen ML unchanged. No deploy/OTA/unlock.
+# Activation: uncomment NCAAF_INJURY_COLLECTOR_ACTIVE=1 below (or export in wrapper).
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+# NCAAF_INJURY_COLLECTOR_ACTIVE=1
+
+# Replace /workspace with the runner checkout path before install.
+# Mon–Thu 14:00 and 22:00 UTC
+0 14,22 * * 1-4 cd /workspace/artifacts/api-server && /workspace/artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh >> /var/log/ncaaf-injury-collector.log 2>&1
+# Fri–Sun denser tip windows
+0 2,14,18,22 * * 5-7 cd /workspace/artifacts/api-server && /workspace/artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh >> /var/log/ncaaf-injury-collector.log 2>&1

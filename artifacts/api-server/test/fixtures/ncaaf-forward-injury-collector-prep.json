@@ -1,30 +1,22 @@
 {
-  "generatedAt": "2026-10-17T12:18:22.218483Z",
+  "generatedAt": "2026-10-17T18:07:00.000Z",
   "phase": "E",
-  "status": "PREPARED_INACTIVE",
+  "status": "SUPERSEDED_BY_ACTIVATION_PACKAGE",
+  "see": "test/fixtures/ncaaf-injury-collector-activation.json",
+  "proposal": "test/fixtures/ncaaf-activation-retrieval-proposal.json",
   "activation": {
     "envFlag": "NCAAF_INJURY_COLLECTOR_ACTIVE",
     "default": false,
-    "activateWhen": "Human sets NCAAF_INJURY_COLLECTOR_ACTIVE=1 for forward slate freezes only",
     "activatedThisTurn": false
   },
   "script": "artifacts/api-server/scripts/ncaafPregameInjurySnapshotCollector.ts",
+  "cron": "artifacts/api-server/scripts/ncaaf-injury-collector.cron",
+  "runner": "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
   "outputDir": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
-  "rules": [
-    "captureTimestamp is wall-clock ISO at freeze time",
-    "Valid pre-kick evidence ONLY when captureTimestamp < game.kickoffIso",
-    "Never backfill historical TUNING/FINAL_EVAL from live ESPN",
-    "injuryKnown stays null until joined \u2014 never coerce null\u2192false",
-    "Do not purchase SportsDataIO/ScoreTape until timing proof reviewed"
-  ],
-  "existingSnapshots": "see manifest.json in outputDir",
   "ops": {
     "paidRetrieval": false,
-    "finalEvalScored": false,
     "deployOta": false,
     "ncaafUnlock": false,
-    "spreads": "blocked",
     "voice": "paused"
-  },
-  "existingSnapshotCount": 1
+  }
 }

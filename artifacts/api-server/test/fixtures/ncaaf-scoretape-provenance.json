@@ -1,0 +1,39 @@
+{
+  "verifiedAt": "2026-10-17T18:07:11.622Z",
+  "paidHttp": 0,
+  "keyPresent": false,
+  "health": {
+    "ok": true,
+    "httpStatus": 200,
+    "clickhouse": true,
+    "detail": "GET /v1/health 200 without key"
+  },
+  "docsSamples": {
+    "restCapturedParseable": true,
+    "webhookCapturedMsParseable": true,
+    "webhookCapturedIso": "2026-06-12T08:25:22.902Z",
+    "asOfRuleDocumented": true,
+    "cfbListedInCoverage": true,
+    "note": "Docs prove captured / captured_ms schema + as-of rule; published sample is NBA not CFB. CFB live rows require Explorer key."
+  },
+  "espnLocalFixture": {
+    "path": "test/fixtures/ncaaf-pregame-injury-snapshots/espn-cfb-injuries-2026-10-16T20-06-40-154Z.json",
+    "captureTimestampParseable": true,
+    "captureTimestamp": "2026-10-16T20:06:40.154Z",
+    "preKickJoinDemoOk": true
+  },
+  "cfbLiveRowsVerified": false,
+  "blockersBeforePaidDesk": [
+    "No SCORETAPE_API_KEY in this environment — CFB /v1/cfb/injuries not queried",
+    "Must confirm CFB rows with finite captured_ms under Explorer before any Desk purchase",
+    "Explorer 7-day window cannot reach 2025 FINAL_EVAL kickoffs — historical Desk depth unproven until sample earliest captured_ms checked"
+  ],
+  "accountSetupSteps": [
+    "Human: request Explorer ($0) key at scoretape.com (st_… shown once)",
+    "Store as Cursor/Render secret SCORETAPE_API_KEY — never paste into chat",
+    "Authorized later agent: GET /v1/cfb/injuries?since=<today-6d> with key",
+    "Assert non-empty data[].captured or captured_ms; reconstruct as-of kickoff−1h for one FBS game",
+    "Record earliest captured_ms in window → decide Desk depth (still not purchase here)"
+  ],
+  "verdict": "SCHEMA_AND_HEALTH_OK — CFB_ROWS_PENDING_EXPLORER_KEY"
+}
