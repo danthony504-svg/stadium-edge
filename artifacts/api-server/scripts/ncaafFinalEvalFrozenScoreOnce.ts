@@ -167,7 +167,9 @@ function main(): void {
   );
 
   for (const g of walk) {
-    const pre = buildPregameFromFixtureRow(g, { useVenueSidecar: true });
+    // FINAL_EVAL membership carries explicit venueKind; TUNING venue sidecar
+    // does not cover w8+ — do not let a sidecar miss rewrite venue to unknown.
+    const pre = buildPregameFromFixtureRow(g, { useVenueSidecar: false });
     const pred = predictE1Frozen({ pregame: pre, strength });
 
     const eid = String(g.eventId);
@@ -298,7 +300,7 @@ function main(): void {
     walkGames,
     scoreEventIds: scoreIds,
     closes,
-    useVenueSidecar: true,
+    useVenueSidecar: false,
     e4InjuryValidated: false,
     clv: clvInput,
   });

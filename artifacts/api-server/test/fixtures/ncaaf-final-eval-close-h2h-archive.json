@@ -2,7 +2,7 @@
   "version": 2,
   "split": "FINAL_EVAL",
   "archive": "close_h2h",
-  "scored": false,
+  "scored": true,
   "markets": [
     "h2h"
   ],
@@ -8595,5 +8595,7 @@
     "emptyBookmakersKeptMissing": 5,
     "expectedMaxCoverage": "403/408",
     "pass": true
-  }
+  },
+  "scoredAt": "2026-10-17T14:04:39.595Z",
+  "scoreStamp": "ncaaf-score-margin-v1-research"
 }
