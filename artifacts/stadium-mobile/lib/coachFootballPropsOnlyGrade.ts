@@ -68,6 +68,8 @@ type PoolRow = {
   bookSpread?: number | null;
   edge?: number | null;
   odds?: number;
+  athleteId?: string | null;
+  eventId?: string | null;
 };
 
 /** Yes/No skill markets the Odds API often posts with point=null. */

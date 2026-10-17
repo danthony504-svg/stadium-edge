@@ -26,6 +26,10 @@ function stampScore(
     simulations: 10_000,
     sport: pick.sport ?? "mlb",
     marketKey: pick.propMarketKey ?? pick.market,
+    athleteId: pick.athleteId ?? "ath-fixture",
+    eventId: pick.eventId ?? "evt-fixture",
+    side: pick.propSide ?? "Over",
+    line: pick.propLine ?? 1.5,
   });
   return { ...score, propProbabilityProvenance: provenance };
 }
@@ -35,11 +39,35 @@ function leg(
   rankScore: number,
   finalAiScore?: ParsedPick["finalAiScore"],
 ): BoardScoredLeg {
-  const score = stampScore(finalAiScore ?? pick.finalAiScore, pick);
+  const isProp = !!pick.isProp;
+  // Unique identity per prop fixture so exact-market binding cannot collide.
+  const athleteId =
+    pick.athleteId ?? (isProp ? `ath-${pick.player ?? pick.pick ?? pick.market}` : undefined);
+  const eventId =
+    pick.eventId ?? (isProp ? `evt-${pick.game ?? "g"}` : undefined);
+  const propSide =
+    (pick.propSide as "Over" | "Under" | undefined) ??
+    (/\bunder\b/i.test(pick.pick) ? "Under" : "Over");
+  const propLine =
+    pick.propLine ??
+    (Number(
+      String(pick.pick).match(/\b(?:Over|Under)\s+(-?\d+(?:\.\d+)?)/i)?.[1],
+    ) ||
+      1.5);
+  const enriched = {
+    ...pick,
+    isProp,
+    athleteId,
+    eventId,
+    propSide: isProp ? propSide : pick.propSide,
+    propLine: isProp ? propLine : pick.propLine,
+    propMarketKey: pick.propMarketKey ?? (isProp ? pick.market : undefined),
+  };
+  const score = stampScore(finalAiScore ?? pick.finalAiScore, enriched);
   const full = withExactMarket10kProvenance({
     isProp: false,
     sport: "mlb",
-    ...pick,
+    ...enriched,
     finalAiScore: score,
     simHit: score?.simHit ?? 0.55,
   } as ParsedPick);

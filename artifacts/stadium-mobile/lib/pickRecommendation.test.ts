@@ -615,6 +615,10 @@ test("coachFlashBoardScanPreviewPicks drops scored legs without positive edge", 
 
 test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic context", () => {
   const pick = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     isProp: true,
     market: "Strikeouts",
     odds: 130,
@@ -646,6 +650,10 @@ test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic con
 
 test("propSimEdgeStagingQualifies never lifts collapsed raw confidence via simHit floor", () => {
   const pick = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     isProp: true,
     sport: "nba",
     market: "Points",
@@ -679,6 +687,10 @@ test("propSimEdgeStagingQualifies never lifts collapsed raw confidence via simHi
 
 test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row is negative", () => {
   const pick = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     isProp: true,
     market: "Assists",
     odds: -111,
@@ -710,6 +722,10 @@ test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row 
 
 test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
   const staged = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     game: "Toronto Blue Jays @ San Diego Padres",
     market: "Stolen Bases",
     pick: "Fernando Tatis Jr. Over 0.5 Stolen Bases",
@@ -881,6 +897,10 @@ test("filterCoachDeliveredPicks drops negative-edge game lines", () => {
 test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {
   const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
   const leg = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     game: "Arizona Diamondbacks @ Los Angeles Dodgers",
     market: "Hits",
     pick: "Miguel Rojas Under 0.5 Hits",
@@ -976,6 +996,10 @@ test("props-only: positive EV cannot clear below COACH_SIM_MIN_GRADE / confidenc
     confidencePct: 52,
   } as any;
   const okStamped = withExactMarket10kProvenance({
+    propSide: "Over",
+    propLine: 1.5,
+    athleteId: "ath-t",
+    eventId: "evt-t",
     ...ok,
     finalAiScore: { ...okScore, simHit: okScore.simHit },
     simHit: okScore.simHit,

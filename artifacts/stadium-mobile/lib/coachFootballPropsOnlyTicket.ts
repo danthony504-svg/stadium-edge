@@ -722,7 +722,13 @@ export async function buildFootballPropsOnlyTicket(
   const needsDeep = candidates.filter((p) => {
     const row = propsOnlyPoolRowForPick(p, scopedPool);
     const prov = lookupPropsOnlyProvenance(p, row, propHits);
-    return !propProvenanceAllowsSeating(prov);
+    return !propProvenanceAllowsSeating(prov, {
+      athleteId: p.athleteId ?? row?.athleteId,
+      eventId: p.eventId ?? row?.eventId,
+      propMarketKey: p.propMarketKey ?? p.market,
+      propSide: p.propSide,
+      propLine: p.propLine,
+    });
   });
   if (needsDeep.length && !opts.signal?.aborted) {
     opts.onStatus?.(
@@ -751,6 +757,26 @@ export async function buildFootballPropsOnlyTicket(
             batch.find((p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k)
               ?.sport ?? existing?.probabilityProvenance?.sport;
           const marketKey = v.market ?? existing?.probabilityProvenance?.marketKey;
+          const batchPick = batch.find(
+            (p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k,
+          );
+          const poolRow = batchPick
+            ? propsOnlyPoolRowForPick(batchPick, scopedPool)
+            : undefined;
+          const side =
+            (v.side as "Over" | "Under" | undefined) ??
+            (batchPick?.propSide === "Under"
+              ? "Under"
+              : batchPick?.propSide === "Over"
+                ? "Over"
+                : null);
+          const candidate = {
+            athleteId: batchPick?.athleteId ?? poolRow?.athleteId ?? null,
+            eventId: batchPick?.eventId ?? poolRow?.eventId ?? null,
+            propMarketKey: marketKey,
+            propSide: side,
+            propLine: v.line ?? batchPick?.propLine ?? null,
+          };
           const incoming = exactMarket10kProvenance({
             hitProbability: v.hitProbability,
             simulations: v.simulations,
@@ -758,13 +784,18 @@ export async function buildFootballPropsOnlyTicket(
             marketKey,
             nullReason: v.nullReason ?? null,
             hitReliability: existing?.hitReliability ?? null,
+            athleteId: candidate.athleteId,
+            eventId: candidate.eventId,
+            side: candidate.propSide,
+            line: candidate.propLine,
           });
           const merged = preferPropProvenance(
             existing?.probabilityProvenance,
             incoming,
+            candidate,
           );
           propHits.set(k, {
-            hitProbability: propProvenanceAllowsSeating(merged)
+            hitProbability: propProvenanceAllowsSeating(merged, candidate)
               ? merged.hitProbability
               : null,
             nullReason: merged.nullReason,
@@ -785,7 +816,17 @@ export async function buildFootballPropsOnlyTicket(
     const key = propsOnlySimLookupKey(p, row);
     if (!key) continue;
     const existing = propHits.get(key);
-    if (propProvenanceAllowsSeating(existing?.probabilityProvenance)) continue;
+    if (
+      propProvenanceAllowsSeating(existing?.probabilityProvenance, {
+        athleteId: p.athleteId ?? row?.athleteId,
+        eventId: p.eventId ?? row?.eventId,
+        propMarketKey: p.propMarketKey ?? p.market,
+        propSide: p.propSide,
+        propLine: p.propLine,
+      })
+    ) {
+      continue;
+    }
     const prov =
       existing?.probabilityProvenance ??
       insufficientPropProvenance({
@@ -953,7 +994,18 @@ export async function buildFootballPropsOnlyTicket(
     const reliability = lookupPropsOnlyHitReliability(pick, row, propHits);
     const provenance = lookupPropsOnlyProvenance(pick, row, propHits);
     // Never score a seat without authorized provenance (empty allowlist ⇒ need 10k).
-    if (!propProvenanceAllowsSeating(provenance) || raw == null) continue;
+    if (
+      !propProvenanceAllowsSeating(provenance, {
+        athleteId: pick.athleteId ?? row?.athleteId,
+        eventId: pick.eventId ?? (row as { eventId?: string | null } | undefined)?.eventId,
+        propMarketKey: pick.propMarketKey ?? pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      }) ||
+      raw == null
+    ) {
+      continue;
+    }
     const leg = scoredLegFromHit(
       pick,
       raw,

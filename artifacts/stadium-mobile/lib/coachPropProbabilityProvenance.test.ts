@@ -7,12 +7,14 @@ import test from "node:test";
 import {
   EXACT_MARKET_10K_MIN_SIMULATIONS,
   VALIDATED_HISTORICAL_MODEL_ALLOWLIST,
+  clearTrustedExactEvidenceForTests,
   exactMarket10kProvenance,
   historicalModelProvenance,
   insufficientPropProvenance,
   isValidatedHistoricalMarket,
   preferPropProvenance,
   propProvenanceAllowsSeating,
+  resetExactMarketCoverageImpactForTests,
   seatingHitFromProvenance,
   simulationFactorLabelForSource,
   SIM_FACTOR_LABEL_EXACT_10K,
@@ -22,6 +24,11 @@ import {
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
+
+test.beforeEach(() => {
+  clearTrustedExactEvidenceForTests();
+  resetExactMarketCoverageImpactForTests();
+});
 
 test("floors unchanged (#711)", () => {
   assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
@@ -37,17 +44,31 @@ test("allowlist starts empty — no NFL/NCAAF ATD auto-approval", () => {
   assert.equal(isValidatedHistoricalMarket("ncaaf", "player_reception_yds"), false);
 });
 
-test("exact_market_10k only when simulations >= 10000 and hit finite", () => {
+test("exact_market_10k only when simulations >= 10000 and hit finite + identity", () => {
   const ok = exactMarket10kProvenance({
     hitProbability: 0.62,
     simulations: EXACT_MARKET_10K_MIN_SIMULATIONS,
     sport: "ncaaf",
     marketKey: "player_reception_yds",
+    athleteId: "ath-p",
+    eventId: "evt-p",
+    side: "Over",
+    line: 49.5,
   });
   assert.equal(ok.source, "exact_market_10k");
   assert.equal(ok.hitProbability, 0.62);
   assert.equal(ok.simulations, 10_000);
   assert.equal(propProvenanceAllowsSeating(ok), true);
+  assert.equal(
+    propProvenanceAllowsSeating(ok, {
+      athleteId: "ath-p",
+      eventId: "evt-p",
+      propMarketKey: "player_reception_yds",
+      propSide: "Over",
+      propLine: 49.5,
+    }),
+    true,
+  );
   assert.equal(simulationFactorLabelForSource(ok.source), SIM_FACTOR_LABEL_EXACT_10K);
 
   const partial = exactMarket10kProvenance({
@@ -55,6 +76,10 @@ test("exact_market_10k only when simulations >= 10000 and hit finite", () => {
     simulations: 9999,
     sport: "nfl",
     marketKey: "player_pass_yds",
+    athleteId: "ath-p",
+    eventId: "evt-p",
+    side: "Over",
+    line: 250.5,
   });
   assert.equal(partial.source, "insufficient_evidence");
   assert.equal(partial.hitProbability, null);
@@ -66,6 +91,10 @@ test("exact_market_10k only when simulations >= 10000 and hit finite", () => {
     nullReason: "stat_mapping_failed",
     sport: "ncaaf",
     marketKey: "player_anytime_td",
+    athleteId: "ath-p",
+    eventId: "evt-p",
+    side: "Over",
+    line: 0.5,
   });
   assert.equal(failed.source, "insufficient_evidence");
   assert.equal(failed.nullReason, "stat_mapping_failed");
@@ -104,6 +133,11 @@ test("Sedrick-class history ATD rejects at #711 without exact 10k", () => {
       confidencePct: 52,
       edgePct: 0.6,
       simHit: 0.5515,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
       propProbabilityProvenance: hist,
     },
     { requestStyle: "props_only", isProp: true },
@@ -118,6 +152,10 @@ test("exact 10k ATD can qualify at floors; missing provenance rejects", () => {
     simulations: 10_000,
     sport: "ncaaf",
     marketKey: "player_anytime_td",
+    athleteId: "5030333",
+    eventId: "evt-ark-van",
+    side: "Over",
+    line: 0.5,
   });
   const ok = evaluateCoachQualification(
     {
@@ -130,6 +168,11 @@ test("exact 10k ATD can qualify at floors; missing provenance rejects", () => {
       confidencePct: 52,
       edgePct: 3.5,
       simHit: 0.58,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
       propProbabilityProvenance: prov,
     },
     { requestStyle: "props_only", isProp: true },
@@ -147,6 +190,11 @@ test("exact 10k ATD can qualify at floors; missing provenance rejects", () => {
       confidencePct: 60,
       edgePct: 5,
       simHit: 0.6,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
     },
     { requestStyle: "props_only", isProp: true },
   );
@@ -160,6 +208,10 @@ test("rejected stamps stay rejected", () => {
     simulations: 10_000,
     sport: "nfl",
     marketKey: "player_pass_yds",
+    athleteId: "ath-p",
+    eventId: "evt-p",
+    side: "Over",
+    line: 250.5,
   });
   const q = evaluateCoachQualification(
     {
@@ -171,6 +223,11 @@ test("rejected stamps stay rejected", () => {
       confidencePct: 80,
       edgePct: 8,
       simHit: 0.7,
+      athleteId: "ath-p",
+      eventId: "evt-p",
+      propMarketKey: "player_pass_yds",
+      propSide: "Over",
+      propLine: 250.5,
       propProbabilityProvenance: prov,
       qualificationStatus: "rejected",
       qualificationReason: "sim_invalid",
@@ -193,6 +250,8 @@ test("holistic labels: 10K Simulation vs Historical Model vs no success", () => 
     isProp: true,
     pick: "Test Over 49.5",
     game: "A @ B",
+    athleteId: "ath-p",
+    eventId: "evt-p",
   };
   const exact = buildFinalAiScore({
     pick: pick as never,
@@ -212,6 +271,10 @@ test("holistic labels: 10K Simulation vs Historical Model vs no success", () => 
       simulations: 10_000,
       sport: "ncaaf",
       marketKey: "player_reception_yds",
+      athleteId: "ath-p",
+      eventId: "evt-p",
+      side: "Over",
+      line: 49.5,
     }),
   });
   const simExact = exact.propHolistic?.factors.find((f) => f.key === "simulation");
@@ -241,7 +304,6 @@ test("holistic labels: 10K Simulation vs Historical Model vs no success", () => 
   assert.notEqual(simBad?.label, SIM_FACTOR_LABEL_EXACT_10K);
   assert.equal(simBad?.present, false);
 
-  // Label helper for historical (when allowlisted in future).
   assert.equal(
     simulationFactorLabelForSource("validated_historical_model"),
     SIM_FACTOR_LABEL_HISTORICAL,
@@ -254,6 +316,10 @@ test("preferPropProvenance never promotes insufficient over exact 10k", () => {
     simulations: 10_000,
     sport: "nfl",
     marketKey: "player_rush_yds",
+    athleteId: "ath-p",
+    eventId: "evt-p",
+    side: "Over",
+    line: 75.5,
   });
   const bad = insufficientPropProvenance({
     sport: "nfl",

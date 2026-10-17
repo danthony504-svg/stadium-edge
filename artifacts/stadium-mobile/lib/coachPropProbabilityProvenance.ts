@@ -1,12 +1,13 @@
 /**
  * Option C — Hybrid allowlist for player-prop probability provenance.
  *
- * - exact_market_10k: 10_000 sims completed for exact athlete/event/market/side/line
+ * - exact_market_10k: trusted completed 10k sims for exact athlete/event/market/side/line
  * - validated_historical_model: only when sport+market is on the allowlist with evidence
  * - insufficient_evidence: failed/unmapped/unapproved — not seating-eligible
  *
- * Allowlist starts EMPTY until validation evidence is supplied. History hits alone
- * never invent eligibility. Do not manufacture hit probabilities.
+ * Exact-market seating requires a module-private trusted evidence registration.
+ * Caller-created `{ source: "exact_market_10k", simulations: 10000 }` objects
+ * never authorize seating. Allowlist starts EMPTY.
  */
 
 export const EXACT_MARKET_10K_MIN_SIMULATIONS = 10_000;
@@ -16,6 +17,14 @@ export type PropProbabilitySource =
   | "validated_historical_model"
   | "insufficient_evidence";
 
+export type ExactMarketIdentity = {
+  athleteId: string;
+  eventId: string;
+  marketKey: string;
+  side: "Over" | "Under";
+  line: number;
+};
+
 export type PropProbabilityProvenance = {
   source: PropProbabilitySource;
   hitProbability: number | null;
@@ -24,27 +33,73 @@ export type PropProbabilityProvenance = {
   hitReliability: number | null;
   sport?: string | null;
   marketKey?: string | null;
+  athleteId?: string | null;
+  eventId?: string | null;
+  side?: "Over" | "Under" | null;
+  line?: number | null;
+  /**
+   * Opaque trust token minted only by exactMarket10kProvenance when a completed
+   * sim is registered. Client-copied stamps without a live registry entry fail.
+   */
+  evidenceId?: string | null;
 };
 
 /** Explicit validation record — required before any historical fallback seats. */
 export type ValidatedHistoricalMarketEntry = {
-  /** Canonical sport id (nfl, ncaaf, nba, …). */
   sport: string;
-  /** Odds API / prop market key (player_anytime_td, …). */
   marketKey: string;
-  /** Pointer to empirical validation evidence (doc path, eval id, or report). */
   evidenceRef: string;
 };
 
-/**
- * Approved historical-model fallbacks.
- * EMPTY until validation evidence is supplied — do not auto-approve ATD/first TD.
- */
 export const VALIDATED_HISTORICAL_MODEL_ALLOWLIST: readonly ValidatedHistoricalMarketEntry[] =
   Object.freeze([]);
 
 export const SIM_FACTOR_LABEL_EXACT_10K = "10K Simulation";
 export const SIM_FACTOR_LABEL_HISTORICAL = "Historical Model";
+
+type TrustedExactEvidence = ExactMarketIdentity & {
+  hitProbability: number;
+  simulations: number;
+  integrity: string;
+};
+
+const trustedExactEvidence = new Map<string, TrustedExactEvidence>();
+let evidenceSeq = 0;
+
+/** Coverage counters — missing/fail-closed identity (no extra network). */
+export type ExactMarketCoverageImpact = {
+  missingAthleteId: number;
+  missingEventId: number;
+  missingMarketSideLine: number;
+  stampedExact10k: number;
+  rejectedMissingIdentity: number;
+};
+
+const coverageImpact: ExactMarketCoverageImpact = {
+  missingAthleteId: 0,
+  missingEventId: 0,
+  missingMarketSideLine: 0,
+  stampedExact10k: 0,
+  rejectedMissingIdentity: 0,
+};
+
+export function getExactMarketCoverageImpact(): ExactMarketCoverageImpact {
+  return { ...coverageImpact };
+}
+
+export function resetExactMarketCoverageImpactForTests(): void {
+  coverageImpact.missingAthleteId = 0;
+  coverageImpact.missingEventId = 0;
+  coverageImpact.missingMarketSideLine = 0;
+  coverageImpact.stampedExact10k = 0;
+  coverageImpact.rejectedMissingIdentity = 0;
+}
+
+/** Test isolation — clears trusted evidence registry. */
+export function clearTrustedExactEvidenceForTests(): void {
+  trustedExactEvidence.clear();
+  evidenceSeq = 0;
+}
 
 function canonSport(sport?: string | null): string {
   return String(sport ?? "")
@@ -58,6 +113,81 @@ function canonMarketKey(marketKey?: string | null): string {
     .toLowerCase()
     .trim()
     .replace(/_alternate$/i, "");
+}
+
+function canonSide(side?: string | null): "Over" | "Under" | null {
+  if (side === "Over" || side === "Under") return side;
+  return null;
+}
+
+function integrityFor(ev: {
+  athleteId: string;
+  eventId: string;
+  marketKey: string;
+  side: "Over" | "Under";
+  line: number;
+  hitProbability: number;
+  simulations: number;
+}): string {
+  return [
+    String(ev.athleteId).trim(),
+    String(ev.eventId).trim(),
+    canonMarketKey(ev.marketKey),
+    ev.side,
+    String(ev.line),
+    String(ev.hitProbability),
+    String(ev.simulations),
+  ].join("|");
+}
+
+/** Authoritative exact-market identity key — never player-name-only. */
+export function exactMarketIdentityKey(identity: ExactMarketIdentity): string {
+  return [
+    String(identity.athleteId).trim(),
+    String(identity.eventId).trim(),
+    canonMarketKey(identity.marketKey),
+    identity.side,
+    String(identity.line),
+  ].join("|");
+}
+
+export type ExactMarketCandidate = {
+  athleteId?: string | null;
+  eventId?: string | null;
+  propMarketKey?: string | null;
+  market?: string | null;
+  propSide?: string | null;
+  propLine?: number | null;
+  side?: string | null;
+  line?: number | null;
+};
+
+/**
+ * Resolve authoritative identity. Missing athleteId/eventId/market/side/line
+ * → null (fail closed for exact-market stamps).
+ */
+export function resolveExactMarketIdentity(
+  candidate: ExactMarketCandidate | null | undefined,
+): ExactMarketIdentity | null {
+  if (!candidate) return null;
+  const athleteId = String(candidate.athleteId ?? "").trim();
+  const eventId = String(candidate.eventId ?? "").trim();
+  const marketKey = canonMarketKey(candidate.propMarketKey ?? candidate.market);
+  const side = canonSide(candidate.propSide ?? candidate.side);
+  const lineRaw = candidate.propLine ?? candidate.line;
+  const line =
+    lineRaw != null && Number.isFinite(lineRaw) ? Number(lineRaw) : null;
+  if (!athleteId) return null;
+  if (!eventId) return null;
+  if (!marketKey || !side || line == null) return null;
+  return { athleteId, eventId, marketKey, side, line };
+}
+
+export function identitiesMatch(
+  a: ExactMarketIdentity,
+  b: ExactMarketIdentity,
+): boolean {
+  return exactMarketIdentityKey(a) === exactMarketIdentityKey(b);
 }
 
 export function isValidatedHistoricalMarket(
@@ -80,12 +210,79 @@ export function simulationFactorLabelForSource(
   return null;
 }
 
+/** True when a trusted exact-market 10k registration exists for this identity. */
+export function hasTrustedExactMarketEvidence(
+  candidate: ExactMarketCandidate | null | undefined,
+): boolean {
+  const id = resolveExactMarketIdentity(candidate);
+  if (!id) return false;
+  for (const trusted of trustedExactEvidence.values()) {
+    if (
+      identitiesMatch(id, trusted) &&
+      trusted.simulations >= EXACT_MARKET_10K_MIN_SIMULATIONS &&
+      Number.isFinite(trusted.hitProbability)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * PickCard / ALT ladder caption — only claim 10K when every displayed alt has
+ * verified exact-market evidence for its athlete/event/market/side/line.
+ */
+export function altLadderSimulationCaption(opts: {
+  parent: ExactMarketCandidate & {
+    propProbabilityProvenance?: PropProbabilityProvenance | null;
+    finalAiScore?: { propProbabilityProvenance?: PropProbabilityProvenance | null } | null;
+  };
+  alts: ReadonlyArray<{
+    propLine?: number | null;
+    line?: number | null;
+    propProbabilityProvenance?: PropProbabilityProvenance | null;
+    propSide?: string | null;
+    side?: string | null;
+  }>;
+}): string {
+  const base = "Alternate lines · Safest → Best → Value → High Risk";
+  if (!opts.alts.length) return base;
+  const allVerified = opts.alts.every((alt) => {
+    const line = alt.propLine ?? alt.line ?? null;
+    const side = alt.propSide ?? alt.side ?? opts.parent.propSide ?? opts.parent.side;
+    // Prefer alt-attached provenance when present; else check trusted registry
+    // for this exact line (sibling lines registered from the same deep draw).
+    if (alt.propProbabilityProvenance) {
+      return propProvenanceAllowsSeating(alt.propProbabilityProvenance, {
+        athleteId: opts.parent.athleteId,
+        eventId: opts.parent.eventId,
+        propMarketKey: opts.parent.propMarketKey ?? opts.parent.market,
+        propSide: side,
+        propLine: line,
+      });
+    }
+    return hasTrustedExactMarketEvidence({
+      athleteId: opts.parent.athleteId,
+      eventId: opts.parent.eventId,
+      propMarketKey: opts.parent.propMarketKey ?? opts.parent.market,
+      propSide: side,
+      propLine: line,
+    });
+  });
+  if (!allVerified) return base;
+  return "Alternate lines · 10K Simulation · Safest → Best → Value → High Risk";
+}
+
 export function insufficientPropProvenance(opts: {
   sport?: string | null;
   marketKey?: string | null;
   nullReason?: string | null;
   hitReliability?: number | null;
   simulations?: number | null;
+  athleteId?: string | null;
+  eventId?: string | null;
+  side?: "Over" | "Under" | null;
+  line?: number | null;
 }): PropProbabilityProvenance {
   return {
     source: "insufficient_evidence",
@@ -98,12 +295,19 @@ export function insufficientPropProvenance(opts: {
         : null,
     sport: opts.sport ?? null,
     marketKey: opts.marketKey ?? null,
+    athleteId: opts.athleteId ?? null,
+    eventId: opts.eventId ?? null,
+    side: opts.side ?? null,
+    line: opts.line ?? null,
+    evidenceId: null,
   };
 }
 
 /**
- * Stamp exact-market 10k only when simulations completed for the exact key
- * and a finite hit exists. Never upgrade partial/failed draws.
+ * Stamp exact-market 10k only when:
+ * - authoritative athleteId + eventId + market + side + line are present
+ * - simulations >= 10000 and hit is finite
+ * Registers trusted evidence — forged copies without registration never seat.
  */
 export function exactMarket10kProvenance(opts: {
   hitProbability: number | null | undefined;
@@ -112,43 +316,100 @@ export function exactMarket10kProvenance(opts: {
   marketKey?: string | null;
   nullReason?: string | null;
   hitReliability?: number | null;
+  athleteId?: string | null;
+  eventId?: string | null;
+  side?: string | null;
+  line?: number | null;
 }): PropProbabilityProvenance {
   const sims = Math.floor(opts.simulations ?? 0);
   const hit = opts.hitProbability;
-  if (
-    hit != null &&
-    Number.isFinite(hit) &&
-    sims >= EXACT_MARKET_10K_MIN_SIMULATIONS
-  ) {
-    return {
-      source: "exact_market_10k",
-      hitProbability: hit,
+  const identity = resolveExactMarketIdentity({
+    athleteId: opts.athleteId,
+    eventId: opts.eventId,
+    propMarketKey: opts.marketKey,
+    propSide: opts.side,
+    propLine: opts.line,
+  });
+
+  if (!identity) {
+    if (!String(opts.athleteId ?? "").trim()) coverageImpact.missingAthleteId += 1;
+    if (!String(opts.eventId ?? "").trim()) coverageImpact.missingEventId += 1;
+    if (
+      !canonMarketKey(opts.marketKey) ||
+      !canonSide(opts.side) ||
+      opts.line == null ||
+      !Number.isFinite(opts.line)
+    ) {
+      coverageImpact.missingMarketSideLine += 1;
+    }
+    coverageImpact.rejectedMissingIdentity += 1;
+    return insufficientPropProvenance({
+      sport: opts.sport,
+      marketKey: opts.marketKey,
+      nullReason: opts.nullReason ?? "missing_exact_identity",
+      hitReliability: opts.hitReliability,
       simulations: sims,
-      nullReason: null,
-      hitReliability:
-        opts.hitReliability != null && Number.isFinite(opts.hitReliability)
-          ? opts.hitReliability
-          : null,
-      sport: opts.sport ?? null,
-      marketKey: opts.marketKey ?? null,
-    };
+      athleteId: opts.athleteId ?? null,
+      eventId: opts.eventId ?? null,
+      side: canonSide(opts.side),
+      line: opts.line != null && Number.isFinite(opts.line) ? Number(opts.line) : null,
+    });
   }
-  return insufficientPropProvenance({
-    sport: opts.sport,
-    marketKey: opts.marketKey,
-    nullReason:
-      opts.nullReason ??
-      (sims > 0 && sims < EXACT_MARKET_10K_MIN_SIMULATIONS
-        ? "insufficient_simulations"
-        : "exact_market_10k_incomplete"),
-    hitReliability: opts.hitReliability,
+
+  if (hit == null || !Number.isFinite(hit) || sims < EXACT_MARKET_10K_MIN_SIMULATIONS) {
+    return insufficientPropProvenance({
+      sport: opts.sport,
+      marketKey: identity.marketKey,
+      nullReason:
+        opts.nullReason ??
+        (sims > 0 && sims < EXACT_MARKET_10K_MIN_SIMULATIONS
+          ? "insufficient_simulations"
+          : "exact_market_10k_incomplete"),
+      hitReliability: opts.hitReliability,
+      simulations: sims,
+      athleteId: identity.athleteId,
+      eventId: identity.eventId,
+      side: identity.side,
+      line: identity.line,
+    });
+  }
+
+  const integrity = integrityFor({
+    ...identity,
+    hitProbability: hit,
     simulations: sims,
   });
+  evidenceSeq += 1;
+  const evidenceId = `tev_${evidenceSeq}_${integrity.slice(0, 24)}`;
+  trustedExactEvidence.set(evidenceId, {
+    ...identity,
+    hitProbability: hit,
+    simulations: sims,
+    integrity,
+  });
+  coverageImpact.stampedExact10k += 1;
+
+  return {
+    source: "exact_market_10k",
+    hitProbability: hit,
+    simulations: sims,
+    nullReason: null,
+    hitReliability:
+      opts.hitReliability != null && Number.isFinite(opts.hitReliability)
+        ? opts.hitReliability
+        : null,
+    sport: opts.sport ?? null,
+    marketKey: identity.marketKey,
+    athleteId: identity.athleteId,
+    eventId: identity.eventId,
+    side: identity.side,
+    line: identity.line,
+    evidenceId,
+  };
 }
 
 /**
  * Historical-model stamp — seating hit only when sport/market is allowlisted.
- * Non-allowlisted history never becomes a seating probability.
  */
 export function historicalModelProvenance(opts: {
   hitProbability: number | null | undefined;
@@ -156,14 +417,17 @@ export function historicalModelProvenance(opts: {
   marketKey?: string | null;
   nullReason?: string | null;
   hitReliability?: number | null;
+  athleteId?: string | null;
+  eventId?: string | null;
+  side?: string | null;
+  line?: number | null;
 }): PropProbabilityProvenance {
   const hit = opts.hitProbability;
   const allowed = isValidatedHistoricalMarket(opts.sport, opts.marketKey);
-  if (
-    allowed &&
-    hit != null &&
-    Number.isFinite(hit)
-  ) {
+  const side = canonSide(opts.side);
+  const line =
+    opts.line != null && Number.isFinite(opts.line) ? Number(opts.line) : null;
+  if (allowed && hit != null && Number.isFinite(hit)) {
     return {
       source: "validated_historical_model",
       hitProbability: hit,
@@ -175,6 +439,11 @@ export function historicalModelProvenance(opts: {
           : null,
       sport: opts.sport ?? null,
       marketKey: opts.marketKey ?? null,
+      athleteId: opts.athleteId ?? null,
+      eventId: opts.eventId ?? null,
+      side,
+      line,
+      evidenceId: null,
     };
   }
   return insufficientPropProvenance({
@@ -187,12 +456,65 @@ export function historicalModelProvenance(opts: {
         : "insufficient_evidence"),
     hitReliability: opts.hitReliability,
     simulations: 0,
+    athleteId: opts.athleteId ?? null,
+    eventId: opts.eventId ?? null,
+    side,
+    line,
   });
 }
 
-/** True when provenance authorizes using hitProbability for #711 / seating. */
+function trustedExactEvidenceValid(
+  provenance: PropProbabilityProvenance,
+  candidate?: ExactMarketCandidate | null,
+): boolean {
+  if (provenance.source !== "exact_market_10k") return false;
+  const evidenceId = provenance.evidenceId;
+  if (!evidenceId) return false;
+  const trusted = trustedExactEvidence.get(evidenceId);
+  if (!trusted) return false;
+  if (
+    provenance.hitProbability == null ||
+    !Number.isFinite(provenance.hitProbability) ||
+    provenance.simulations < EXACT_MARKET_10K_MIN_SIMULATIONS
+  ) {
+    return false;
+  }
+  const fromProv = resolveExactMarketIdentity({
+    athleteId: provenance.athleteId,
+    eventId: provenance.eventId,
+    propMarketKey: provenance.marketKey,
+    propSide: provenance.side,
+    propLine: provenance.line,
+  });
+  if (!fromProv) return false;
+  if (!identitiesMatch(fromProv, trusted)) return false;
+  const expectedIntegrity = integrityFor({
+    ...trusted,
+    hitProbability: provenance.hitProbability,
+    simulations: provenance.simulations,
+  });
+  if (expectedIntegrity !== trusted.integrity) return false;
+  // Tamper check: provenance hit/sims must match registered evidence.
+  if (
+    provenance.hitProbability !== trusted.hitProbability ||
+    provenance.simulations !== trusted.simulations
+  ) {
+    return false;
+  }
+  if (candidate) {
+    const cand = resolveExactMarketIdentity(candidate);
+    if (!cand || !identitiesMatch(cand, trusted)) return false;
+  }
+  return true;
+}
+
+/**
+ * True when provenance authorizes seating. Exact-market requires live trusted
+ * evidence + optional candidate identity match. Forged stamps fail closed.
+ */
 export function propProvenanceAllowsSeating(
   provenance: PropProbabilityProvenance | null | undefined,
+  candidate?: ExactMarketCandidate | null,
 ): boolean {
   if (!provenance) return false;
   if (provenance.source === "insufficient_evidence") return false;
@@ -200,7 +522,7 @@ export function propProvenanceAllowsSeating(
     return false;
   }
   if (provenance.source === "exact_market_10k") {
-    return provenance.simulations >= EXACT_MARKET_10K_MIN_SIMULATIONS;
+    return trustedExactEvidenceValid(provenance, candidate);
   }
   if (provenance.source === "validated_historical_model") {
     return isValidatedHistoricalMarket(provenance.sport, provenance.marketKey);
@@ -211,8 +533,9 @@ export function propProvenanceAllowsSeating(
 /** Seating hit from provenance — null when not authorized (never invent). */
 export function seatingHitFromProvenance(
   provenance: PropProbabilityProvenance | null | undefined,
+  candidate?: ExactMarketCandidate | null,
 ): number | null {
-  if (!propProvenanceAllowsSeating(provenance)) return null;
+  if (!propProvenanceAllowsSeating(provenance, candidate)) return null;
   return provenance!.hitProbability;
 }
 
@@ -223,18 +546,24 @@ export function seatingHitFromProvenance(
 export function preferPropProvenance(
   current: PropProbabilityProvenance | null | undefined,
   incoming: PropProbabilityProvenance | null | undefined,
+  candidate?: ExactMarketCandidate | null,
 ): PropProbabilityProvenance {
   if (!incoming) {
     return current ?? insufficientPropProvenance({});
   }
   if (!current) return incoming;
-  if (propProvenanceAllowsSeating(current) && !propProvenanceAllowsSeating(incoming)) {
+  if (
+    propProvenanceAllowsSeating(current, candidate) &&
+    !propProvenanceAllowsSeating(incoming, candidate)
+  ) {
     return current;
   }
-  if (!propProvenanceAllowsSeating(current) && propProvenanceAllowsSeating(incoming)) {
+  if (
+    !propProvenanceAllowsSeating(current, candidate) &&
+    propProvenanceAllowsSeating(incoming, candidate)
+  ) {
     return incoming;
   }
-  // Both authorized or both not — prefer exact 10k over historical.
   if (
     incoming.source === "exact_market_10k" &&
     current.source !== "exact_market_10k"
@@ -267,15 +596,13 @@ export function resolvePropProbabilityProvenance(input: {
 }
 
 /**
- * Test / fixture helper — stamp authorized exact 10k when a finite seating hit
- * already exists. Production paths must use exactMarket10kProvenance from real sims.
+ * Test / fixture helper — registers trusted exact 10k via the real factory.
+ * Requires athleteId + eventId on the pick (fail closed otherwise).
  */
 export function withExactMarket10kProvenance<
-  T extends {
+  T extends ExactMarketCandidate & {
     isProp?: boolean | null;
     sport?: string | null;
-    propMarketKey?: string | null;
-    market?: string | null;
     simHit?: number | null;
     propProbabilityProvenance?: PropProbabilityProvenance | null;
     finalAiScore?: {
@@ -295,6 +622,10 @@ export function withExactMarket10kProvenance<
     simulations,
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
+    athleteId: pick.athleteId,
+    eventId: pick.eventId,
+    side: pick.propSide ?? pick.side,
+    line: pick.propLine ?? pick.line,
   });
   return {
     ...pick,

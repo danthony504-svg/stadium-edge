@@ -296,6 +296,8 @@ test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
   // Defect guard: "2+ HR" is balanced style (not longshot). Qualify with
   // allowRareMultiCount, then a bare boardLegPoolRole() must still allow.
   const pick = withExactMarket10kProvenance({
+    athleteId: "ath-hr",
+    eventId: "evt-hr",
     isProp: true,
     sport: "mlb",
     player: "Judge",
@@ -331,7 +333,12 @@ test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
         simulations: 10_000,
         sport: "mlb",
         marketKey: "batter_home_runs",
-      }),
+      
+      athleteId: "ath-hr",
+      eventId: "evt-hr",
+      side: "Over",
+      line: 1.5,
+    }),
     },
   }) as ParsedPick & { allowRareMultiCount: boolean; hitReliability: number };
   assert.notEqual(boardLegPoolRole(pick, pick.finalAiScore), null);
@@ -367,6 +374,8 @@ test("combinator path: 2+ HR ask seats rare multi-count (balanced style)", () =>
   };
   const mkHr = (player: string, game: string, rank: number): BoardScoredLeg => ({
     pick: withExactMarket10kProvenance({
+    athleteId: "ath-hr",
+    eventId: "evt-hr",
       isProp: true,
       sport: "mlb",
       player,
@@ -386,7 +395,12 @@ test("combinator path: 2+ HR ask seats rare multi-count (balanced style)", () =>
           simulations: 10_000,
           sport: "mlb",
           marketKey: "batter_home_runs",
-        }),
+        
+      athleteId: "ath-hr",
+      eventId: "evt-hr",
+      side: "Over",
+      line: 1.5,
+    }),
       },
     }) as ParsedPick,
     evPct: 4,

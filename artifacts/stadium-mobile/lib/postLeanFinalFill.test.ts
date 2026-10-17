@@ -77,6 +77,10 @@ function prop(
     simulations: 10_000,
     sport: "nfl",
     marketKey: market,
+    athleteId: `ath-${player}`,
+    eventId: "evt-tnf",
+    side: /\bover\b/i.test(pick) ? "Over" : "Under",
+    line: Number(String(pick).match(/([\d.]+)/)?.[1] ?? 0) || 0.5,
   });
   return withExactMarket10kProvenance({
     game: TNF,
@@ -86,6 +90,8 @@ function prop(
     player,
     odds,
     isProp: true,
+    athleteId: `ath-${player}`,
+    eventId: "evt-tnf",
     propLine: Number(String(pick).match(/([\d.]+)/)?.[1] ?? 0) || null,
     propSide: /\bover\b/i.test(pick) ? "Over" : "Under",
     finalAiScore: { ...finalAiScore, propProbabilityProvenance: provenance },

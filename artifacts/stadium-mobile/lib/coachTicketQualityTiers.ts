@@ -108,6 +108,11 @@ export function legQualifiesAtMinGrade(
           }).propProbabilityProvenance,
           finalAiScore: score,
         }),
+        athleteId: pick.athleteId,
+        eventId: pick.eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       {
         requestStyle: pick.propsOnlyTicket

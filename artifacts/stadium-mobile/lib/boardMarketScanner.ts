@@ -448,13 +448,56 @@ async function simPropBatch(
           propSimKeyForPick(p, poolRowForPropPick(p, pool)) === k ||
           propSimKey(p.player, p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
       );
+      const poolRow = batchPick ? poolRowForPropPick(batchPick, pool) : undefined;
+      const side =
+        (v.side as "Over" | "Under" | undefined) ??
+        (batchPick?.propSide === "Under" ? "Under" : batchPick?.propSide === "Over" ? "Over" : null);
+      const athleteId = batchPick?.athleteId ?? poolRow?.athleteId ?? null;
+      const eventId = batchPick?.eventId ?? poolRow?.eventId ?? null;
+      const marketKey = v.market ?? batchPick?.propMarketKey ?? batchPick?.market;
+      const sport = batchPick?.sport ?? (v as { sport?: string | null }).sport ?? null;
+      const line = v.line ?? batchPick?.propLine ?? null;
       const probabilityProvenance = exactMarket10kProvenance({
         hitProbability: v.hitProbability,
         simulations: v.simulations,
-        sport: batchPick?.sport ?? (v as { sport?: string | null }).sport ?? null,
-        marketKey: v.market ?? batchPick?.propMarketKey ?? batchPick?.market,
+        sport,
+        marketKey,
         nullReason: v.nullReason ?? null,
+        athleteId,
+        eventId,
+        side,
+        line,
       });
+      // Same deep draw's alternate lines — register trusted evidence per line
+      // (no extra API/MC). Enables provenance-aware ALT "10K" captions.
+      const bySide = v.lineHitRatesBySide;
+      if (
+        bySide &&
+        athleteId &&
+        eventId &&
+        marketKey &&
+        (v.simulations ?? 0) >= 10_000
+      ) {
+        for (const altSide of ["Over", "Under"] as const) {
+          const rates = bySide[altSide];
+          if (!rates) continue;
+          for (const [lineStr, hit] of Object.entries(rates)) {
+            const altLine = Number(lineStr);
+            if (!Number.isFinite(altLine) || hit == null || !Number.isFinite(hit)) continue;
+            if (altSide === side && altLine === line) continue;
+            exactMarket10kProvenance({
+              hitProbability: hit,
+              simulations: v.simulations,
+              sport,
+              marketKey,
+              athleteId,
+              eventId,
+              side: altSide,
+              line: altLine,
+            });
+          }
+        }
+      }
       out.set(k, {
         hitProbability: probabilityProvenance.hitProbability,
         nullReason: probabilityProvenance.nullReason,
@@ -614,7 +657,17 @@ function appendPropScoredLegs(
         .propProbabilityProvenance ??
       pick.finalAiScore?.propProbabilityProvenance ??
       null;
-    if (!propProvenanceAllowsSeating(scoredProv)) continue;
+    if (
+      !propProvenanceAllowsSeating(scoredProv, {
+        athleteId: pick.athleteId,
+        eventId: pick.eventId,
+        propMarketKey: pick.propMarketKey ?? pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      })
+    ) {
+      continue;
+    }
     // Carry rare-count reliability from enrich (null for ordinary markets).
     const simKey = propSimKeyForPick(pick, poolRowForPropPick(pick, opts.pool));
     const hitMeta = simKey ? propHits.get(simKey) : null;

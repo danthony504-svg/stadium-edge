@@ -165,6 +165,11 @@ test("sim-positive prop with thin context fails strict AI gate but may fill tick
       simulations: 10_000,
       sport: "nba",
       marketKey: "player_points",
+    
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
     }),
     propHolisticContext: {
       sport: "nba",
@@ -218,6 +223,11 @@ test("buildFinalAiScore uses holistic composite for props", () => {
       simulations: 10_000,
       sport: "nba",
       marketKey: "player_points",
+    
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
     }),
     propHolisticContext: {
       sport: "nba",
@@ -313,7 +323,12 @@ test("resolvePropHolisticForDisplay merges rubric factors into thin propHolistic
         simulations: 10_000,
         sport: "wnba",
         marketKey: "player_rebounds",
-      }),
+      
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
       rubric: {
         composite: 6,
         grade: "C+",
@@ -380,7 +395,12 @@ test("minimalPropHolisticForPick always returns holistic for sim-graded props", 
         simulations: 10_000,
         sport: "mlb",
         marketKey: "pitcher_strikeouts",
-      }),
+      
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
       rubric: {
         composite: 6.1,
         grade: "B-",

@@ -663,6 +663,11 @@ export function fillReservedPropSlots<T extends PropFillPick>(
             }).propProbabilityProvenance,
             finalAiScore: leg.pick.finalAiScore,
           }),
+          athleteId: (leg.pick as { athleteId?: string | null }).athleteId,
+          eventId: (leg.pick as { eventId?: string | null }).eventId,
+          propMarketKey: leg.pick.propMarketKey,
+          propSide: (leg.pick as { propSide?: string | null }).propSide,
+          propLine: leg.pick.propLine,
         },
         { requestStyle: "normal", isProp: true },
       );

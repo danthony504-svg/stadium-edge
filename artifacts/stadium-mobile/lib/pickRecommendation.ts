@@ -207,6 +207,11 @@ function legacyPropStagingQualifies(
           }).propProbabilityProvenance,
           finalAiScore: score,
         }),
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       { requestStyle: "normal", isProp: true },
     )
@@ -241,6 +246,14 @@ function propHolisticGatePassed(
         }).propProbabilityProvenance,
         finalAiScore: score,
       }),
+      {
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        market: pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      },
     )
   ) {
     return false;
@@ -282,6 +295,11 @@ export function propSimEdgeStagingQualifies(
         }).propProbabilityProvenance,
         finalAiScore: score,
       }),
+      athleteId: (pick as { athleteId?: string | null }).athleteId,
+      eventId: (pick as { eventId?: string | null }).eventId,
+      propMarketKey: pick.propMarketKey,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
     },
     {
       requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
@@ -373,6 +391,11 @@ export function pickIsAiRecommended(
           }).propProbabilityProvenance,
           finalAiScore: score,
         }),
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       {
         requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
@@ -515,6 +538,11 @@ export function propsOnlyTicketCleared(
         }).propProbabilityProvenance,
         finalAiScore: score,
       }),
+      athleteId: (pick as { athleteId?: string | null }).athleteId,
+      eventId: (pick as { eventId?: string | null }).eventId,
+      propMarketKey: pick.propMarketKey,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
     },
     { requestStyle: "props_only", isProp: true },
   );
@@ -578,6 +606,11 @@ export function filterTicketPicksPreservingTicket<
           }).propProbabilityProvenance,
           finalAiScore: p.finalAiScore,
         }),
+        athleteId: (p as { athleteId?: string | null }).athleteId,
+        eventId: (p as { eventId?: string | null }).eventId,
+        propMarketKey: p.propMarketKey,
+        propSide: p.propSide,
+        propLine: p.propLine,
       },
       {
         requestStyle: p.propsOnlyTicket ? "props_only" : "normal",

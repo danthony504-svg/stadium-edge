@@ -200,6 +200,11 @@ export function boardLegPoolRole(
           }).propProbabilityProvenance,
           finalAiScore: score ?? pick.finalAiScore ?? null,
         }),
+        athleteId: pick.athleteId,
+        eventId: pick.eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       {
         requestStyle,

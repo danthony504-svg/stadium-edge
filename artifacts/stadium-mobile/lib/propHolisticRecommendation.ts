@@ -644,7 +644,17 @@ export function propQualifiesForTicketFill(
       .propProbabilityProvenance ??
     pick.finalAiScore?.propProbabilityProvenance ??
     null;
-  if (!propProvenanceAllowsSeating(provenance)) return false;
+  if (
+    !propProvenanceAllowsSeating(provenance, {
+      athleteId: pick.athleteId,
+      eventId: pick.eventId,
+      propMarketKey: pick.propMarketKey ?? pick.market,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
+    })
+  ) {
+    return false;
+  }
   if (!pickHasSimGrade(pick, opts.simHit)) return false;
   if ((opts.edgePct ?? 0) <= 0) return false;
   if ((holistic.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;

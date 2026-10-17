@@ -62,6 +62,7 @@ function pick(
     propSide: side,
     sport: "nfl",
     athleteId: opts?.athleteId === null ? null : (opts?.athleteId ?? `ath-${player}`),
+    eventId: `evt-${player}`,
   } as ParsedPick;
 }
 
@@ -82,6 +83,10 @@ function exact10kPropsOnlyHit(
     sport: p.sport,
     marketKey: p.propMarketKey ?? p.market,
     hitReliability,
+    athleteId: p.athleteId ?? "ath-props",
+    eventId: p.eventId ?? "evt-props",
+    side: p.propSide ?? "Over",
+    line: p.propLine ?? 0.5,
   });
   return {
     hitProbability,
@@ -104,10 +109,18 @@ function setExact10kHitOnMap(
 }
 
 function stampPropsOnlyScoredLeg(leg: BoardScoredLeg, hit: number): BoardScoredLeg {
+  const athleteId = leg.pick.athleteId ?? "ath-props";
+  const eventId = leg.pick.eventId ?? "evt-props";
+  const propSide = (leg.pick.propSide === "Under" ? "Under" : "Over") as "Over" | "Under";
+  const propLine = leg.pick.propLine ?? 0.5;
   const pick = withExactMarket10kProvenance({
     ...leg.pick,
     isProp: true,
     propsOnlyTicket: true,
+    athleteId,
+    eventId,
+    propSide,
+    propLine,
     simHit: hit,
     finalAiScore: {
       grade: leg.grade ?? "B",
@@ -124,6 +137,10 @@ function stampPropsOnlyScoredLeg(leg: BoardScoredLeg, hit: number): BoardScoredL
         simulations: EXACT_MARKET_10K_MIN_SIMULATIONS,
         sport: leg.pick.sport,
         marketKey: leg.pick.propMarketKey ?? leg.pick.market,
+        athleteId,
+        eventId,
+        side: propSide,
+        line: propLine,
       }),
     } as never,
   });

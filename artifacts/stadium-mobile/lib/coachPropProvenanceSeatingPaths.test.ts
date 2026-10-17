@@ -41,6 +41,7 @@ const SEDRICK = {
   odds: -120,
   player: "Sedrick Alexander",
   athleteId: "5030333",
+  eventId: "evt-ark-van",
   game: "Arkansas @ Vanderbilt",
   pick: "Sedrick Alexander Over 0.5 Anytime TD",
   propsOnlyTicket: true,
@@ -148,7 +149,12 @@ test("exact 10k still seats at #711 floors", () => {
     simulations: 10_000,
     sport: "ncaaf",
     marketKey: "player_anytime_td",
-  });
+  
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      side: "Over",
+      line: 0.5,
+    });
   const pick = scoreWith({ provenance: prov, simHit: 0.58, confidencePct: 52 });
   assert.equal(
     evaluateCoachQualification(pick, { requestStyle: "props_only", isProp: true }).status,
@@ -261,7 +267,12 @@ test("authorized exact 10k still clears ALT + reserved fill + final", () => {
     simulations: 10_000,
     sport: "nfl",
     marketKey: "player_reception_yds",
-  });
+  
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      side: "Over",
+      line: 0.5,
+    });
   const pick = withExactMarket10kProvenance(
     scoreWith({
       provenance: prov,

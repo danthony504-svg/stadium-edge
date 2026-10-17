@@ -67,12 +67,20 @@ function stampQualifiedPropInScored<
       simulations: 10_000,
       sport,
       marketKey,
+      athleteId: (leg.pick.athleteId as string | undefined) ?? "ath-fill",
+      eventId: (leg.pick.eventId as string | undefined) ?? "evt-fill",
+      side: (leg.pick.propSide as string | undefined) ?? (leg.pick.side as string | undefined) ?? "Over",
+      line: (leg.pick.propLine as number | undefined) ?? 1.5,
     }),
     ...(leg.pick.finalAiScore as object | undefined),
   };
   const pick = withExactMarket10kProvenance({
     ...leg.pick,
     isProp: true,
+    athleteId: (leg.pick.athleteId as string | undefined) ?? "ath-fill",
+    eventId: (leg.pick.eventId as string | undefined) ?? "evt-fill",
+    propSide: (leg.pick.propSide as string | undefined) ?? "Over",
+    propLine: (leg.pick.propLine as number | undefined) ?? 1.5,
     simHit,
     finalAiScore,
   });
