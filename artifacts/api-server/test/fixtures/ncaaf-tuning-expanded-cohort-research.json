@@ -1,0 +1,576 @@
+{
+  "generatedAt": "2026-10-17T01:54:35.653Z",
+  "split": "TUNING",
+  "finalEvalUntouched": true,
+  "liveGate": "NCAAF_GAME_LINE_SIM_VALIDATED=false",
+  "paidRetrieval": false,
+  "closesInPredictiveFeatures": false,
+  "researchStamp": "ppg-per-drive-v1.1-research",
+  "fairCompare": {
+    "rule": "Identical evaluation counts: TUNING games with closeMlHome+closeSpreadHome, non-tie, scored by all models",
+    "cohortN": 421,
+    "skippedThin": 3,
+    "closesRows": 470,
+    "tuningGames": 471,
+    "stillMissing": 1,
+    "aliasRematch": {
+      "recovered": 57,
+      "stillMissing": 1,
+      "paidHttp": 0,
+      "note": "Alias rematch + one pre-kickoff retry from cached previous slate; no new Odds API calls."
+    },
+    "modelNs": {
+      "locked_drive_engine": 421,
+      "margin_history_mean": 421,
+      "opp_adj_rating": 421,
+      "opp_adj_rating_time_ordered_slope": 421
+    }
+  },
+  "lockedCriteria": {
+    "M3": "brierEngine <= brierMarketClose + 0.02",
+    "S2": "brierEngine ATS < 0.25"
+  },
+  "compressionAudit": {
+    "scoreRateCap": 0.98,
+    "lockedResidualSd": 14.5,
+    "lockedShrink": 2,
+    "lockedGapScale": 1,
+    "teamMeanHalvesGapMean": 0.9323358211021383,
+    "rateCapBindShare": 0,
+    "rateCapBinds": 0,
+    "rateCapEligible": 421,
+    "largeGap14Plus": {
+      "n": 98,
+      "rateCapBinds": 0
+    },
+    "earlySeasonThinFormWeeks1to3": 46,
+    "fcsOpponentInCohort": 45,
+    "fcsIdsNamed": 44,
+    "provenanceCounts": {
+      "venue_split": 418,
+      "venue_l10_blend": 2,
+      "last10": 1
+    },
+    "pregameTiming": "walkHoldoutGames: form from earlier games only; credible completedAt or kickoff+4h; evaluated game excluded",
+    "futureLeakage": "none — ratings updated after prediction; form walker is causal",
+    "teamMeanHalvesGapN": 358,
+    "meanAbsRawOffenseGap": 10.269648041322622,
+    "meanAbsBlendedGap": 9.437302624137539
+  },
+  "models": {
+    "locked_drive_engine": {
+      "modelId": "locked_drive_engine",
+      "n": 421,
+      "moneyline": {
+        "brierEngine": 0.20159715914489326,
+        "brierMarketClose": 0.15009130848063543,
+        "delta": 0.051505850664257835,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.6172256532066511,
+        "meanY": 0.6817102137767221,
+        "meanMarketP": 0.6746389481850378,
+        "corrP_Y": 0.3001840684085784
+      },
+      "spreadsAts": {
+        "n": 413,
+        "brierEngine": 0.29428887893462463,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "margin": {
+        "corrPred_Actual": 0.4844583310893894,
+        "meanPred": 8.511649417486714,
+        "meanAct": 10.676959619952495,
+        "meanAbsError": 15.268643158767851,
+        "rateCapBindShare": 0
+      }
+    },
+    "margin_history_mean": {
+      "modelId": "margin_history_mean",
+      "n": 421,
+      "moneyline": {
+        "brierEngine": 0.19669267695961987,
+        "brierMarketClose": 0.15009130848063543,
+        "delta": 0.04660136847898444,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.5688527315914489,
+        "meanY": 0.6817102137767221,
+        "meanMarketP": 0.6746389481850378,
+        "corrP_Y": 0.3901588278817571
+      },
+      "spreadsAts": {
+        "n": 413,
+        "brierEngine": 0.2918046392251815,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "margin": {
+        "corrPred_Actual": 0.5236402215715442,
+        "meanPred": 6.028053117451917,
+        "meanAct": 10.676959619952495,
+        "meanAbsError": 14.874320128483834,
+        "rateCapBindShare": 0
+      }
+    },
+    "opp_adj_rating": {
+      "modelId": "opp_adj_rating",
+      "n": 421,
+      "moneyline": {
+        "brierEngine": 0.1824427211534826,
+        "brierMarketClose": 0.15009130848063543,
+        "delta": 0.03235141267284716,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.5789267674643289,
+        "meanY": 0.6817102137767221,
+        "meanMarketP": 0.6746389481850378,
+        "corrP_Y": 0.4566196239767138
+      },
+      "spreadsAts": {
+        "n": 413,
+        "brierEngine": 0.31220129833015026,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "margin": {
+        "corrPred_Actual": 0.5135342435386369,
+        "meanPred": 3.817281056331269,
+        "meanAct": 10.676959619952495,
+        "meanAbsError": 15.280818231794973,
+        "rateCapBindShare": 0
+      }
+    },
+    "opp_adj_rating_time_ordered_slope": {
+      "modelId": "opp_adj_rating_time_ordered_slope",
+      "n": 421,
+      "moneyline": {
+        "brierEngine": 0.1827833500889605,
+        "brierMarketClose": 0.15009130848063543,
+        "delta": 0.03269204160832506,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.5999111616356276,
+        "meanY": 0.6817102137767221,
+        "meanMarketP": 0.6746389481850378,
+        "corrP_Y": 0.4454055716721035
+      },
+      "spreadsAts": {
+        "n": 413,
+        "brierEngine": 0.31220129833015026,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "margin": {
+        "corrPred_Actual": 0.5135342435386369,
+        "meanPred": 3.817281056331269,
+        "meanAct": 10.676959619952495,
+        "meanAbsError": 15.280818231794973,
+        "rateCapBindShare": 0
+      }
+    }
+  },
+  "timeOrderedValidation": {
+    "byWeek": {
+      "locked_drive_engine": {
+        "w1": {
+          "n": 86,
+          "brierEngine": 0.1801078488372092,
+          "brierMarket": 0.09604525761099857,
+          "atsBrier": 0.30703767441860463,
+          "corrMargin": 0.4136606475973679,
+          "meanPred": 10.44404300479882,
+          "meanAct": 17.91860465116279
+        },
+        "w2": {
+          "n": 64,
+          "brierEngine": 0.19435749999999996,
+          "brierMarket": 0.1383859444245963,
+          "atsBrier": 0.3203353870967743,
+          "corrMargin": 0.5346418374010734,
+          "meanPred": 10.154166666666663,
+          "meanAct": 15.84375
+        },
+        "w3": {
+          "n": 59,
+          "brierEngine": 0.18095562711864407,
+          "brierMarket": 0.1412348814775475,
+          "atsBrier": 0.30334112068965513,
+          "corrMargin": 0.5571546273800901,
+          "meanPred": 6.844114877589455,
+          "meanAct": 11.40677966101695
+        },
+        "w4": {
+          "n": 55,
+          "brierEngine": 0.22367592727272725,
+          "brierMarket": 0.18863661172995622,
+          "atsBrier": 0.3032317454545457,
+          "corrMargin": 0.33247212776963697,
+          "meanPred": 9.542652236652238,
+          "meanAct": 9.436363636363636
+        },
+        "w5": {
+          "n": 52,
+          "brierEngine": 0.23517809615384616,
+          "brierMarket": 0.16026341177755718,
+          "atsBrier": 0.25919990000000004,
+          "corrMargin": 0.5541252781448253,
+          "meanPred": 6.399278846153845,
+          "meanAct": 2.519230769230769
+        },
+        "w6": {
+          "n": 49,
+          "brierEngine": 0.19574642857142852,
+          "brierMarket": 0.16890614515317354,
+          "atsBrier": 0.2792591632653061,
+          "corrMargin": 0.5208791844956815,
+          "meanPred": 7.016326530612245,
+          "meanAct": 7.224489795918367
+        },
+        "w7": {
+          "n": 56,
+          "brierEngine": 0.21687241071428567,
+          "brierMarket": 0.19203353741725196,
+          "atsBrier": 0.27094430188679236,
+          "corrMargin": 0.36094205832467985,
+          "meanPred": 7.6810515873015905,
+          "meanAct": 4.696428571428571
+        }
+      },
+      "opp_adj_rating": {
+        "w1": {
+          "n": 86,
+          "brierEngine": 0.17667499992865746,
+          "brierMarket": 0.09604525761099857,
+          "atsBrier": 0.34119199688816915,
+          "corrMargin": 0.4016691010820603,
+          "meanPred": 6.489613294747297,
+          "meanAct": 17.91860465116279
+        },
+        "w2": {
+          "n": 64,
+          "brierEngine": 0.17121237588251725,
+          "brierMarket": 0.1383859444245963,
+          "atsBrier": 0.3758787278989749,
+          "corrMargin": 0.5399112573418654,
+          "meanPred": 5.3858744989421155,
+          "meanAct": 15.84375
+        },
+        "w3": {
+          "n": 59,
+          "brierEngine": 0.17608230892124005,
+          "brierMarket": 0.1412348814775475,
+          "atsBrier": 0.3223475873527133,
+          "corrMargin": 0.6351154912634058,
+          "meanPred": 2.470326857430668,
+          "meanAct": 11.40677966101695
+        },
+        "w4": {
+          "n": 55,
+          "brierEngine": 0.2133137363252806,
+          "brierMarket": 0.18863661172995622,
+          "atsBrier": 0.3019318016125282,
+          "corrMargin": 0.327231304796523,
+          "meanPred": 4.021784187326277,
+          "meanAct": 9.436363636363636
+        },
+        "w5": {
+          "n": 52,
+          "brierEngine": 0.16968736209232876,
+          "brierMarket": 0.16026341177755718,
+          "atsBrier": 0.2731293161853845,
+          "corrMargin": 0.5845847535359077,
+          "meanPred": 1.88205299998798,
+          "meanAct": 2.519230769230769
+        },
+        "w6": {
+          "n": 49,
+          "brierEngine": 0.18398523840557088,
+          "brierMarket": 0.16890614515317354,
+          "atsBrier": 0.28270654271378043,
+          "corrMargin": 0.6426205554934542,
+          "meanPred": 2.764174410511097,
+          "meanAct": 7.224489795918367
+        },
+        "w7": {
+          "n": 56,
+          "brierEngine": 0.1910109342920137,
+          "brierMarket": 0.19203353741725196,
+          "atsBrier": 0.25435184511023057,
+          "corrMargin": 0.3901752692172511,
+          "meanPred": 1.8573910076630062,
+          "meanAct": 4.696428571428571
+        }
+      },
+      "opp_adj_rating_time_ordered_slope": {
+        "w1": {
+          "n": 86,
+          "brierEngine": 0.17796287025701515,
+          "brierMarket": 0.09604525761099857,
+          "atsBrier": 0.34119199688816915,
+          "corrMargin": 0.4016691010820603,
+          "meanPred": 6.489613294747297,
+          "meanAct": 17.91860465116279
+        },
+        "w2": {
+          "n": 64,
+          "brierEngine": 0.16600024290322374,
+          "brierMarket": 0.1383859444245963,
+          "atsBrier": 0.3758787278989749,
+          "corrMargin": 0.5399112573418654,
+          "meanPred": 5.3858744989421155,
+          "meanAct": 15.84375
+        },
+        "w3": {
+          "n": 59,
+          "brierEngine": 0.17649248021536906,
+          "brierMarket": 0.1412348814775475,
+          "atsBrier": 0.3223475873527133,
+          "corrMargin": 0.6351154912634058,
+          "meanPred": 2.470326857430668,
+          "meanAct": 11.40677966101695
+        },
+        "w4": {
+          "n": 55,
+          "brierEngine": 0.22278493909750044,
+          "brierMarket": 0.18863661172995622,
+          "atsBrier": 0.3019318016125282,
+          "corrMargin": 0.327231304796523,
+          "meanPred": 4.021784187326277,
+          "meanAct": 9.436363636363636
+        },
+        "w5": {
+          "n": 52,
+          "brierEngine": 0.1675499157609971,
+          "brierMarket": 0.16026341177755718,
+          "atsBrier": 0.2731293161853845,
+          "corrMargin": 0.5845847535359077,
+          "meanPred": 1.88205299998798,
+          "meanAct": 2.519230769230769
+        },
+        "w6": {
+          "n": 49,
+          "brierEngine": 0.1810985846007329,
+          "brierMarket": 0.16890614515317354,
+          "atsBrier": 0.28270654271378043,
+          "corrMargin": 0.6426205554934542,
+          "meanPred": 2.764174410511097,
+          "meanAct": 7.224489795918367
+        },
+        "w7": {
+          "n": 56,
+          "brierEngine": 0.19232703127617143,
+          "brierMarket": 0.19203353741725196,
+          "atsBrier": 0.25435184511023057,
+          "corrMargin": 0.3901752692172511,
+          "meanPred": 1.8573910076630062,
+          "meanAct": 4.696428571428571
+        }
+      }
+    },
+    "byFavoriteSize": {
+      "locked_drive_engine": {
+        "large_14plus": {
+          "n": 167,
+          "brierEngine": 0.1328438562874251,
+          "brierMarket": 0.057222452522042846,
+          "atsBrier": 0.33486122155688636,
+          "corrMargin": 0.5451005471847988,
+          "meanPred": 11.52339273833286,
+          "meanAct": 22.347305389221557
+        },
+        "medium_7.5_14": {
+          "n": 75,
+          "brierEngine": 0.2094024533333334,
+          "brierMarket": 0.16711957627269364,
+          "atsBrier": 0.27406606666666666,
+          "corrMargin": 0.34206935459417714,
+          "meanPred": 6.804666666666667,
+          "meanAct": 7.36
+        },
+        "pick_em": {
+          "n": 73,
+          "brierEngine": 0.26649306849315063,
+          "brierMarket": 0.23358475094647083,
+          "atsBrier": 0.25200759701492537,
+          "corrMargin": 0.04279041308027645,
+          "meanPred": 6.423439878234402,
+          "meanAct": 0.6164383561643836
+        },
+        "small_3.5_7.5": {
+          "n": 106,
+          "brierEngine": 0.25970096226415096,
+          "brierMarket": 0.22685505905303735,
+          "atsBrier": 0.27096172115384615,
+          "corrMargin": 0.20049735423544848,
+          "meanPred": 6.412610437256662,
+          "meanAct": 1.5660377358490567
+        }
+      },
+      "opp_adj_rating": {
+        "large_14plus": {
+          "n": 167,
+          "brierEngine": 0.11641128245654497,
+          "brierMarket": 0.057222452522042846,
+          "atsBrier": 0.3726237506957183,
+          "corrMargin": 0.5349316431094531,
+          "meanPred": 8.11098995192697,
+          "meanAct": 22.347305389221557
+        },
+        "medium_7.5_14": {
+          "n": 75,
+          "brierEngine": 0.202823863189136,
+          "brierMarket": 0.16711957627269364,
+          "atsBrier": 0.30899959499695684,
+          "corrMargin": 0.37789258954115795,
+          "meanPred": 1.6254808063187802,
+          "meanAct": 7.36
+        },
+        "pick_em": {
+          "n": 73,
+          "brierEngine": 0.2367081098021774,
+          "brierMarket": 0.23358475094647083,
+          "atsBrier": 0.2489744612247788,
+          "corrMargin": 0.11177267366964214,
+          "meanPred": 0.4184690671282547,
+          "meanAct": 0.6164383561643836
+        },
+        "small_3.5_7.5": {
+          "n": 106,
+          "brierEngine": 0.23468131774178214,
+          "brierMarket": 0.22685505905303735,
+          "atsBrier": 0.2582183780513,
+          "corrMargin": 0.25746773506224696,
+          "meanPred": 0.9441575506546181,
+          "meanAct": 1.5660377358490567
+        }
+      },
+      "opp_adj_rating_time_ordered_slope": {
+        "large_14plus": {
+          "n": 167,
+          "brierEngine": 0.10426234624722212,
+          "brierMarket": 0.057222452522042846,
+          "atsBrier": 0.3726237506957183,
+          "corrMargin": 0.5349316431094531,
+          "meanPred": 8.11098995192697,
+          "meanAct": 22.347305389221557
+        },
+        "medium_7.5_14": {
+          "n": 75,
+          "brierEngine": 0.21600103522850395,
+          "brierMarket": 0.16711957627269364,
+          "atsBrier": 0.30899959499695684,
+          "corrMargin": 0.37789258954115795,
+          "meanPred": 1.6254808063187802,
+          "meanAct": 7.36
+        },
+        "pick_em": {
+          "n": 73,
+          "brierEngine": 0.2444702548404204,
+          "brierMarket": 0.23358475094647083,
+          "atsBrier": 0.2489744612247788,
+          "corrMargin": 0.11177267366964214,
+          "meanPred": 0.4184690671282547,
+          "meanAct": 0.6164383561643836
+        },
+        "small_3.5_7.5": {
+          "n": 106,
+          "brierEngine": 0.24050539923280845,
+          "brierMarket": 0.22685505905303735,
+          "atsBrier": 0.2582183780513,
+          "corrMargin": 0.25746773506224696,
+          "meanPred": 0.9441575506546181,
+          "meanAct": 1.5660377358490567
+        }
+      }
+    },
+    "note": "Opp-adj ratings seeded on 2024 FBS-ish games, updated online after each 2025 prediction. Time-ordered slope refits on prior TUNING rows only."
+  },
+  "beforeAfter": {
+    "before": "locked_drive_engine",
+    "afterCandidates": {
+      "margin_history_mean": {
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        },
+        "brierEngine": 0.19669267695961987,
+        "brierMarket": 0.15009130848063543,
+        "atsBrier": 0.2918046392251815,
+        "corrMargin": 0.5236402215715442
+      },
+      "opp_adj_rating": {
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        },
+        "brierEngine": 0.1824427211534826,
+        "brierMarket": 0.15009130848063543,
+        "atsBrier": 0.31220129833015026,
+        "corrMargin": 0.5135342435386369
+      },
+      "opp_adj_rating_time_ordered_slope": {
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        },
+        "brierEngine": 0.1827833500889605,
+        "brierMarket": 0.15009130848063543,
+        "atsBrier": 0.31220129833015026,
+        "corrMargin": 0.5135342435386369
+      }
+    },
+    "lockedBaseline": {
+      "M3": {
+        "criterion": "brierEngine <= brierMarketClose + 0.02",
+        "pass": false
+      },
+      "S2": {
+        "criterion": "brierEngine < 0.25",
+        "pass": false
+      },
+      "brierEngine": 0.20159715914489326,
+      "brierMarket": 0.15009130848063543,
+      "atsBrier": 0.29428887893462463,
+      "corrMargin": 0.4844583310893894,
+      "meanPred": 8.511649417486714,
+      "meanAct": 10.676959619952495
+    }
+  },
+  "conclusion": {
+    "meaningfulGainsVsLockedCriteria": false,
+    "recommendModelReplacement": true,
+    "rationale": "No candidate reaches locked M3/S2 on the fair n=421 cohort. Best ML (opp-adj) still Δ=0.032 vs market; ATS worsens vs drive engine. teamMean blending compresses offense gaps; score-rate caps never bind. Incremental drive-path levers are exhausted — replace the research model architecture (not a residual/gap scalar).",
+    "gateFlipAllowed": false,
+    "finalEval": "UNTOUCHED"
+  }
+}

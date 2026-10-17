@@ -12,10 +12,23 @@ import {
 
 export type { SimPeriodScope };
 
+/** Optional opponent-facing defense yards for football drive matchup tilt. */
+export type GameSimDefenseAllowed = {
+  rushingYardsAllowedPerGame?: number | null;
+  passingYardsAllowedPerGame?: number | null;
+  rushSampleSize?: number | null;
+  passSampleSize?: number | null;
+};
+
 export type GameSimTeamInput = {
   ptsFor: number | null;
   ptsAgainst: number | null;
   recentScores?: number[];
+  /**
+   * Football only — yards this team allows. Applied as a tilt on the
+   * *opponent's* offense mean inside nfl-drive. Thin samples ignored.
+   */
+  defenseAllowed?: GameSimDefenseAllowed | null;
 };
 
 /** Line-aware cover query — same shape the mobile shared scorer builds. */

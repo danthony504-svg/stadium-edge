@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-10-17T00:05:38.309Z",
+  "split": "TUNING",
+  "window": "2025 weeks 1–7",
+  "finalEvalUntouched": true,
+  "liveGate": "NCAAF_GAME_LINE_SIM_VALIDATED=false",
+  "researchStamp": "ppg-per-drive-v1.1-research",
+  "lockedParams": {
+    "residualSd": 14.5,
+    "homeMarginShrink": 2,
+    "gapScale": 1,
+    "offenseWeight": 0.5
+  },
+  "simsPerGame": 2500,
+  "coverage": {
+    "tuningGames": 471,
+    "closesMatchedFullPrices": 471,
+    "scoredMl": 373,
+    "scoredAts": 366,
+    "skippedThin": 2,
+    "skippedNoClose": 96,
+    "skippedPush": 7
+  },
+  "moneyline": {
+    "n": 373,
+    "brierEngine": 0.20140899195710435,
+    "brierMarketClose": 0.14794042296626106,
+    "deltaEngineMinusMarket": 0.05346856899084329,
+    "meanP": 0.6145630026809646,
+    "meanY": 0.67828418230563,
+    "meanMarketP": 0.6709885353234936,
+    "M3": {
+      "criterion": "brierEngine <= brierMarketClose + 0.02",
+      "pass": false
+    }
+  },
+  "spreadsAts": {
+    "n": 366,
+    "brierEngine": 0.29407293715846966,
+    "brierCoin": 0.25,
+    "S2": {
+      "criterion": "brierEngine < 0.25",
+      "pass": false
+    }
+  },
+  "restoreReadiness": {
+    "moneyline": "FAIL_M3_ON_TUNING",
+    "spreads": "FAIL_S2_ON_TUNING",
+    "note": "TUNING only — FINAL_EVAL still required before any gate flip",
+    "gateFlipAllowed": false
+  }
+}

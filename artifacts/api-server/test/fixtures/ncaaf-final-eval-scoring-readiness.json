@@ -1,0 +1,1906 @@
+{
+  "generatedAt": "2026-10-17T13:56:57.874Z",
+  "paidHttp": 0,
+  "predictionInspection": false,
+  "finalEvalScored": false,
+  "cacheOnly": true,
+  "closeCacheFiles": 345,
+  "earlyCacheFiles": 167,
+  "scoringReadiness": {
+    "paidRetrieval": false,
+    "finalEvalScored": false,
+    "deployOta": false,
+    "ncaafUnlock": false,
+    "membershipFrozen": true,
+    "membershipN": 408,
+    "modelFrozen": true,
+    "selectionRulesFrozen": "R1\u2013R4 / C1\u2013C6 unchanged \u2014 not reopened",
+    "spreadsBlocked": true,
+    "archivesScoredFlag": {
+      "close": true,
+      "early": true
+    },
+    "pairing": {
+      "closeMatched": 364,
+      "earlyMatched": 364,
+      "pairedSameGameId": 364,
+      "closeOnly": 0,
+      "earlyOnly": 0,
+      "missingIdsIdentical": true,
+      "pairedTwoSided": 364
+    },
+    "timingRules": {
+      "closeSnapshotBeforeCommence": {
+        "ok": 364,
+        "fail": 0,
+        "missingFields": 0,
+        "pass": true
+      },
+      "earlyAsOfNearT24h": {
+        "windowHours": "20\u201328h before kickoff (inclusive audit band around locked T\u221224h)",
+        "n": 364,
+        "min": 24.07111111111111,
+        "p50": 24.072777777777777,
+        "max": 24.073055555555555,
+        "mean": 24.072683150183042,
+        "insideBand": 364,
+        "outsideBand": 0,
+        "pass": true
+      },
+      "closeRequestDateKickoffMinute": {
+        "ok": 364,
+        "mismatch": 0
+      }
+    },
+    "missingAudit": {
+      "n": 44,
+      "reasons": {
+        "no_odds_match": 39,
+        "missing_two_sided_ml": 5
+      },
+      "byWeek": {
+        "8": 6,
+        "9": 6,
+        "10": 3,
+        "11": 7,
+        "12": 6,
+        "13": 9,
+        "14": 7
+      },
+      "fcsNameHeuristicHits": 1,
+      "aliasRecoverableTwoSidedClose": 39,
+      "trulyUnjoinedOnCachedCloseSlate": 0,
+      "twoSidedPullerFails": 5,
+      "repeatedSchools": [
+        [
+          "sam houston",
+          6
+        ],
+        [
+          "san jose state",
+          6
+        ],
+        [
+          "massachusetts",
+          6
+        ],
+        [
+          "app state",
+          6
+        ],
+        [
+          "louisiana ragin",
+          6
+        ],
+        [
+          "southern miss golden",
+          6
+        ],
+        [
+          "hawaii rainbow",
+          5
+        ],
+        [
+          "arkansas state red",
+          3
+        ],
+        [
+          "ul monroe",
+          2
+        ],
+        [
+          "troy",
+          2
+        ],
+        [
+          "south alabama",
+          2
+        ],
+        [
+          "texas state",
+          2
+        ],
+        [
+          "san diego state",
+          2
+        ]
+      ],
+      "systematicVerdict": {
+        "isSystematic": true,
+        "primaryDrivers": [
+          "39/44 puller no_odds_match (join/alias or absent from Odds slate)",
+          "39/44 recoverable via alias/loose join on cached close slate (cache-only rematch possible)",
+          "0/44 no recoverable join on cached close events (likely not on Odds NCAAF slate / naming gap beyond alias map)",
+          "5/44 missing_two_sided_ml",
+          "1/44 FCS-name heuristic hit (membership still FBS-scoped; heuristic only)",
+          "Week concentration: {\"8\":6,\"9\":6,\"10\":3,\"11\":7,\"12\":6,\"13\":9,\"14\":7}"
+        ],
+        "interpretation": "Missingness is systematic: nearly all no_odds_match rows are ESPN\u2194Odds naming aliases (State/UMass/Appalachian/Jos\u00e9/Hawaii/Southern Miss/apostrophe) recoverable from the same cached snapshots. The remaining missing_two_sided_ml rows are events present with zero bookmakers (empty price shell) \u2014 not credit-cap truncation."
+      },
+      "emptyBookmakerShells": 5,
+      "emptyBookmakerNote": "All 5 missing_two_sided_ml events exist in the close cache with commence_time but bookmakers=[] \u2014 Odds returned an event shell without h2h prices. Not an alias issue.",
+      "recoverMatchKinds": {
+        "alias_key": 24,
+        "exact_norm": 15
+      }
+    },
+    "coverageReadiness": {
+      "moneylineM1M4": {
+        "M1": {
+          "criterion": "n \u2265 200 decided games with close ML",
+          "nDecidedWithCloseMl": 364,
+          "threshold": 200,
+          "coverageReady": true,
+          "note": "Sample size only \u2014 Brier/bias not computed (no scoring)"
+        },
+        "M2": {
+          "criterion": "brierEngine < 0.25",
+          "coverageReady": true,
+          "note": "Needs engine probs \u2014 NOT scored this turn; sample appears adequate if M1 holds"
+        },
+        "M3": {
+          "criterion": "brierEngine \u2264 brierMarketClose + 0.02",
+          "nWithCloseTwoSidedMl": 364,
+          "coverageReady": true,
+          "note": "Market close ML present on matched archive; not scored"
+        },
+        "M4": {
+          "criterion": "|meanP \u2212 meanY| \u2264 0.08",
+          "coverageReady": true,
+          "note": "Needs engine probs \u2014 NOT scored this turn"
+        }
+      },
+      "coachClvC1C6": {
+        "C1": {
+          "criterion": "nMlWithClv \u2265 50",
+          "pairedTwoSidedEarlyClose": 364,
+          "threshold": 50,
+          "coverageReady": true,
+          "note": "Upper bound on selectable CLV rows before edge/R3 filters; selections not formed this turn"
+        },
+        "C2": {
+          "criterion": "meanClvProbPoints \u2265 0",
+          "coverageReady": true,
+          "note": "Not computed \u2014 price deltas / CLV not inspected for retune; coverage only"
+        },
+        "C3": {
+          "criterion": "pctSelectionsBeatClose \u2265 0.45",
+          "coverageReady": true,
+          "note": "Not computed this turn"
+        },
+        "C4": {
+          "criterion": "homeSelections \u2265 20 and awaySelections \u2265 20",
+          "earlyTwoSidedRows": 364,
+          "awaySelectableUpperBound": 364,
+          "coverageReady": true,
+          "note": "R2: away ML requires early two-sided cache \u2014 cache now populated; actual mix depends on selection"
+        },
+        "C5": {
+          "criterion": "soft gates PASS_SOFT_GATES_ONLY or better on same stamp",
+          "coverageReady": null,
+          "note": "Requires engine soft-gate run \u2014 not executed (no scoring)"
+        },
+        "C6": {
+          "criterion": "PASS label only if C1\u2013C5",
+          "coverageReady": false,
+          "note": "No PASS label without scoring; coverage prep only"
+        }
+      },
+      "verdict": "COVERAGE_READY_FOR_SCORING_ATTEMPT \u2014 sample thresholds for M1 and C1 upper-bound are met on paired archives; do not score until alias-missing policy accepted"
+    },
+    "recommendation": {
+      "scoreNow": false,
+      "reason": "Cache-only audit complete. Matched paired coverage is adequate for M1 sample and C1 upper-bound, but 44 missing (mostly joins) should be policy-accepted or alias-rematched from cache before any FINAL_EVAL score. No paid HTTP. No scoring this turn.",
+      "nextAllowed": [
+        "Optional cache-only alias rematch of recoverable misses (no Odds HTTP)",
+        "Human accept MISSING_DATA for unrecoverable slate absences",
+        "Then authorize FINAL_EVAL scoring separately"
+      ],
+      "forbidden": [
+        "paid Odds requests",
+        "scoring",
+        "deploy",
+        "OTA",
+        "NCAAF unlock",
+        "edit C1\u2013C6 / model / membership"
+      ]
+    }
+  },
+  "missingAudits": [
+    {
+      "eventId": "401757284",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-15T23:00Z",
+      "home": "Sam Houston Bearkats",
+      "away": "UTEP Miners",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 59,
+      "earlyEventCount": 59,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 145,
+        "mlAway": -175,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 120,
+        "mlAway": -142,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Sam Houston State Bearkats",
+          "away_team": "UTEP Miners",
+          "score": 6
+        },
+        {
+          "home_team": "Houston Cougars",
+          "away_team": "Arizona Wildcats",
+          "score": 2
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760396",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-18T01:00Z",
+      "home": "Utah State Aggies",
+      "away": "San Jos\u00e9 State Spartans",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 66,
+      "earlyEventCount": 67,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -155,
+        "mlAway": 130,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -192,
+        "mlAway": 160,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Utah State Aggies",
+          "away_team": "San Jose State Spartans",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762840",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-18T18:30Z",
+      "home": "Massachusetts Minutemen",
+      "away": "Buffalo Bulls",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 52,
+      "earlyEventCount": 66,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 550,
+        "mlAway": -800,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 550,
+        "mlAway": -800,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "UMass Minutemen",
+          "away_team": "Buffalo Bulls",
+          "score": 5
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761629",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-18T19:30Z",
+      "home": "App State Mountaineers",
+      "away": "Coastal Carolina Chanticleers",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 52,
+      "earlyEventCount": 66,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -395,
+        "mlAway": 310,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -395,
+        "mlAway": 310,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Appalachian State Mountaineers",
+          "away_team": "Coastal Carolina Chanticleers",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761668",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-18T21:00Z",
+      "home": "Louisiana Ragin' Cajuns",
+      "away": "Southern Miss Golden Eagles",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 42,
+      "earlyEventCount": 66,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 164,
+        "mlAway": -198,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 142,
+        "mlAway": -170,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Louisiana Ragin Cajuns",
+          "away_team": "Southern Mississippi Golden Eagles",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760394",
+      "week": 8,
+      "season": 2025,
+      "kickoffIso": "2025-10-18T23:00Z",
+      "home": "Colorado State Rams",
+      "away": "Hawai'i Rainbow Warriors",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 38,
+      "earlyEventCount": 66,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -135,
+        "mlAway": 114,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -135,
+        "mlAway": 114,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Colorado State Rams",
+          "away_team": "Hawaii Rainbow Warriors",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761635",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T16:00Z",
+      "home": "Old Dominion Monarchs",
+      "away": "App State Mountaineers",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 60,
+      "earlyEventCount": 61,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -500,
+        "mlAway": 380,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -575,
+        "mlAway": 425,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Old Dominion Monarchs",
+          "away_team": "Appalachian State Mountaineers",
+          "score": 6
+        },
+        {
+          "home_team": "Kent State Golden Flashes",
+          "away_team": "Bowling Green Falcons",
+          "score": 1
+        },
+        {
+          "home_team": "Southern Mississippi Golden Eagles",
+          "away_team": "UL Monroe Warhawks",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761637",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T19:30Z",
+      "home": "Southern Miss Golden Eagles",
+      "away": "UL Monroe Warhawks",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 51,
+      "earlyEventCount": 61,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -600,
+        "mlAway": 440,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -575,
+        "mlAway": 425,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Southern Mississippi Golden Eagles",
+          "away_team": "UL Monroe Warhawks",
+          "score": 6
+        },
+        {
+          "home_team": "Memphis Tigers",
+          "away_team": "South Florida Bulls",
+          "score": 1
+        },
+        {
+          "home_team": "UTSA Roadrunners",
+          "away_team": "Tulane Green Wave",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762847",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T19:30Z",
+      "home": "Central Michigan Chippewas",
+      "away": "Massachusetts Minutemen",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 51,
+      "earlyEventCount": 61,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -800,
+        "mlAway": 550,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -700,
+        "mlAway": 500,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Central Michigan Chippewas",
+          "away_team": "UMass Minutemen",
+          "score": 5
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401756933",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T20:00Z",
+      "home": "Texas Tech Red Raiders",
+      "away": "Oklahoma State Cowboys",
+      "pullerReason": "missing_two_sided_ml",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 44,
+      "earlyEventCount": 61,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": {
+        "closeLooseMlHome": null,
+        "closeLooseMlAway": null,
+        "outcomes": []
+      },
+      "nearestOddsNames": [
+        {
+          "home_team": "Texas Tech Red Raiders",
+          "away_team": "Oklahoma State Cowboys",
+          "score": 6
+        },
+        {
+          "home_team": "Texas State Bobcats",
+          "away_team": "James Madison Dukes",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401752886",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T23:00Z",
+      "home": "Oregon Ducks",
+      "away": "Wisconsin Badgers",
+      "pullerReason": "missing_two_sided_ml",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 33,
+      "earlyEventCount": 61,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": {
+        "closeLooseMlHome": null,
+        "closeLooseMlAway": null,
+        "outcomes": []
+      },
+      "nearestOddsNames": [
+        {
+          "home_team": "Oregon Ducks",
+          "away_team": "Wisconsin Badgers",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761638",
+      "week": 9,
+      "season": 2025,
+      "kickoffIso": "2025-10-25T23:00Z",
+      "home": "Troy Trojans",
+      "away": "Louisiana Ragin' Cajuns",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 33,
+      "earlyEventCount": 61,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -290,
+        "mlAway": 235,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -325,
+        "mlAway": 260,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Troy Trojans",
+          "away_team": "Louisiana Ragin Cajuns",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401757290",
+      "week": 10,
+      "season": 2025,
+      "kickoffIso": "2025-11-01T00:00Z",
+      "home": "Louisiana Tech Bulldogs",
+      "away": "Sam Houston Bearkats",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 65,
+      "earlyEventCount": 63,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -850,
+        "mlAway": 575,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -750,
+        "mlAway": 525,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Louisiana Tech Bulldogs",
+          "away_team": "Sam Houston State Bearkats",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761642",
+      "week": 10,
+      "season": 2025,
+      "kickoffIso": "2025-11-01T19:30Z",
+      "home": "South Alabama Jaguars",
+      "away": "Louisiana Ragin' Cajuns",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 49,
+      "earlyEventCount": 64,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -180,
+        "mlAway": 150,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -180,
+        "mlAway": 150,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "South Alabama Jaguars",
+          "away_team": "Louisiana Ragin Cajuns",
+          "score": 6
+        },
+        {
+          "home_team": "South Florida Bulls",
+          "away_team": "UTSA Roadrunners",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760403",
+      "week": 10,
+      "season": 2025,
+      "kickoffIso": "2025-11-02T02:30Z",
+      "home": "San Jos\u00e9 State Spartans",
+      "away": "Hawai'i Rainbow Warriors",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 21,
+      "earlyEventCount": 64,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -130,
+        "mlAway": 110,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -122,
+        "mlAway": 102,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "San Jose State Spartans",
+          "away_team": "Hawaii Rainbow Warriors",
+          "score": 6
+        },
+        {
+          "home_team": "San Diego State Aztecs",
+          "away_team": "Wyoming Cowboys",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762851",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-05T00:00Z",
+      "home": "Akron Zips",
+      "away": "Massachusetts Minutemen",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 52,
+      "earlyEventCount": 51,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -485,
+        "mlAway": 370,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -355,
+        "mlAway": 280,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Akron Zips",
+          "away_team": "UMass Minutemen",
+          "score": 5
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761644",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-07T00:30Z",
+      "home": "App State Mountaineers",
+      "away": "Georgia Southern Eagles",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 61,
+      "earlyEventCount": 62,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -198,
+        "mlAway": 164,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -218,
+        "mlAway": 180,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Appalachian State Mountaineers",
+          "away_team": "Georgia Southern Eagles",
+          "score": 6
+        },
+        {
+          "home_team": "Mississippi State Bulldogs",
+          "away_team": "Georgia Bulldogs",
+          "score": 3
+        },
+        {
+          "home_team": "Coastal Carolina Chanticleers",
+          "away_team": "Georgia State Panthers",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761647",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-08T17:00Z",
+      "home": "Arkansas State Red Wolves",
+      "away": "Southern Miss Golden Eagles",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 53,
+      "earlyEventCount": 59,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 195,
+        "mlAway": -238,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 160,
+        "mlAway": -192,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Arkansas State Red Wolves",
+          "away_team": "Southern Mississippi Golden Eagles",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761648",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-08T22:00Z",
+      "home": "Louisiana Ragin' Cajuns",
+      "away": "Texas State Bobcats",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 36,
+      "earlyEventCount": 59,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": 145,
+        "mlAway": -175,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 130,
+        "mlAway": -155,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Louisiana Ragin Cajuns",
+          "away_team": "Texas State Bobcats",
+          "score": 6
+        },
+        {
+          "home_team": "Missouri Tigers",
+          "away_team": "Texas A&M Aggies",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760406",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-08T23:00Z",
+      "home": "San Jos\u00e9 State Spartans",
+      "away": "Air Force Falcons",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 36,
+      "earlyEventCount": 59,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -250,
+        "mlAway": 205,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -218,
+        "mlAway": 180,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "San Jose State Spartans",
+          "away_team": "Air Force Falcons",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401752944",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-09T03:00Z",
+      "home": "Oregon State Beavers",
+      "away": "Sam Houston Bearkats",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 22,
+      "earlyEventCount": 58,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -1450,
+        "mlAway": 850,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -1450,
+        "mlAway": 850,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Oregon State Beavers",
+          "away_team": "Sam Houston State Bearkats",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760408",
+      "week": 11,
+      "season": 2025,
+      "kickoffIso": "2025-11-09T04:00Z",
+      "home": "Hawai'i Rainbow Warriors",
+      "away": "San Diego State Aztecs",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 20,
+      "earlyEventCount": 57,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": 210,
+        "mlAway": -258,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 200,
+        "mlAway": -245,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Hawaii Rainbow Warriors",
+          "away_team": "San Diego State Aztecs",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762859",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-13T00:00Z",
+      "home": "Massachusetts Minutemen",
+      "away": "Northern Illinois Huskies",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 64,
+      "earlyEventCount": 62,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 285,
+        "mlAway": -360,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 310,
+        "mlAway": -395,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "UMass Minutemen",
+          "away_team": "Northern Illinois Huskies",
+          "score": 5
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760413",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-15T20:30Z",
+      "home": "Nevada Wolf Pack",
+      "away": "San Jos\u00e9 State Spartans",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 51,
+      "earlyEventCount": 72,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": 295,
+        "mlAway": -375,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 270,
+        "mlAway": -340,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Nevada Wolf Pack",
+          "away_team": "San Jose State Spartans",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761652",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-15T20:30Z",
+      "home": "James Madison Dukes",
+      "away": "App State Mountaineers",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": true,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 51,
+      "earlyEventCount": 72,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -1800,
+        "mlAway": 1000,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -1800,
+        "mlAway": 1000,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "James Madison Dukes",
+          "away_team": "Appalachian State Mountaineers",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761654",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-15T20:30Z",
+      "home": "Southern Miss Golden Eagles",
+      "away": "Texas State Bobcats",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 51,
+      "earlyEventCount": 72,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -162,
+        "mlAway": 136,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -155,
+        "mlAway": 130,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Southern Mississippi Golden Eagles",
+          "away_team": "Texas State Bobcats",
+          "score": 6
+        },
+        {
+          "home_team": "Georgia Bulldogs",
+          "away_team": "Texas Longhorns",
+          "score": 3
+        },
+        {
+          "home_team": "UAB Blazers",
+          "away_team": "North Texas Mean Green",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401752771",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-15T21:15Z",
+      "home": "Tennessee Volunteers",
+      "away": "New Mexico State Aggies",
+      "pullerReason": "missing_two_sided_ml",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 45,
+      "earlyEventCount": 72,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": {
+        "closeLooseMlHome": null,
+        "closeLooseMlAway": null,
+        "outcomes": []
+      },
+      "nearestOddsNames": [
+        {
+          "home_team": "Tennessee Volunteers",
+          "away_team": "New Mexico State Aggies",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401757300",
+      "week": 12,
+      "season": 2025,
+      "kickoffIso": "2025-11-16T00:00Z",
+      "home": "Sam Houston Bearkats",
+      "away": "Delaware Blue Hens",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 32,
+      "earlyEventCount": 71,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 350,
+        "mlAway": -455,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 330,
+        "mlAway": -425,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Sam Houston State Bearkats",
+          "away_team": "Delaware Blue Hens",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762863",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-19T00:15Z",
+      "home": "Ohio Bobcats",
+      "away": "Massachusetts Minutemen",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 66,
+      "earlyEventCount": 60,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -10000,
+        "mlAway": 3000,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -20000,
+        "mlAway": 3500,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Ohio Bobcats",
+          "away_team": "UMass Minutemen",
+          "score": 5
+        },
+        {
+          "home_team": "Ohio State Buckeyes",
+          "away_team": "Rutgers Scarlet Knights",
+          "score": 3
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761655",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-21T00:30Z",
+      "home": "Arkansas State Red Wolves",
+      "away": "Louisiana Ragin' Cajuns",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 82,
+      "earlyEventCount": 79,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -130,
+        "mlAway": 110,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -135,
+        "mlAway": 114,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Arkansas State Red Wolves",
+          "away_team": "Louisiana Ragin Cajuns",
+          "score": 6
+        },
+        {
+          "home_team": "Kansas Jayhawks",
+          "away_team": "Utah Utes",
+          "score": 2
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760418",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T03:30Z",
+      "home": "UNLV Rebels",
+      "away": "Hawai'i Rainbow Warriors",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 84,
+      "earlyEventCount": 81,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -135,
+        "mlAway": 114,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -142,
+        "mlAway": 120,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "UNLV Rebels",
+          "away_team": "Hawaii Rainbow Warriors",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401752776",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T17:45Z",
+      "home": "Georgia Bulldogs",
+      "away": "Charlotte 49ers",
+      "pullerReason": "missing_two_sided_ml",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 61,
+      "earlyEventCount": 80,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": {
+        "closeLooseMlHome": null,
+        "closeLooseMlAway": null,
+        "outcomes": []
+      },
+      "nearestOddsNames": [
+        {
+          "home_team": "Georgia Bulldogs",
+          "away_team": "Charlotte 49ers",
+          "score": 6
+        },
+        {
+          "home_team": "Georgia Southern Eagles",
+          "away_team": "Old Dominion Monarchs",
+          "score": 3
+        },
+        {
+          "home_team": "Georgia Tech Yellow Jackets",
+          "away_team": "Pittsburgh Panthers",
+          "score": 3
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761656",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T19:30Z",
+      "home": "App State Mountaineers",
+      "away": "Marshall Thundering Herd",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 61,
+      "earlyEventCount": 80,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 154,
+        "mlAway": -185,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 190,
+        "mlAway": -230,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Appalachian State Mountaineers",
+          "away_team": "Marshall Thundering Herd",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401757308",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T20:00Z",
+      "home": "Middle Tennessee Blue Raiders",
+      "away": "Sam Houston Bearkats",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 61,
+      "earlyEventCount": 80,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -245,
+        "mlAway": 200,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -245,
+        "mlAway": 200,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Middle Tennessee Blue Raiders",
+          "away_team": "Sam Houston State Bearkats",
+          "score": 6
+        },
+        {
+          "home_team": "Texas A&M Aggies",
+          "away_team": "Samford Bulldogs",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401754604",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T20:30Z",
+      "home": "Notre Dame Fighting Irish",
+      "away": "Syracuse Orange",
+      "pullerReason": "missing_two_sided_ml",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 57,
+      "earlyEventCount": 79,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": null,
+        "mlAway": null,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": {
+        "closeLooseMlHome": null,
+        "closeLooseMlAway": null,
+        "outcomes": []
+      },
+      "nearestOddsNames": [
+        {
+          "home_team": "Notre Dame Fighting Irish",
+          "away_team": "Syracuse Orange",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761658",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-22T20:30Z",
+      "home": "South Alabama Jaguars",
+      "away": "Southern Miss Golden Eagles",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 57,
+      "earlyEventCount": 79,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 110,
+        "mlAway": -130,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -102,
+        "mlAway": -118,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "South Alabama Jaguars",
+          "away_team": "Southern Mississippi Golden Eagles",
+          "score": 6
+        },
+        {
+          "home_team": "Georgia Southern Eagles",
+          "away_team": "Old Dominion Monarchs",
+          "score": 1
+        },
+        {
+          "home_team": "South Carolina Gamecocks",
+          "away_team": "Coastal Carolina Chanticleers",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760420",
+      "week": 13,
+      "season": 2025,
+      "kickoffIso": "2025-11-23T03:30Z",
+      "home": "San Diego State Aztecs",
+      "away": "San Jos\u00e9 State Spartans",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 26,
+      "earlyEventCount": 84,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -380,
+        "mlAway": 300,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -535,
+        "mlAway": 400,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "San Diego State Aztecs",
+          "away_team": "San Jose State Spartans",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401762868",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-25T21:30Z",
+      "home": "Massachusetts Minutemen",
+      "away": "Bowling Green Falcons",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 74,
+      "earlyEventCount": 68,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 400,
+        "mlAway": -535,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 455,
+        "mlAway": -625,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "UMass Minutemen",
+          "away_team": "Bowling Green Falcons",
+          "score": 5
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401757311",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-29T18:00Z",
+      "home": "Sam Houston Bearkats",
+      "away": "Florida International Panthers",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 53,
+      "earlyEventCount": 71,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": 320,
+        "mlAway": -410,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 330,
+        "mlAway": -425,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Sam Houston State Bearkats",
+          "away_team": "Florida International Panthers",
+          "score": 6
+        },
+        {
+          "home_team": "Florida Gators",
+          "away_team": "Florida State Seminoles",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761661",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-29T19:30Z",
+      "home": "App State Mountaineers",
+      "away": "Arkansas State Red Wolves",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 54,
+      "earlyEventCount": 71,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -112,
+        "mlAway": -108,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -120,
+        "mlAway": 100,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Appalachian State Mountaineers",
+          "away_team": "Arkansas State Red Wolves",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761665",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-29T20:00Z",
+      "home": "Louisiana Ragin' Cajuns",
+      "away": "UL Monroe Warhawks",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 53,
+      "earlyEventCount": 71,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -485,
+        "mlAway": 370,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -345,
+        "mlAway": 275,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Louisiana Ragin Cajuns",
+          "away_team": "UL Monroe Warhawks",
+          "score": 6
+        },
+        {
+          "home_team": "Youngstown St Penguins",
+          "away_team": "Yale University Bulldogs",
+          "score": 1
+        },
+        {
+          "home_team": "Missouri State Bears",
+          "away_team": "Louisiana Tech Bulldogs",
+          "score": 1
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401761666",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-29T20:30Z",
+      "home": "Southern Miss Golden Eagles",
+      "away": "Troy Trojans",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 50,
+      "earlyEventCount": 70,
+      "closeStrictMatch": false,
+      "earlyStrictMatch": false,
+      "closeAliasRecover": {
+        "mlHome": -265,
+        "mlAway": 215,
+        "matchKind": "alias_key"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -245,
+        "mlAway": 200,
+        "matchKind": "alias_key"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Southern Mississippi Golden Eagles",
+          "away_team": "Troy Trojans",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760423",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-30T03:30Z",
+      "home": "San Jos\u00e9 State Spartans",
+      "away": "Fresno State Bulldogs",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 19,
+      "earlyEventCount": 56,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": 136,
+        "mlAway": -162,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": 145,
+        "mlAway": -175,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "San Jose State Spartans",
+          "away_team": "Fresno State Bulldogs",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    },
+    {
+      "eventId": "401760424",
+      "week": 14,
+      "season": 2025,
+      "kickoffIso": "2025-11-30T04:00Z",
+      "home": "Hawai'i Rainbow Warriors",
+      "away": "Wyoming Cowboys",
+      "pullerReason": "no_odds_match",
+      "fcsNameHeuristic": false,
+      "closeCacheLoaded": true,
+      "earlyCacheLoaded": true,
+      "closeEventCount": 16,
+      "earlyEventCount": 56,
+      "closeStrictMatch": true,
+      "earlyStrictMatch": true,
+      "closeAliasRecover": {
+        "mlHome": -380,
+        "mlAway": 300,
+        "matchKind": "exact_norm"
+      },
+      "earlyAliasRecover": {
+        "mlHome": -310,
+        "mlAway": 250,
+        "matchKind": "exact_norm"
+      },
+      "twoSidedDiag": null,
+      "nearestOddsNames": [
+        {
+          "home_team": "Hawaii Rainbow Warriors",
+          "away_team": "Wyoming Cowboys",
+          "score": 6
+        }
+      ],
+      "earlyAlsoMissing": true
+    }
+  ]
+}

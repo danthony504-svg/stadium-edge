@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-10-17T00:04:47.721891+00:00",
+  "split": "TUNING",
+  "fixture": "ncaaf-tuning-2025-w1-7-games.json",
+  "holdoutSeason": null,
+  "finalEval": "UNTOUCHED",
+  "closingDefinition": "Per-game last Odds API historical snapshot with date=kickoff (closest snapshot \u2264 kickoff). Midday slate files are not closes.",
+  "markets": "h2h,spreads",
+  "regions": "us",
+  "bucketsRequested": 177,
+  "httpCalls": 163,
+  "creditsSpent": 3280,
+  "creditCap": 4500,
+  "stoppedForCreditCap": false,
+  "apiErrors": 0,
+  "holdoutGames": 471,
+  "matched": 413,
+  "matchedWithFullPrices": 375,
+  "matchedTwoSidedMl": 375,
+  "matchedTwoSidedSpreadJuice": 413,
+  "missing": 58,
+  "rejectPostKickoffSnapshot": 0,
+  "missingReasons": {
+    "no_odds_match": 58
+  },
+  "metrics": {
+    "marketBrierCloseMl": 0.14716095661970763,
+    "marketBrierCoin": 0.25,
+    "marketBrierBeatsCoin": true,
+    "homeMlWinRate": 0.68,
+    "homeAtsCoverRateExclPush": 0.5353260869565217,
+    "atsN": 368,
+    "pushes": 7
+  },
+  "middaySlateNotClosingProof": [],
+  "injuryNote": "injuryKnown/qbOut left null \u2014 missing injury records must NOT be treated as no injuries. E4 requires a documented historical provider.",
+  "lockedParamsPreserved": true,
+  "verdicts": {
+    "E2b_closingArchive": "PASS",
+    "E2b_marketBrierVsCoin": "PASS",
+    "E2b_engineClv": "OPEN_NEEDS_ENGINE_JOIN",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false \u2014 do not flip",
+    "FINAL_EVAL": "UNTOUCHED"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

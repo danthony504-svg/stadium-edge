@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-10-17T13:11:57.309Z",
+  "purpose": "T−24h historical snapshot availability — no early/close price delta inspection",
+  "coachSelectionRulesLockedDoc": "docs/coach/ncaaf-clean-coach-selection-rules-locked.md",
+  "paidFetch": false,
+  "priceDeltasExamined": false,
+  "oddsApi": {
+    "ODDS_API_KEY_present": false,
+    "unauthenticatedProbe": {
+      "httpStatus": 401,
+      "bodySnippet": "{\"message\":\"API key is missing\",\"error_code\":\"MISSING_KEY\",\"details_url\":\"https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#missing-key\"}\n"
+    },
+    "interpretation": "Key missing — cannot confirm historical entitlement; probe returns MISSING_KEY",
+    "historicalEndpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds (paid plans only)",
+    "snapshotCadenceDocs": "5-minute intervals since Sep 2022 (Odds docs)",
+    "t24hFeasibility": "FINAL_EVAL 2025–2026 kickoffs are after Sep 2022 → historical as-of T−24h is *timing-feasible* on paid historical plans; local archive empty; entitlement unconfirmed without key"
+  },
+  "localArchives": {
+    "earlySnapshotsDir": "/opt/cursor/artifacts/ncaaf-e2b-early-snapshots",
+    "earlySnapshotFiles": 0,
+    "closeSnapshotsDir": "/opt/cursor/artifacts/ncaaf-e2b-close-snapshots",
+    "closeSnapshotFiles": 0,
+    "tuningClosesFixture": true,
+    "finalEvalMembershipGamesN": 408
+  },
+  "fixtureFallback": {
+    "path": "ncaaf-phase-e-selection-prices.json",
+    "nRows": 705,
+    "hasAwayMlFields": false,
+    "r1Note": "Home-only fixture fallback allowed under locked R1 — insufficient alone for C1 on clean E1 away mix (R2)",
+    "priceValuesInspected": false
+  },
+  "readinessImplication": {
+    "canFetchT24hWithoutKey": false,
+    "canUseEmptyEarlyCacheForClv": false,
+    "nextStep": "Authorize paid early h2h pull under separate hard cap after manifests regenerated"
+  },
+  "ops": {
+    "e1Frozen": true,
+    "injuryInactive": true,
+    "ncaafBlocked": true,
+    "voicePaused": true,
+    "finalEvalScored": false
+  }
+}

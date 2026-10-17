@@ -15,7 +15,6 @@ import {
   lookupGameSim,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
-import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
 import {
   filterEvalLinesForProjectedMargin,
@@ -161,17 +160,6 @@ function committedTeamForGame(
   return null;
 }
 
-function simFavoredTeamForGame(
-  game: string,
-  sim: CoachGameSimEntry | null | undefined,
-): string | null {
-  const side = simFavoredTeamSide(sim);
-  if (!side) return null;
-  const parts = game.split(" @ ");
-  if (parts.length !== 2) return null;
-  return (side === "home" ? parts[1] : parts[0])!.trim() || null;
-}
-
 function candidatesForPick(
   pick: ParsedPick,
   allLines: RealOddsEntry[],
@@ -205,8 +193,10 @@ function candidatesForPick(
       (e) => /team total/i.test(e.market) && pickTeamName(e.pick) && teamsMatch(pickTeamName(e.pick)!, team),
     );
   }
-  // ML / spread family — sim-favored team wins over mlLean / scaffold team.
-  const team = simFavoredTeam ?? leanTeam ?? pickTeam;
+  // Stay on the pick's team. Do NOT flip an underdog spread pool to the
+  // favorite solely because sim outright win-prob favors the opponent —
+  // conflicting sides are resolved by market value in enforceConsistentGameSides.
+  const team = pickTeam ?? leanTeam ?? simFavoredTeam;
   if (!team) return lines.filter((e) => isTeamSidedEntry(e));
   return lines.filter((e) => {
     const t = pickTeamName(e.pick);
@@ -291,12 +281,13 @@ function rankBestForBucket(
     excludeMoneyline?: boolean;
   },
 ): EvaluatedGameLine | null {
+  // Pass null for simFavoredTeam so pickTeam is never overwritten by win-prob.
   const pool = candidatesForPick(
     pick,
     evalLines,
     opts.matchupHistory,
     opts.excludeMoneyline,
-    simFavoredTeamForGame(pick.game, sim),
+    null,
   );
   if (!pool.length) return null;
   const ranked = evaluateGameLines({

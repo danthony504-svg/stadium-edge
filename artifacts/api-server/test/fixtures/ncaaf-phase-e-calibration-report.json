@@ -1,0 +1,253 @@
+{
+  "generatedAt": "2026-10-16T20:23:50.530Z",
+  "engine": "nfl-drive:ppg-per-drive-v1.1",
+  "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
+  "selectionTimeInputs": true,
+  "calibrationSeed": 20241015,
+  "calibrationSeeds": [
+    20241015,
+    7,
+    42,
+    99,
+    123456789
+  ],
+  "seedPolicy": "Primary seed is the first precommitted value (20241015). Seeds were listed before the run and were not reordered or dropped to obtain a PASS.",
+  "officialDogCohort": {
+    "lo": 0.45,
+    "hi": 0.55,
+    "n": 165,
+    "awayCoverRate": 0.6787878787878788
+  },
+  "dogCohortByBoundary": [
+    {
+      "lo": 0.43,
+      "hi": 0.57,
+      "n": 236,
+      "awayCoverRate": 0.6864406779661016
+    },
+    {
+      "lo": 0.44,
+      "hi": 0.56,
+      "n": 202,
+      "awayCoverRate": 0.6881188118811881
+    },
+    {
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
+    },
+    {
+      "lo": 0.46,
+      "hi": 0.54,
+      "n": 129,
+      "awayCoverRate": 0.6821705426356589
+    },
+    {
+      "lo": 0.47,
+      "hi": 0.53,
+      "n": 105,
+      "awayCoverRate": 0.6761904761904762
+    }
+  ],
+  "dogCohortBySeed": [
+    {
+      "seed": 20241015,
+      "primary": true,
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
+    },
+    {
+      "seed": 7,
+      "primary": false,
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 175,
+      "awayCoverRate": 0.6971428571428572
+    },
+    {
+      "seed": 42,
+      "primary": false,
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 168,
+      "awayCoverRate": 0.6904761904761905
+    },
+    {
+      "seed": 99,
+      "primary": false,
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 169,
+      "awayCoverRate": 0.6804733727810651
+    },
+    {
+      "seed": 123456789,
+      "primary": false,
+      "lo": 0.45,
+      "hi": 0.55,
+      "n": 168,
+      "awayCoverRate": 0.6845238095238095
+    }
+  ],
+  "dogCohortSeedRange": {
+    "min": 0.6787878787878788,
+    "max": 0.6971428571428572,
+    "mean": 0.6862808217423602
+  },
+  "boundarySensitiveGames": 76,
+  "boundarySensitiveNote": "Count of primary-seed games whose home ML sits within 0.01 of 0.45 or 0.55. Those games can enter or leave the official cohort when the draw noise moves.",
+  "priorE2aClaim": {
+    "status": "WITHDRAWN",
+    "restored": false,
+    "reportGeneratedAt": "2026-10-14T21:24:31.034Z",
+    "simulationsPerGame": 1500,
+    "nHoldoutScored": 865,
+    "recordedBrier": 0.1989518554913293,
+    "recordedHomeWinBias": 0.019813872832370683,
+    "engine": "nfl-drive before ppg-per-drive-v1: points per game were passed in as points per drive, then NCAAF inputs were multiplied by 0.48",
+    "reason": "The 2026-10-14 PASS used the same unit mismatch as the NFL draws that sat near 42 points per team. The 0.48 college scale was a patch on that mismatch, not a separate engine. This run is a new measurement. A numeric PASS does not restore that claim."
+  },
+  "holdoutSeason": 2024,
+  "simulationsPerGame": 10000,
+  "nHoldoutScored": 865,
+  "nHoldoutSkippedThinForm": 6,
+  "formMethodology": "Games ordered by kickoff. A prior game enters form after a credible ESPN last-play wall clock (2.5 to 12 hours after kickoff). When that stamp is missing or implausible, availability falls back to kickoff plus 4 hours. That fallback is an assumption, not proof the game ended. The evaluated game is added after it is scored. Venue split blends with L10.",
+  "formAvailability": {
+    "includedByCompletedAt": 1599,
+    "includedByKickoffPlusFourHours": 137,
+    "heldNotYetAvailable": 21340
+  },
+  "completionAccounting": {
+    "games": 1739,
+    "credibleLastPlay": 1602,
+    "missingLastPlay": 36,
+    "unusableLastPlay": 101,
+    "uncertainty": "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late."
+  },
+  "completionSensitivity": {
+    "rule": "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+    "assumptionExcluded": true,
+    "nHoldoutScored": 861,
+    "nHoldoutSkippedThinForm": 10,
+    "brier": 0.20056385017421613,
+    "ece10": 0.04033101045296183,
+    "meanP": 0.6084610917537755,
+    "meanY": 0.6353077816492451,
+    "homeWinBias": -0.026846689895469567,
+    "note": "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible."
+  },
+  "formProvenanceCounts": {
+    "venue_split+venue_split": 794,
+    "venue_split+venue_thin": 69,
+    "last10+venue_split": 1,
+    "venue_l10_blend+venue_split": 1
+  },
+  "closingLineArchive": {
+    "expectedPath": "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
+    "present": true,
+    "parseError": null,
+    "parsedRows": 774,
+    "droppedRows": 68,
+    "joinedHoldoutRows": 770,
+    "oddsApiKey": "unset",
+    "provenance": {
+      "branch": "cursor/odds-api-access-5cb3",
+      "pr": 737,
+      "commit": "7fbf065a607899c49d2e5aa1d636160b74ca0eb4",
+      "archiveGeneratedAt": "2026-10-14T22:22:07.230749+00:00",
+      "reportGeneratedAt": "2026-10-14T23:39:39.491Z",
+      "archiveFile": "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
+      "matched": 842,
+      "matchedWithFullPrices": 774,
+      "verdict": "PASS",
+      "softGates": "PASS_SOFT_GATES_ONLY",
+      "coachPickClv": "COMPUTED_NO_PASS_LABEL",
+      "engine": "nfl-drive before ppg-per-drive-v1 (points per game fed in as points per drive, then NCAAF ×0.48)",
+      "simulationsPerGame": 1500,
+      "restored": false
+    },
+    "priorE2bClaims": [
+      {
+        "reportGeneratedAt": "2026-10-14T21:24:31.034Z",
+        "verdict": "INSUFFICIENT_DATA",
+        "note": "The withdrawn E2a report on this branch's ancestor had no closing-line file and did not PASS E2b."
+      },
+      {
+        "branch": "cursor/odds-api-access-5cb3",
+        "pr": 737,
+        "commit": "7fbf065a607899c49d2e5aa1d636160b74ca0eb4",
+        "archiveGeneratedAt": "2026-10-14T22:22:07.230749+00:00",
+        "reportGeneratedAt": "2026-10-14T23:39:39.491Z",
+        "archiveFile": "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
+        "matched": 842,
+        "matchedWithFullPrices": 774,
+        "verdict": "PASS",
+        "softGates": "PASS_SOFT_GATES_ONLY",
+        "coachPickClv": "COMPUTED_NO_PASS_LABEL",
+        "engine": "nfl-drive before ppg-per-drive-v1 (points per game fed in as points per drive, then NCAAF ×0.48)",
+        "simulationsPerGame": 1500,
+        "restored": false,
+        "note": "Archive saved on PR 737. Soft-gate PASS is on the pre-ppg-per-drive engine. Coach pick CLV was COMPUTED_NO_PASS_LABEL (mean ML CLV -0.0234). That PASS is not restored by copying the file onto this branch."
+      }
+    ]
+  },
+  "closeArchiveSoftGates": {
+    "n": 770,
+    "engineBrier": 0.2148955025974026,
+    "marketBrier": 0.1768228726228741,
+    "meanEngineMinusMarket": -0.02513256558622166,
+    "verdict": "PASS_SOFT_GATES_ONLY",
+    "reasons": []
+  },
+  "closingLineData": "MEASURED_OPEN",
+  "closingLineMetrics": {
+    "n": 770,
+    "engineBrier": 0.2148955025974026,
+    "marketBrier": 0.1768228726228741,
+    "engineMinusMarketBrier": 0.03807262997452848,
+    "meanHomeCoverProb": 0.5002148541114058,
+    "actualHomeCoverRate": 0.4960212201591512,
+    "verdict": "OPEN_NEEDS_AGREED_TOLERANCE",
+    "reason": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV."
+  },
+  "closingLineNote": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV. Closing-line rows are present. Restore still needs an agreed CLV validation result, pre-kickoff injury evidence, and human sign-off.",
+  "injurySegmentData": "INSUFFICIENT_DATA",
+  "injuryNote": "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
+  "metrics": {
+    "brier": 0.19961557803468205,
+    "brierCoin": 0.25,
+    "logLoss": 0.5823929630189275,
+    "ece10": 0.04623930635838164,
+    "meanP": 0.6094994219653181,
+    "meanY": 0.6369942196531792,
+    "homeWinBias": -0.027494797687861006,
+    "nearCoinFlipDog75": {
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
+    }
+  },
+  "thresholds": {
+    "minGames": 200,
+    "brierMustBeatCoin": true,
+    "eceMax": 0.12,
+    "biasMaxAbs": 0.08,
+    "dog75CoverMaxWhenMlNearHalf": 0.7
+  },
+  "verdicts": {
+    "E2_outcomeVsCoin": "PASS",
+    "E2_reasons": "ok",
+    "E2_closingLineClv": "OPEN_NEEDS_AGREED_TOLERANCE",
+    "E2_closeArchiveSoftGates": "PASS_SOFT_GATES_ONLY",
+    "E2_closeArchiveSoftGateNote": "Same numeric gates published on PR 737. A soft-gate result is not a CLV PASS and does not restore the pre-ppg-per-drive claim.",
+    "E2_readyForRestore": "OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF",
+    "E2_restoreOutstanding": "Closing lines are loaded. Outstanding: agreed CLV validation criteria and result, pre-kickoff injury evidence, and human sign-off.",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

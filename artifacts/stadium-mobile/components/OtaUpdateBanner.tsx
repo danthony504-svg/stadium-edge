@@ -4,20 +4,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import type { OtaSnapshot } from "@/lib/ota";
+import { OTA_EMBEDDED_TARGET_ID } from "@/lib/ota";
 
 function shortId(id: string | null): string {
   if (!id) return "—";
   const s = String(id).trim();
+  if (s === OTA_EMBEDDED_TARGET_ID) return "embedded";
   if (s.length <= 12) return s;
   return `${s.slice(0, 8)}…`;
 }
 
 /**
  * Blue banner — controller snapshot only.
- * Visible iff state === "ready" && downloadedUpdateId != runningUpdateId.
+ * Visible iff state === "ready" && downloadedUpdateId != runningUpdateId
+ * (or rollback-to-embedded while still on a tip).
  * Restart is the sole production path to reloadAsync.
  * Shows running + downloaded ids so older menus without Device attestation
  * can still report identity while an update is staged.
+ *
+ * Identify the pending target accurately (tip UUID or embedded rollback).
+ * Do not use feature-marketing phrasing for apply/rollback banners.
  */
 export function OtaUpdateBanner({
   snapshot,
@@ -29,6 +35,13 @@ export function OtaUpdateBanner({
   const insets = useSafeAreaInsets();
 
   if (!snapshot.bannerVisible) return null;
+
+  const title = snapshot.isRollBackToEmbedded
+    ? "Recovery update ready"
+    : "App update ready";
+  const subtitle = snapshot.isRollBackToEmbedded
+    ? `Tap Restart · return to embedded (leaving ${shortId(snapshot.runningUpdateId)})`
+    : `Tap Restart · running ${shortId(snapshot.runningUpdateId)} → ${shortId(snapshot.downloadedUpdateId)}`;
 
   return (
     <View
@@ -61,7 +74,7 @@ export function OtaUpdateBanner({
         <Feather name="download" size={16} color="#fff" />
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
-            App update ready
+            {title}
           </Text>
           <Text
             selectable
@@ -71,7 +84,7 @@ export function OtaUpdateBanner({
               fontSize: 11,
             }}
           >
-            {`Tap Restart · running ${shortId(snapshot.runningUpdateId)} → ${shortId(snapshot.downloadedUpdateId)}`}
+            {subtitle}
           </Text>
         </View>
         <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>

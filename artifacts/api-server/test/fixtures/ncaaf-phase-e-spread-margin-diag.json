@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-10-16T20:22:50.535Z",
+  "scope": "pre_cutoff_only — untouched holdout unused",
+  "untouchedCutoff": "2024-10-15T00:00:00Z",
+  "simulationsPerGame": 2500,
+  "calibrationSeed": 20241015,
+  "nPreCutoffJoined": 254,
+  "nDecided": 247,
+  "meanProjectedMinusActualMargin": 0.13156133076960239,
+  "empiricalResidualSd": 19.384167632421832,
+  "meanSimMarginSd": 19.09910131911898,
+  "residualOverSimSdRatio": 1.0149256401408526,
+  "interpretation": {
+    "underdispersed": "NOT_CONFIRMED_UNDERDISPERSION",
+    "meanBias": "MEAN_BIAS_SMALL",
+    "note": "Do not tune on untouched. Any residual-noise fix must be locked on pre-cutoff evidence only, then re-evaluated on untouched."
+  },
+  "byAbsLine": {
+    "0_3.5": {
+      "n": 68,
+      "meanP": 0.5441323529411763,
+      "meanY": 0.5294117647058824,
+      "meanBias": 1.9286622199509271
+    },
+    "4_7.5": {
+      "n": 50,
+      "meanP": 0.54172,
+      "meanY": 0.6,
+      "meanBias": -1.8857909622411686
+    },
+    "8_14": {
+      "n": 50,
+      "meanP": 0.5091800000000002,
+      "meanY": 0.44,
+      "meanBias": 2.4289747751309196
+    },
+    "14.5_21": {
+      "n": 46,
+      "meanP": 0.4901956521739132,
+      "meanY": 0.391304347826087,
+      "meanBias": 3.860431959889052
+    },
+    "21plus": {
+      "n": 33,
+      "meanP": 0.3796363636363636,
+      "meanY": 0.5454545454545454,
+      "meanBias": -9.273642616925496
+    }
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

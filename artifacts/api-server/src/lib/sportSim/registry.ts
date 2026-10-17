@@ -8,6 +8,7 @@ import { runPossessionSim } from "./nbaPossessionSim.js";
 import { runNflDriveSim } from "./nflDriveSim.js";
 import { runNhlShiftSim } from "./nhlShiftSim.js";
 import { runSoccerXgSim } from "./soccerXgSim.js";
+import { gameSimEngineVersion } from "./gameSimEngineVersion.js";
 
 export type { SportSimContext, SportSimModelId };
 export { MODEL_LABELS };
@@ -26,7 +27,11 @@ export function sportSimModelForSport(sport: string): SportSimModelId {
 }
 
 /** Run 10k+ sport-specific game simulation for team sports. */
-export function runSportGameMonteCarlo(ctx: SportSimContext): (GameSimResult & { simModel: SportSimModelId; simModelLabel: string }) | null {
+export function runSportGameMonteCarlo(ctx: SportSimContext): (GameSimResult & {
+  simModel: SportSimModelId;
+  simModelLabel: string;
+  engineVersion: string;
+}) | null {
   const model = sportSimModelForSport(ctx.sport);
   let result: GameSimResult | null = null;
 
@@ -64,6 +69,7 @@ export function runSportGameMonteCarlo(ctx: SportSimContext): (GameSimResult & {
         ...generic,
         simModel: "generic-team",
         simModelLabel: MODEL_LABELS["generic-team"],
+        engineVersion: gameSimEngineVersion("generic-team"),
       };
     }
   }
@@ -73,5 +79,6 @@ export function runSportGameMonteCarlo(ctx: SportSimContext): (GameSimResult & {
     ...result,
     simModel: model,
     simModelLabel: MODEL_LABELS[model],
+    engineVersion: gameSimEngineVersion(model),
   };
 }

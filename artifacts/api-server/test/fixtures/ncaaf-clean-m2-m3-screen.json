@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-10-17T11:45:20.717Z",
+  "stamp": "ncaaf-score-margin-v1-research",
+  "split": "TUNING",
+  "finalEval": "UNTOUCHED",
+  "closesInFeatures": false,
+  "injury": "injury_unavailable (E4 open)",
+  "naming": {
+    "evaluableSupported": "research eval inputs — NOT production approval",
+    "productionReleaseApproved": false
+  },
+  "totalsAlts": "do_not_block_ml_ats_research",
+  "ops": {
+    "ncaafGate": false,
+    "freeze": "armed",
+    "voice": "paused",
+    "paidRetrieval": "none",
+    "deployOta": "none"
+  },
+  "fbsFcsReconcile": {
+    "fullEspnFbsFcs": 119,
+    "fairCohortFbsFcs": 85,
+    "verdict": "cohort_difference_not_classification_error",
+    "doc": "docs/coach/ncaaf-clean-fbs-fcs-cohort-reconcile.md"
+  },
+  "m2WithVenueSidecar": {
+    "stamp": "ncaaf-score-margin-v1-research",
+    "nTuningGames": 471,
+    "venue": {
+      "home": 465,
+      "neutral": 6,
+      "unknown": 0,
+      "evaluableSupported": 350
+    },
+    "okPredictions": 350,
+    "withhold": {
+      "fbs_fcs_unsupported_scope": 119,
+      "unrated_fbs_side": 2
+    }
+  },
+  "residualSignDefinition": {
+    "formula": "residual = (homeScore - awayScore) - marginMean",
+    "positiveMeans": "Actual home margin larger than predicted (model understated home edge / overstated away)",
+    "negativeMeans": "Actual home margin smaller than predicted (model overstated home edge)",
+    "priorM2WithoutVenueHfa": {
+      "meanResidual": 6.110807308746756,
+      "note": "Computed when all venues were unknown so HFA was withheld — positive bias expected"
+    }
+  },
+  "m3Screen": {
+    "note": "Screening only on supported FBS–FBS + evaluableSupported + close-joined labels. Not FINAL_EVAL. Rebuild ≠ pass.",
+    "overall": {
+      "nMl": 334,
+      "nAts": 326,
+      "mlBrierEngine": 0.19763154231532157,
+      "mlBrierMarket": 0.17665292452674916,
+      "mlBrierCoin": 0.25,
+      "mlDeltaVsMarket": 0.020978617788572407,
+      "mlM3": false,
+      "mlBias": -0.06508390801469151,
+      "atsBrierEngine": 0.26039411415100705,
+      "atsBrierCoin": 0.25,
+      "atsS2": false,
+      "meanResidual": 2.934915309721521,
+      "rmseResidual": 16.934600267222955
+    },
+    "week1": {
+      "nMl": 47,
+      "nAts": 47,
+      "mlBrierEngine": 0.2093398209907254,
+      "mlBrierMarket": 0.1370752881359932,
+      "mlBrierCoin": 0.25,
+      "mlDeltaVsMarket": 0.0722645328547322,
+      "mlM3": false,
+      "mlBias": -0.11959886511411918,
+      "atsBrierEngine": 0.24323653320189828,
+      "atsBrierCoin": 0.25,
+      "atsS2": true,
+      "meanResidual": 3.987580559001575,
+      "rmseResidual": 18.403120694730084
+    },
+    "largeFavorite14plus_gt14": {
+      "nMl": 94,
+      "nAts": 94,
+      "mlBrierEngine": 0.122519642167214,
+      "mlBrierMarket": 0.07411706438814678,
+      "mlBrierCoin": 0.25,
+      "mlDeltaVsMarket": 0.04840257777906723,
+      "mlM3": false,
+      "mlBias": -0.13359689812342668,
+      "atsBrierEngine": 0.26723926792604286,
+      "atsBrierCoin": 0.25,
+      "atsS2": false,
+      "meanResidual": 7.077091980822064,
+      "rmseResidual": 17.50605920110603
+    },
+    "largeFavorite14plus_ge14_sensitivity": {
+      "nMl": 107,
+      "nAts": 107,
+      "mlBrierEngine": 0.1388805117084295,
+      "mlBrierMarket": 0.09862771403598573,
+      "mlBrierCoin": 0.25,
+      "mlDeltaVsMarket": 0.04025279767244376,
+      "mlM3": false,
+      "mlBias": -0.13837747124022542,
+      "atsBrierEngine": 0.2673733587549992,
+      "atsBrierCoin": 0.25,
+      "atsS2": false,
+      "meanResidual": 6.695493857583143,
+      "rmseResidual": 17.78011586297145
+    },
+    "largeFavoriteNote": "Canonical abs>14 matches identical-334 (n≈94). abs>=14 was first-screen bug (n≈107).",
+    "lockedCriteriaReminder": {
+      "M3": "brierEngine <= brierMarket + 0.02",
+      "S2": "brierEngine < 0.25 (ATS vs coin)"
+    }
+  }
+}

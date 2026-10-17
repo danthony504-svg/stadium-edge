@@ -1,0 +1,519 @@
+{
+  "generatedAt": "2026-10-17T12:05:34.403Z",
+  "stamp": "ncaaf-score-margin-v1-research",
+  "candidate": {
+    "id": "E1_alpha_1_15",
+    "alpha": 1.15,
+    "freezeDoc": "docs/coach/ncaaf-clean-e1-candidate-freeze.md",
+    "marginScaleSweeps": "STOPPED"
+  },
+  "ops": {
+    "finalEval": "UNTOUCHED",
+    "ncaafGate": false,
+    "injuryValidation": "OPEN",
+    "productionFreeze": true,
+    "voice": "paused",
+    "paidRetrieval": false,
+    "deployOta": false
+  },
+  "identicalN": 334,
+  "atsN": 326,
+  "atsDiagnosis": {
+    "overall": {
+      "label": "identical_334",
+      "nMl": 334,
+      "nAts": 326,
+      "meanResidual": 2.8923681750420207,
+      "meanResidualSe": 0.9127053908384597,
+      "meanCoverResidual": 2.955613555884743,
+      "meanCoverResidualSe": 0.9345441417110615,
+      "rmseResidual": 16.929211181726735,
+      "meanAbsZCover": 0.6277098095891951,
+      "meanZ2Cover": 0.6684401612889699,
+      "atsBrier": 0.2602950767497275,
+      "atsBrierLocationCorrected": 0.2572857234787137,
+      "locationShareOfAtsError": 0.003009353271013815,
+      "mlBrier": 0.195481766550902,
+      "mktBrier": 0.17665292452674916,
+      "deltaVsMarket": 0.01882884202415283,
+      "meanPAts": 0.47173385417370384,
+      "meanYAts": 0.5214723926380368,
+      "atsBias": -0.04973853846433296
+    },
+    "large": {
+      "label": "large_gt14",
+      "nMl": 94,
+      "nAts": 94,
+      "meanResidual": 6.370570671562394,
+      "meanResidualSe": 1.6273459443206435,
+      "meanCoverResidual": 6.370570671562394,
+      "meanCoverResidualSe": 1.6273459443206435,
+      "rmseResidual": 17.01529088778897,
+      "meanAbsZCover": 0.6008703323014254,
+      "meanZ2Cover": 0.6042861527201026,
+      "atsBrier": 0.26326473069067513,
+      "atsBrierLocationCorrected": 0.2596623926107632,
+      "locationShareOfAtsError": 0.0036023380799119487,
+      "mlBrier": 0.11532597831008859,
+      "mktBrier": 0.07411706438814678,
+      "deltaVsMarket": 0.041208913921941814,
+      "meanPAts": 0.41069717110009146,
+      "meanYAts": 0.46808510638297873,
+      "atsBias": -0.05738793528288727
+    },
+    "weekFolds": [
+      {
+        "label": "W1",
+        "nMl": 47,
+        "nAts": 47,
+        "meanResidual": 3.663377217319896,
+        "meanResidualSe": 2.6042892454725464,
+        "meanCoverResidual": 3.663377217319896,
+        "meanCoverResidualSe": 2.6042892454725464,
+        "rmseResidual": 18.226066194281334,
+        "meanAbsZCover": 0.5101190592716466,
+        "meanZ2Cover": 0.42847988130760745,
+        "atsBrier": 0.24327411316900813,
+        "atsBrierLocationCorrected": 0.24863931000743986,
+        "locationShareOfAtsError": -0.0053651968384317295,
+        "mlBrier": 0.2067746374365939,
+        "mktBrier": 0.1370752881359932,
+        "deltaVsMarket": 0.0696993493006007,
+        "meanPAts": 0.4370464889980829,
+        "meanYAts": 0.40425531914893614,
+        "atsBias": 0.03279116984914676
+      },
+      {
+        "label": "W2",
+        "nMl": 41,
+        "nAts": 39,
+        "meanResidual": 2.700326667701146,
+        "meanResidualSe": 2.446480187451598,
+        "meanCoverResidual": 2.8048150498596987,
+        "meanCoverResidualSe": 2.570717129681892,
+        "rmseResidual": 15.896151789776647,
+        "meanAbsZCover": 0.4868755980899942,
+        "meanZ2Cover": 0.4292217709247515,
+        "atsBrier": 0.2674237359302995,
+        "atsBrierLocationCorrected": 0.2607740258597284,
+        "locationShareOfAtsError": 0.00664971007057108,
+        "mlBrier": 0.1967843185590578,
+        "mktBrier": 0.17063627172372162,
+        "deltaVsMarket": 0.026148046835336197,
+        "meanPAts": 0.4642744861368914,
+        "meanYAts": 0.5384615384615384,
+        "atsBias": -0.07418705232464706
+      },
+      {
+        "label": "W3",
+        "nMl": 45,
+        "nAts": 44,
+        "meanResidual": 5.371179807436837,
+        "meanResidualSe": 2.7523175532800206,
+        "meanCoverResidual": 5.544415786489869,
+        "meanCoverResidualSe": 2.809413037874926,
+        "rmseResidual": 19.228518108736736,
+        "meanAbsZCover": 0.6936136764053145,
+        "meanZ2Cover": 0.7404204961741655,
+        "atsBrier": 0.2802771199544423,
+        "atsBrierLocationCorrected": 0.25503039852372755,
+        "locationShareOfAtsError": 0.02524672143071477,
+        "mlBrier": 0.18769374265270639,
+        "mktBrier": 0.177336682447293,
+        "deltaVsMarket": 0.010357060205413382,
+        "meanPAts": 0.4770156375429551,
+        "meanYAts": 0.6590909090909091,
+        "atsBias": -0.18207527154795394
+      },
+      {
+        "label": "W4",
+        "nMl": 46,
+        "nAts": 46,
+        "meanResidual": 0.3234812505454888,
+        "meanResidualSe": 2.508532912745993,
+        "meanCoverResidual": 0.3234812505454888,
+        "meanCoverResidualSe": 2.508532912745993,
+        "rmseResidual": 17.016772882618778,
+        "meanAbsZCover": 0.6233701793671387,
+        "meanZ2Cover": 0.6668630488662733,
+        "atsBrier": 0.2497107047991384,
+        "atsBrierLocationCorrected": 0.24981981920711208,
+        "locationShareOfAtsError": -0.00010911440797367611,
+        "mlBrier": 0.20807022477681744,
+        "mktBrier": 0.22379208506807904,
+        "deltaVsMarket": -0.015721860291261602,
+        "meanPAts": 0.48857055323892457,
+        "meanYAts": 0.4782608695652174,
+        "atsBias": 0.01030968367370716
+      },
+      {
+        "label": "W5",
+        "nMl": 50,
+        "nAts": 48,
+        "meanResidual": 0.8965062359124646,
+        "meanResidualSe": 2.00291992299592,
+        "meanCoverResidual": 0.9718815258723811,
+        "meanCoverResidualSe": 2.084802684746507,
+        "rmseResidual": 14.191128719299567,
+        "meanAbsZCover": 0.5405741825760015,
+        "meanZ2Cover": 0.563793852537721,
+        "atsBrier": 0.25412674431120374,
+        "atsBrierLocationCorrected": 0.2534643097584069,
+        "locationShareOfAtsError": 0.0006624345527968534,
+        "mlBrier": 0.17919464777721872,
+        "mktBrier": 0.1651717055547706,
+        "deltaVsMarket": 0.014022942222448126,
+        "meanPAts": 0.4733582062932771,
+        "meanYAts": 0.5,
+        "atsBias": -0.026641793706722927
+      },
+      {
+        "label": "W6",
+        "nMl": 49,
+        "nAts": 49,
+        "meanResidual": 4.57287317028274,
+        "meanResidualSe": 2.0081764508547097,
+        "meanCoverResidual": 4.57287317028274,
+        "meanCoverResidualSe": 2.0081764508547097,
+        "rmseResidual": 14.782321511254422,
+        "meanAbsZCover": 0.6629969791214162,
+        "meanZ2Cover": 0.6347408980426843,
+        "atsBrier": 0.2768894580644196,
+        "atsBrierLocationCorrected": 0.27573753660855044,
+        "locationShareOfAtsError": 0.001151921455869176,
+        "mlBrier": 0.19377356246157343,
+        "mktBrier": 0.16890614515317354,
+        "deltaVsMarket": 0.02486741730839989,
+        "meanPAts": 0.47797184872446963,
+        "meanYAts": 0.5306122448979592,
+        "atsBias": -0.05264039617348959
+      },
+      {
+        "label": "W7",
+        "nMl": 56,
+        "nAts": 53,
+        "meanResidual": 2.815705747768309,
+        "meanResidualSe": 2.4335305641828113,
+        "meanCoverResidual": 2.875622119688451,
+        "meanCoverResidualSe": 2.568856748942716,
+        "rmseResidual": 18.42726716687753,
+        "meanAbsZCover": 0.8309662464430299,
+        "meanZ2Cover": 1.124805246929576,
+        "atsBrier": 0.2529855307421893,
+        "atsBrierLocationCorrected": 0.24836090468073024,
+        "locationShareOfAtsError": 0.004624626061459081,
+        "mlBrier": 0.1970046303388671,
+        "mktBrier": 0.19203353741725196,
+        "deltaVsMarket": 0.004971092921615128,
+        "meanPAts": 0.48174714203625957,
+        "meanYAts": 0.5471698113207547,
+        "atsBias": -0.06542266928449514
+      }
+    ],
+    "calibrationByPredictedCoverProb": {
+      "all": [
+        {
+          "lo": 0.02,
+          "hi": 0.2,
+          "n": 3,
+          "meanP": 0.16470678084450494,
+          "meanY": 0,
+          "gap": 0.16470678084450494,
+          "brier": 0.027645690970394387
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.35,
+          "n": 44,
+          "meanP": 0.2988831199211948,
+          "meanY": 0.5,
+          "gap": -0.20111688007880518,
+          "brier": 0.28546047873277824
+        },
+        {
+          "lo": 0.35,
+          "hi": 0.5,
+          "n": 152,
+          "meanP": 0.4320778511753858,
+          "meanY": 0.5197368421052632,
+          "gap": -0.08765899092987739,
+          "brier": 0.2602853805675911
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.65,
+          "n": 107,
+          "meanP": 0.5623097804069431,
+          "meanY": 0.5420560747663551,
+          "gap": 0.020253705640588038,
+          "brier": 0.2501029550377529
+        },
+        {
+          "lo": 0.65,
+          "hi": 0.8,
+          "n": 18,
+          "meanP": 0.6987531386723217,
+          "meanY": 0.5555555555555556,
+          "gap": 0.14319758311676611,
+          "brier": 0.2785762358860166
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.98,
+          "n": 2,
+          "meanP": 0.8598612316289341,
+          "meanY": 0.5,
+          "gap": 0.35986123162893413,
+          "brier": 0.43711530099806967
+        }
+      ],
+      "week1": [
+        {
+          "lo": 0.02,
+          "hi": 0.2,
+          "n": 2,
+          "meanP": 0.17954158409146304,
+          "meanY": 0,
+          "gap": 0.17954158409146304,
+          "brier": 0.032351017227295935
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.35,
+          "n": 9,
+          "meanP": 0.29879783360950757,
+          "meanY": 0.3333333333333333,
+          "gap": -0.03453549972382575,
+          "brier": 0.20967666046615505
+        },
+        {
+          "lo": 0.35,
+          "hi": 0.5,
+          "n": 21,
+          "meanP": 0.43456288367135604,
+          "meanY": 0.47619047619047616,
+          "gap": -0.04162759251912013,
+          "brier": 0.25248945706966985
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.65,
+          "n": 15,
+          "meanP": 0.557806717009528,
+          "meanY": 0.4,
+          "gap": 0.15780671700952797,
+          "brier": 0.27865418278868864
+        },
+        {
+          "lo": 0.65,
+          "hi": 0.8,
+          "n": 0,
+          "meanP": null,
+          "meanY": null,
+          "gap": null,
+          "brier": null
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.98,
+          "n": 0,
+          "meanP": null,
+          "meanY": null,
+          "gap": null,
+          "brier": null
+        }
+      ],
+      "largeGt14": [
+        {
+          "lo": 0.02,
+          "hi": 0.2,
+          "n": 2,
+          "meanP": 0.17954158409146304,
+          "meanY": 0,
+          "gap": 0.17954158409146304,
+          "brier": 0.032351017227295935
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.35,
+          "n": 31,
+          "meanP": 0.29410286582565237,
+          "meanY": 0.41935483870967744,
+          "gap": -0.12525197288402506,
+          "brier": 0.2546700098001537
+        },
+        {
+          "lo": 0.35,
+          "hi": 0.5,
+          "n": 41,
+          "meanP": 0.4199979346977885,
+          "meanY": 0.5121951219512195,
+          "gap": -0.09219718725343101,
+          "brier": 0.26247450742091183
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.65,
+          "n": 15,
+          "meanP": 0.5571722991863565,
+          "meanY": 0.6666666666666666,
+          "gap": -0.10949436748031016,
+          "brier": 0.23328919147215232
+        },
+        {
+          "lo": 0.65,
+          "hi": 0.8,
+          "n": 5,
+          "meanP": 0.7103524528451554,
+          "meanY": 0,
+          "gap": 0.7103524528451554,
+          "brier": 0.5053239340648867
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.98,
+          "n": 0,
+          "meanP": null,
+          "meanY": null,
+          "gap": null,
+          "brier": null
+        }
+      ]
+    },
+    "reliability": {
+      "all": {
+        "n": 326,
+        "slope": 0.19722008072068167,
+        "intercept": 0.4284370038392207
+      },
+      "week1": {
+        "n": 47,
+        "slope": 0.4458740199540241,
+        "intercept": 0.20938764419256875
+      },
+      "largeGt14": {
+        "n": 94,
+        "slope": 0.14252633257048597,
+        "intercept": 0.4095499447890093
+      }
+    },
+    "locationVsShape": {
+      "definition": "Location = mean residual / mean cover residual. Shape diagnostic = ATS Brier after shifting every marginMean by slice meanResidual (oracle location); residual ATS error + calib gaps ⇒ shape/σ.",
+      "locationShareOfAtsError": 0.003009353271013815,
+      "atsBrierRaw": 0.2602950767497275,
+      "atsBrierLocationCorrected": 0.2572857234787137,
+      "interpretation": "Location correction barely moves ATS Brier ⇒ remaining error is mostly shape/calibration."
+    }
+  },
+  "proposedExperiment": {
+    "id": "NONE",
+    "status": "NO_EXPERIMENT",
+    "rationale": "ATS error not isolatable to one bounded lever. locShare=0.0030, atsAfterLoc=0.2572857234787137, reliabilitySlope=0.19722008072068167, meanZ2Cover=0.6684401612889699, sigmaDirectionConflict=true, discriminationOk=false. Margin-scale sweeps frozen; do not invent β/α scalars."
+  },
+  "mlReadiness": {
+    "note": "Independent assessment against locked criteria. TUNING M3 screen ≠ FINAL_EVAL authorization.",
+    "thresholdsUnchanged": true,
+    "finalEvalUntouched": true,
+    "criteria": {
+      "M1_sample": {
+        "requirement": "n ≥ 200 decided with close ML (FINAL_EVAL)",
+        "tuningScreen_n": 334,
+        "tuningScreen_ok": true,
+        "finalEval": "NOT_BUILT",
+        "blocker": "FINAL_EVAL fixtures empty — cannot claim M1 on reserved set"
+      },
+      "M2_vs_coin": {
+        "requirement": "brierEngine < 0.25",
+        "tuningScreen_brier": 0.195481766550902,
+        "tuningScreen_ok": true,
+        "finalEval": "NOT_SCORED",
+        "blocker": "FINAL_EVAL unscored"
+      },
+      "M3_vs_market": {
+        "requirement": "brierEngine ≤ brierMarket + 0.02",
+        "tuningScreen_delta": 0.01882884202415283,
+        "tuningScreen_ok": true,
+        "note": "E1 α=1.15 TUNING identical-334 screen only — does NOT authorize FINAL_EVAL",
+        "finalEval": "NOT_SCORED",
+        "blocker": "TUNING M3 pass is screening only; FINAL_EVAL required for acceptance"
+      },
+      "M4_bias": {
+        "requirement": "|meanP − meanY| ≤ 0.08",
+        "tuningScreen_bias": -0.06561379002329726,
+        "tuningScreen_ok": true,
+        "finalEval": "NOT_SCORED"
+      },
+      "S2_ats": {
+        "requirement": "ATS brier < 0.25 vs coin",
+        "tuningScreen_brier": 0.2602950767497275,
+        "tuningScreen_ok": false,
+        "blocker": "ATS still fails coin on TUNING identical-334 under E1 α=1.15"
+      },
+      "Coach_CLV_C1_C6": {
+        "requirement": "C1–C6 on Coach pick CLV (locked)",
+        "lastMeasuredEngine": "ppg-per-drive-v1.1 phase-e (not clean E1)",
+        "lastVerdict": "UNKNOWN",
+        "nMlWithClv": null,
+        "meanClv": null,
+        "earlyCachePicks": null,
+        "cleanE1Clv": "NOT_RUN — no early two-sided T−24h cache for 2025 TUNING; ODDS spend forbidden",
+        "blocker": "Coach CLV unmet historically (C1 fail n=15; early cache empty). Clean E1 has no CLV measurement. Paid early snaps not authorized."
+      },
+      "E4_injury": {
+        "requirement": "captureTimestamp < kickoff joins; null≠false",
+        "tuningCloses_injuryKnownNonNull": 0,
+        "tuningCloses_qbOutNonNull": 0,
+        "status": "OPEN / INSUFFICIENT_DATA",
+        "blocker": "No historical pre-kick injury archive for TUNING or FINAL_EVAL"
+      },
+      "P2_gate": {
+        "requirement": "NCAAF_GAME_LINE_SIM_VALIDATED false until human E6",
+        "status": "false (blocked) — correct"
+      },
+      "Totals_ALTs": {
+        "status": "INSUFFICIENT_DATA — closeTotal / ALT prices absent",
+        "note": "Do not block ML research reporting but block product enablement"
+      }
+    },
+    "moneylineReadyForFinalEval": false,
+    "moneylineReadyForProduct": false,
+    "reasonNotReady": "TUNING-only M3 screen insufficient; FINAL_EVAL empty; Coach CLV blocked; injury E4 open; ATS S2 fail; gate false by policy"
+  },
+  "remainingBlockers": [
+    {
+      "id": "FINAL_EVAL_EMPTY",
+      "severity": "hard",
+      "detail": "Reserved FINAL_EVAL fixtures/closes not built — no acceptance scoring allowed"
+    },
+    {
+      "id": "ATS_S2_FAIL_TUNING",
+      "severity": "hard",
+      "detail": "E1 α=1.15 identical-334 ATS Brier=0.2603 (need <0.25). Descriptive only on TUNING."
+    },
+    {
+      "id": "COACH_CLV",
+      "severity": "hard",
+      "detail": "C1–C6 unmet on last phase-e measure; clean candidate has no early two-sided cache; spend not authorized"
+    },
+    {
+      "id": "E4_INJURY",
+      "severity": "hard",
+      "detail": "injuryKnown/qbOut null on TUNING closes; no historical pre-kick joins"
+    },
+    {
+      "id": "TUNING_M3_NOT_FINAL",
+      "severity": "policy",
+      "detail": "Even if TUNING M3 screen is true for E1 α=1.15, policy forbids treating it as FINAL_EVAL authorization"
+    },
+    {
+      "id": "GATE_P2",
+      "severity": "policy",
+      "detail": "NCAAF_GAME_LINE_SIM_VALIDATED must stay false until human E6"
+    },
+    {
+      "id": "TOTALS_ALTS_DATA",
+      "severity": "market",
+      "detail": "closeTotal / posted ALT prices absent → INSUFFICIENT_DATA"
+    }
+  ]
+}

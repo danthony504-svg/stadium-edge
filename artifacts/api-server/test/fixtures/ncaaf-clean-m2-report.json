@@ -1,0 +1,53 @@
+{
+  "generatedAt": "2026-10-17T11:25:16.809Z",
+  "stamp": "ncaaf-score-margin-v1-research",
+  "split": "TUNING",
+  "finalEval": "UNTOUCHED",
+  "nTuningGames": 471,
+  "nFbsFbsRows": 352,
+  "nOkPredictions": 350,
+  "nVenueUnknown": 471,
+  "nInjuryUnavailableOnOk": 350,
+  "nTiedOrInvalidFinalsOnOk": 0,
+  "withholdReasons": {
+    "fbs_fcs_unsupported_scope": 119,
+    "unrated_fbs_side": 2
+  },
+  "scoreOnlyDiag": {
+    "nMarginResiduals": 350,
+    "meanResidual": 6.110807308746756,
+    "rmseResidual": 18.122558166117518,
+    "note": "Informational only \u2014 not M3/S2; closes not used in features"
+  },
+  "dataBlockersBeforeM3": [
+    {
+      "id": "venue_fields_absent",
+      "severity": "release_blocker",
+      "detail": "TUNING/phase-e game fixtures lack venueKind/neutralSite fields \u2014 all rows recover as venue.kind=unknown \u2192 releaseEligible=false. Need free ESPN venue recovery retag before release-eligible preds."
+    },
+    {
+      "id": "injury_snapshots_absent",
+      "severity": "validation_gap",
+      "detail": "No pre-kick injury snapshots on historical TUNING \u2014 injury_unavailable on all ok preds. Allowed for research; does not satisfy E4 injury validation."
+    },
+    {
+      "id": "close_totals_alt_absent",
+      "severity": "market_gap",
+      "detail": "closeTotal / ALT archives still absent \u2014 totals/ALT remain INSUFFICIENT_DATA (unchanged)."
+    },
+    {
+      "id": "final_eval_untouched",
+      "severity": "policy",
+      "detail": "FINAL_EVAL fixtures not built \u2014 correct until candidate lock after M3 screen."
+    }
+  ],
+  "ops": {
+    "ncaafGate": false,
+    "productionFreeze": "armed",
+    "voice": "paused",
+    "paidRetrieval": "none",
+    "deployOta": "none"
+  },
+  "nEvaluableSupported": 0,
+  "namingNote": "releaseEligible renamed to evaluableSupported; this snapshot is pre-venue-sidecar"
+}

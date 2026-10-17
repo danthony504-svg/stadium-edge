@@ -1,0 +1,410 @@
+{
+  "generatedAt": "2026-10-17T14:04:39.595Z",
+  "authorized": true,
+  "paidHttp": 0,
+  "retuned": false,
+  "deployOta": false,
+  "ncaafUnlock": false,
+  "spreads": "BLOCKED_SEPARATE_GATE",
+  "stamp": "ncaaf-score-margin-v1-research",
+  "candidateId": "E1_alpha_1_15",
+  "alpha": 1.15,
+  "membershipN": 408,
+  "membershipPreserved": true,
+  "pairedCoverage": "403/408",
+  "emptyBookmakersKeptMissing": 5,
+  "split": "FINAL_EVAL",
+  "allowFinalEvalScoring": true,
+  "scored": true,
+  "policy": {
+    "spreadsMarket": "BLOCKED_SEPARATE_GATE",
+    "s2DoesNotAutoFailMl": true,
+    "tuningM3IsNotFinalPass": true,
+    "closesForbiddenInFeatures": true,
+    "finalEvalScoringRequiresExplicitFlag": true,
+    "voice": "paused",
+    "ncaafGate": false
+  },
+  "lockedCriteria": {
+    "ml": {
+      "M1_minN": 200,
+      "M2_brierLt": 0.25,
+      "M3_maxDeltaVsMarket": 0.02,
+      "M4_maxAbsBias": 0.08
+    },
+    "clv": {
+      "C1_minN": 50,
+      "C2_meanClvMin": 0,
+      "C3_pctBeatCloseMin": 0.45,
+      "C4_minHomeSelections": 20,
+      "C4_minAwaySelections": 20
+    }
+  },
+  "spreadsMarket": {
+    "status": "BLOCKED_SEPARATE_GATE",
+    "note": "S2 failure does not automatically fail ML"
+  },
+  "metrics": {
+    "nMl": 403,
+    "mlBrier": 0.18244176980067497,
+    "mktBrier": 0.17775991926646764,
+    "deltaVsMarket": 0.0046818505342073324,
+    "meanP": 0.5363845393359269,
+    "meanY": 0.5558312655086849,
+    "bias": -0.019446726172758
+  },
+  "mlCriteria": [
+    {
+      "id": "M1",
+      "pass": true,
+      "detail": "nMl=403",
+      "measured": 403,
+      "threshold": 200
+    },
+    {
+      "id": "M2",
+      "pass": true,
+      "detail": "mlBrier=0.18244176980067497",
+      "measured": 0.18244176980067497,
+      "threshold": 0.25
+    },
+    {
+      "id": "M3",
+      "pass": true,
+      "detail": "deltaVsMarket=0.0046818505342073324",
+      "measured": 0.0046818505342073324,
+      "threshold": "<= market + 0.02"
+    },
+    {
+      "id": "M4",
+      "pass": true,
+      "detail": "bias=-0.019446726172758",
+      "measured": -0.019446726172758,
+      "threshold": 0.08
+    }
+  ],
+  "clvCriteria": [
+    {
+      "id": "C1",
+      "pass": true,
+      "detail": "nMlWithClv=278",
+      "evidenceClass": "passed"
+    },
+    {
+      "id": "C2",
+      "pass": true,
+      "detail": "meanClv=0.0017845390265699645",
+      "evidenceClass": "passed"
+    },
+    {
+      "id": "C3",
+      "pass": true,
+      "detail": "pctBeatClose=0.45323741007194246",
+      "evidenceClass": "passed"
+    },
+    {
+      "id": "C4",
+      "pass": true,
+      "detail": "home=114 away=164",
+      "evidenceClass": "passed"
+    },
+    {
+      "id": "C5",
+      "pass": true,
+      "detail": "softGatesOk=true",
+      "evidenceClass": "passed"
+    },
+    {
+      "id": "C6",
+      "pass": true,
+      "detail": "E2b_coachPickClv=PASS eligible",
+      "evidenceClass": "passed"
+    }
+  ],
+  "acceptance": {
+    "finalPass": false,
+    "reason": "Unmet: mlAll=true clvAll=true e4=false",
+    "mlAllPass": true,
+    "clvAllPass": true
+  },
+  "withhold": {},
+  "notes": [
+    "Closes used as eval labels only — not in predict features",
+    "Spreads/S2 out of scope for this harness"
+  ],
+  "softGates": {
+    "n": 403,
+    "engineBrier": 0.18244176980067497,
+    "marketBrier": 0.17775991926646764,
+    "meanEngineMinusMarket": -0.03549629397068137,
+    "verdict": "PASS_SOFT_GATES_ONLY",
+    "reasons": []
+  },
+  "coachClvDetail": {
+    "nPicks": 278,
+    "homeSelections": 114,
+    "awaySelections": 164,
+    "meanClv": 0.0017845390265699645,
+    "pctBeatClose": 0.45323741007194246,
+    "earlyCachePicks": 278,
+    "selectionRules": [
+      "R1_home_ok",
+      "R2_away_early_cache",
+      "R3_edge_le_12",
+      "R4_price_source"
+    ],
+    "markets": [
+      "h2h_ml_only"
+    ],
+    "spreadsBlocked": true
+  },
+  "uncertainty": {
+    "method": "bootstrap_resample_games_B400",
+    "n": 403,
+    "mlBrierSE": 0.009375092127823321,
+    "deltaVsMarketSE": 0.004332451621776888,
+    "meanClvSE": 0.0013600734635664442
+  },
+  "exclusions": {
+    "membershipN": 408,
+    "scoredCloseMlN": 403,
+    "emptyBookmakersMissing": [
+      {
+        "eventId": "401756933",
+        "reason": "empty_bookmakers",
+        "home": "Texas Tech Red Raiders",
+        "away": "Oklahoma State Cowboys",
+        "kickoffIso": "2025-10-25T20:00Z",
+        "oddsCommenceTime": "2025-10-25T20:00:00Z",
+        "snapshotTimestamp": "2025-10-25T19:55:38Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752886",
+        "reason": "empty_bookmakers",
+        "home": "Oregon Ducks",
+        "away": "Wisconsin Badgers",
+        "kickoffIso": "2025-10-25T23:00Z",
+        "oddsCommenceTime": "2025-10-25T23:00:00Z",
+        "snapshotTimestamp": "2025-10-25T22:55:38Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752771",
+        "reason": "empty_bookmakers",
+        "home": "Tennessee Volunteers",
+        "away": "New Mexico State Aggies",
+        "kickoffIso": "2025-11-15T21:15Z",
+        "oddsCommenceTime": "2025-11-15T21:15:00Z",
+        "snapshotTimestamp": "2025-11-15T21:10:37Z",
+        "season": 2025,
+        "week": 12,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752776",
+        "reason": "empty_bookmakers",
+        "home": "Georgia Bulldogs",
+        "away": "Charlotte 49ers",
+        "kickoffIso": "2025-11-22T17:45Z",
+        "oddsCommenceTime": "2025-11-22T17:45:00Z",
+        "snapshotTimestamp": "2025-11-22T17:40:37Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401754604",
+        "reason": "empty_bookmakers",
+        "home": "Notre Dame Fighting Irish",
+        "away": "Syracuse Orange",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "oddsCommenceTime": "2025-11-22T20:35:00Z",
+        "snapshotTimestamp": "2025-11-22T20:25:37Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      }
+    ],
+    "closeMissing": [
+      {
+        "eventId": "401756933",
+        "reason": "empty_bookmakers",
+        "home": "Texas Tech Red Raiders",
+        "away": "Oklahoma State Cowboys",
+        "kickoffIso": "2025-10-25T20:00Z",
+        "oddsCommenceTime": "2025-10-25T20:00:00Z",
+        "snapshotTimestamp": "2025-10-25T19:55:38Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752886",
+        "reason": "empty_bookmakers",
+        "home": "Oregon Ducks",
+        "away": "Wisconsin Badgers",
+        "kickoffIso": "2025-10-25T23:00Z",
+        "oddsCommenceTime": "2025-10-25T23:00:00Z",
+        "snapshotTimestamp": "2025-10-25T22:55:38Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752771",
+        "reason": "empty_bookmakers",
+        "home": "Tennessee Volunteers",
+        "away": "New Mexico State Aggies",
+        "kickoffIso": "2025-11-15T21:15Z",
+        "oddsCommenceTime": "2025-11-15T21:15:00Z",
+        "snapshotTimestamp": "2025-11-15T21:10:37Z",
+        "season": 2025,
+        "week": 12,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752776",
+        "reason": "empty_bookmakers",
+        "home": "Georgia Bulldogs",
+        "away": "Charlotte 49ers",
+        "kickoffIso": "2025-11-22T17:45Z",
+        "oddsCommenceTime": "2025-11-22T17:45:00Z",
+        "snapshotTimestamp": "2025-11-22T17:40:37Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401754604",
+        "reason": "empty_bookmakers",
+        "home": "Notre Dame Fighting Irish",
+        "away": "Syracuse Orange",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "oddsCommenceTime": "2025-11-22T20:35:00Z",
+        "snapshotTimestamp": "2025-11-22T20:25:37Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "close",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      }
+    ],
+    "earlyMissing": [
+      {
+        "eventId": "401756933",
+        "reason": "empty_bookmakers",
+        "home": "Texas Tech Red Raiders",
+        "away": "Oklahoma State Cowboys",
+        "kickoffIso": "2025-10-25T20:00Z",
+        "oddsCommenceTime": "2025-10-25T20:00:00Z",
+        "snapshotTimestamp": "2025-10-24T19:55:39Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "early",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752886",
+        "reason": "empty_bookmakers",
+        "home": "Oregon Ducks",
+        "away": "Wisconsin Badgers",
+        "kickoffIso": "2025-10-25T23:00Z",
+        "oddsCommenceTime": "2025-10-25T23:00:00Z",
+        "snapshotTimestamp": "2025-10-24T22:55:39Z",
+        "season": 2025,
+        "week": 9,
+        "phase": "early",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752771",
+        "reason": "empty_bookmakers",
+        "home": "Tennessee Volunteers",
+        "away": "New Mexico State Aggies",
+        "kickoffIso": "2025-11-15T21:15Z",
+        "oddsCommenceTime": "2025-11-15T21:15:00Z",
+        "snapshotTimestamp": "2025-11-14T21:10:37Z",
+        "season": 2025,
+        "week": 12,
+        "phase": "early",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401752776",
+        "reason": "empty_bookmakers",
+        "home": "Georgia Bulldogs",
+        "away": "Charlotte 49ers",
+        "kickoffIso": "2025-11-22T17:45Z",
+        "oddsCommenceTime": "2025-11-22T17:45:00Z",
+        "snapshotTimestamp": "2025-11-21T17:40:38Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "early",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      },
+      {
+        "eventId": "401754604",
+        "reason": "empty_bookmakers",
+        "home": "Notre Dame Fighting Irish",
+        "away": "Syracuse Orange",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "oddsCommenceTime": "2025-11-22T20:30:00Z",
+        "snapshotTimestamp": "2025-11-21T20:25:38Z",
+        "season": 2025,
+        "week": 13,
+        "phase": "early",
+        "matchSource": "cache_alias_rematch",
+        "matchKind": "exact",
+        "note": "Event on slate with bookmakers=[]; keep explicitly missing"
+      }
+    ],
+    "harnessWithhold": {},
+    "clvSkip": {
+      "no_qualify_edge": 125
+    }
+  },
+  "finalEvalScored": true,
+  "humanE6Required": true,
+  "note": "Single frozen FINAL_EVAL run — do not retune against these numbers"
+}
