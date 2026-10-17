@@ -371,7 +371,7 @@ function LineTierChip({
         <Text style={{ color: fg ?? colors.mutedForeground, fontFamily: FONT.body, fontSize: 9, lineHeight: 12 }}>
           {Math.round(simMetrics.winProb * 100)}% win · {simMetrics.confidencePct}% conf ·{" "}
           {simMetrics.edgePct >= 0 ? "+" : ""}
-          {simMetrics.edgePct.toFixed(1)}% edge · {simMetrics.evPct >= 0 ? "+" : ""}
+          {simMetrics.edgePct.toFixed(1)} pp · {simMetrics.evPct >= 0 ? "+" : ""}
           {simMetrics.evPct.toFixed(1)}% EV
         </Text>
       ) : null}

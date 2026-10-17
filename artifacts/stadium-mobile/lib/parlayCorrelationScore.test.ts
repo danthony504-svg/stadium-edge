@@ -55,18 +55,14 @@ test("maxLegsPerGame is 2 for deep fixed-leg asks", () => {
   assert.equal(maxLegsPerGame(10, 5), 5);
 });
 
-test("progressiveLegsPerGameRelaxation climbs to ceil(target/2)", () => {
-  assert.deepEqual(progressiveLegsPerGameRelaxation(10), [3, 4, 5]);
-  assert.deepEqual(progressiveLegsPerGameRelaxation(8), [3, 4]);
+test("progressiveLegsPerGameRelaxation disabled — honest shortfall over auto-raise", () => {
+  assert.deepEqual(progressiveLegsPerGameRelaxation(10), []);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(8), []);
   assert.deepEqual(progressiveLegsPerGameRelaxation(10, 5), []);
   assert.deepEqual(progressiveLegsPerGameRelaxation(3), []);
-});
-
-test("college team-market stacks raise progressive seat ceiling", () => {
-  // Cap already at 4 for a 7-leg college ask — still climbs toward 5.
   assert.deepEqual(
     progressiveLegsPerGameRelaxation(7, 4, { collegeTeamMarketStacks: true }),
-    [5],
+    [],
   );
   assert.deepEqual(progressiveLegsPerGameRelaxation(7, 4), []);
 });

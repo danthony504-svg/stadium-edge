@@ -40,6 +40,7 @@ import {
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import {
   deriveGameSimLineMetrics,
+  simEdgeFromHit,
   simEvPct,
 } from "./gameSimQualityGates.ts";
 import {
@@ -353,14 +354,26 @@ function scoredFromEvalRow(
   const m = deriveGameSimLineMetrics(row);
   const implied =
     row.pick.odds != null ? Math.round(impliedProb(row.pick.odds) * 1000) / 10 : null;
+  // Sync sanitized hit + recomputed edge onto finalAiScore so delivery never
+  // carries a desynced / null simHit next to a letter grade.
+  const edgePct =
+    m?.edgePct ??
+    (hit != null && row.pick.odds != null ? simEdgeFromHit(hit, row.pick.odds) : null) ??
+    row.edgePct ??
+    row.finalAiScore.edgePct;
+  const syncedScore = {
+    ...row.finalAiScore,
+    simHit: hit,
+    edgePct,
+  };
   const leg: Omit<BoardScoredLeg, "rankScore"> = {
     pick: {
       ...row.pick,
-      finalAiScore: row.finalAiScore,
+      finalAiScore: syncedScore,
       highRiskValuePlay: row.finalAiScore.highRiskValuePlay,
     },
-    evPct: m?.evPct ?? null,
-    edgePct: row.edgePct ?? row.finalAiScore.edgePct,
+    evPct: m?.evPct ?? (hit != null && row.pick.odds != null ? simEvPct(hit, row.pick.odds) : null),
+    edgePct,
     confidencePct: confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily, calibration),
     impliedProbPct: implied,
     lineShoppingScore: lineShoppingFromPick(row.pick, row.entry),

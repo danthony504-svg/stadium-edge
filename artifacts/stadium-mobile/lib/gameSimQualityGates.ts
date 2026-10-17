@@ -67,19 +67,40 @@ export type GameSimLineMetrics = {
   confidencePct: number;
 };
 
-/** EV% from sim hit probability vs posted American odds. */
-export function simEvPct(simHit: number, americanOdds: number): number | null {
+/**
+ * EV% from sim win probability vs posted American odds.
+ * Optional `pushRate` (integer-line land-on-number) refunds the stake:
+ *   EV = P(win)×decimal − 1 + P(push).
+ * Half-point lines leave pushRate at 0 (unchanged).
+ */
+export function simEvPct(
+  simHit: number,
+  americanOdds: number,
+  pushRate = 0,
+): number | null {
   if (!Number.isFinite(simHit) || !Number.isFinite(americanOdds)) return null;
-  const ev = simHit * americanToDecimal(americanOdds) - 1;
+  const push =
+    Number.isFinite(pushRate) && pushRate > 0 ? Math.min(1, Math.max(0, pushRate)) : 0;
+  const ev = simHit * americanToDecimal(americanOdds) - 1 + push;
   if (!Number.isFinite(ev)) return null;
   return Math.round(ev * 1000) / 10;
 }
 
-/** Edge in pct points: sim hit minus book implied probability. */
-export function simEdgeFromHit(simHit: number, americanOdds: number): number | null {
+/**
+ * Edge in pct points: sim win rate minus book-implied win rate.
+ * With push refunds, the stake is only at risk on non-push outcomes, so the
+ * fair win bar is `implied × (1 − P(push))`.
+ */
+export function simEdgeFromHit(
+  simHit: number,
+  americanOdds: number,
+  pushRate = 0,
+): number | null {
   const implied = impliedProb(americanOdds);
   if (!Number.isFinite(simHit) || !Number.isFinite(implied)) return null;
-  return Math.round((simHit - implied) * 1000) / 10;
+  const push =
+    Number.isFinite(pushRate) && pushRate > 0 ? Math.min(1, Math.max(0, pushRate)) : 0;
+  return Math.round((simHit - implied * (1 - push)) * 1000) / 10;
 }
 
 /**

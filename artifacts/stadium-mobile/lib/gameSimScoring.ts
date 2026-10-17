@@ -62,6 +62,11 @@ export type CoachGameSimEntry = GameSimulationResult & {
   /** Canonical client cover map (posted line hit rates). */
   coverHitRates?: Record<string, number>;
   /**
+   * Integer-line land-on-number push rates (stake refund). Half-point lines
+   * stay at 0. Used by edge/EV so push is not treated as a full loss.
+   */
+  coverPushRates?: Record<string, number>;
+  /**
    * Server-compatible alias of coverHitRates (api-server coverProbs).
    * Lookups accept either key so client/server slate sims stay aligned.
    * Live delivery still requires Final AI simHit — sim-map alone cannot seat.
@@ -222,7 +227,11 @@ export function gameLineLegBucket(game: string, market: string, pick: string): s
   const g = canonicalGameKey(game);
   const fam = gameMarketFamily(market);
   if (/\b(over|under)\b/i.test(pick) && !/team total/i.test(market)) {
-    return `${g}|game-total`;
+    // Include side + line so ALT Under 4.5 cannot collide with main Under 6.5
+    // in the same backfill/dedupe bucket (stale ALT grade / cache-key risk).
+    const side = /\bover\b/i.test(pick) ? "over" : "under";
+    const line = numLine(pick);
+    return `${g}|game-total|${side}|${line ?? ""}`;
   }
   if (/team total/i.test(market)) {
     const team = gamePickTeam({ game, market, pick, odds: 0 });
@@ -367,7 +376,7 @@ export function fgExpectedFromPeriodAverages(
   return null;
 }
 
-function coverQueryHits(
+export function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
@@ -427,6 +436,85 @@ function coverQueryHits(
     return false;
   }
   return false;
+}
+
+/** True when a posted line can land exactly (integer / .0); half-points cannot push. */
+export function lineAllowsPush(line: number | null | undefined): boolean {
+  if (line == null || !Number.isFinite(line)) return false;
+  return Math.abs(line - Math.round(line)) < 1e-9;
+}
+
+/**
+ * Integer-line push (land-on-number). Strict cover stays in {@link coverQueryHits};
+ * equality here is a stake refund, not a win or loss. Half-point lines → false.
+ * ML ties are not treated as push refunds (sport-specific settlement).
+ */
+export function coverQueryPushes(
+  q: GameCoverQuery,
+  homeScore: number,
+  awayScore: number,
+  sport = "nba",
+  periodOpts?: PeriodOffenseDefenseProfile | null,
+): boolean {
+  const period = q.period ?? "fg";
+  const scoped =
+    period === "fg"
+      ? { home: homeScore, away: awayScore }
+      : periodScoresForDraw(sport, period, homeScore, awayScore, periodOpts);
+  if (!Number.isFinite(scoped.home) || !Number.isFinite(scoped.away)) return false;
+  const hs = scoped.home;
+  const as = scoped.away;
+  const total = hs + as;
+
+  if (q.kind === "spread") {
+    const line = q.line ?? 0;
+    if (!lineAllowsPush(line)) return false;
+    if (q.teamSide === "home") return Math.abs(hs + line - as) < 1e-9;
+    if (q.teamSide === "away") return Math.abs(as + line - hs) < 1e-9;
+    return false;
+  }
+  if (q.kind === "total") {
+    const line = q.line ?? 0;
+    if (!lineAllowsPush(line)) return false;
+    return Math.abs(total - line) < 1e-9;
+  }
+  if (q.kind === "teamTotal") {
+    const line = q.line ?? 0;
+    if (!lineAllowsPush(line)) return false;
+    const score = q.teamSide === "home" ? hs : as;
+    return Math.abs(score - line) < 1e-9;
+  }
+  return false;
+}
+
+/** Derive push rates for integer lines from a saved 10k draw set. */
+export function deriveCoverPushRatesFromOutcomes(
+  outcomes: { homeScores: number[]; awayScores: number[] },
+  queries: GameCoverQuery[],
+  sport = "nba",
+  periodProfile?: PeriodOffenseDefenseProfile | null,
+): Record<string, number> {
+  const n = outcomes.homeScores.length;
+  if (!n || n !== outcomes.awayScores.length) return {};
+  const rates: Record<string, number> = {};
+  for (const q of queries) {
+    let pushes = 0;
+    for (let i = 0; i < n; i++) {
+      if (
+        coverQueryPushes(
+          q,
+          outcomes.homeScores[i]!,
+          outcomes.awayScores[i]!,
+          sport,
+          periodProfile,
+        )
+      ) {
+        pushes += 1;
+      }
+    }
+    rates[q.id] = Math.round((pushes / n) * 1000) / 1000;
+  }
+  return rates;
 }
 
 /** Derive hit rates for arbitrary lines from a saved 10k draw set. */
@@ -645,6 +733,27 @@ export function distributionForQuery(
   return { mean: null, median: null, stdev: null };
 }
 
+/** Resolve integer-line push rate for a cover query (0 for half-points / missing). */
+export function coverPushRateForQuery(
+  query: GameCoverQuery,
+  sim: CoachGameSimEntry | null | undefined,
+): number {
+  if (!sim) return 0;
+  const cached = sim.coverPushRates?.[query.id];
+  if (cached != null && Number.isFinite(cached) && cached >= 0) {
+    return Math.min(1, cached);
+  }
+  if (sim.outcomes?.homeScores?.length && sim.outcomes.awayScores?.length) {
+    const derived = deriveCoverPushRatesFromOutcomes(
+      sim.outcomes,
+      [query],
+      sim.sport ?? "nba",
+    );
+    return derived[query.id] ?? 0;
+  }
+  return 0;
+}
+
 function sanitizeGameSimHit(
   pick: ParsedPick,
   query: GameCoverQuery,
@@ -654,16 +763,21 @@ function sanitizeGameSimHit(
   if (hit == null || !Number.isFinite(hit)) return null;
   const n = sim.simulations ?? 0;
   const hits = n > 0 ? Math.round(hit * n) : null;
-  const losses = hits != null && n > 0 ? n - hits : null;
+  const pushRate = coverPushRateForQuery(query, sim);
+  const pushes = n > 0 ? Math.round(pushRate * n) : 0;
+  // True losses exclude pushes (stake refunds), not n − hits.
+  const losses = hits != null && n > 0 ? Math.max(0, n - hits - pushes) : null;
   const odds = pick.odds;
   const implied = odds != null && Number.isFinite(odds) ? impliedProb(odds) : null;
+  // Push-aware edge/EV (mirror gameSimQualityGates) — keep formulas local to
+  // avoid a circular import with that module.
   const edge =
     odds != null && Number.isFinite(odds) && implied != null
-      ? Math.round((hit - implied) * 1000) / 10
+      ? Math.round((hit - implied * (1 - pushRate)) * 1000) / 10
       : null;
   const ev =
     odds != null && Number.isFinite(odds)
-      ? Math.round((hit * americanToDecimal(odds) - 1) * 1000) / 10
+      ? Math.round((hit * americanToDecimal(odds) - 1 + pushRate) * 1000) / 10
       : null;
   const periodClaimed = parseMarketPeriod(pick.market ?? "");
   const periodUsed = query.period ?? "fg";
