@@ -14,7 +14,7 @@
 | Early vs close price differences examined | **No** (forbidden until after lock + authorized pull) |
 | T−24h historical timing feasible (post–Sep 2022) | **Yes** (docs) |
 | Local early snapshot archive | **Empty** (0 files) |
-| `ODDS_API_KEY` present | **No** — `CLOUD_AGENT_ALL_SECRET_NAMES=EXPO_TOKEN` only |
+| `ODDS_API_KEY` present | **No** — injection mismatch vs TUNING success run (same env ID; this pod warm_fork / EXPO_TOKEN only) — see `ncaaf-final-eval-ml-archive-injection-mismatch.md` |
 | Manifests regenerated + deduped | **Yes** |
 | Close hard cap / Early hard cap / Combined max | **2100** / **2100** / **4200** |
 | Each pull fits own cap (base+25% retry) | **Yes** (1670+418=2088 ≤ 2100) |
@@ -25,10 +25,10 @@
 
 ## Retrieval readiness verdict
 
-**AUTHORIZED but NOT EXECUTED** — blocked by missing `ODDS_API_KEY` (and empty early cache).  
-Capped puller ready: `artifacts/api-server/scripts/ncaafCleanFinalEvalMlArchivePull.py`.
+**AUTHORIZED but NOT EXECUTED** — same env `8c5427d9-a490-11f1-a7d1-d6b4613131ce` as TUNING success (`bc-01a1471c-…` / cold / API KEY), but **this** pod is warm_fork with secrets `EXPO_TOKEN` only.  
+Capped puller ready: `ncaafCleanFinalEvalMlArchivePull.py`. Do **not** repeat TUNING. Do **not** re-request approval.
 
-**READY to fetch** once key is added to Cloud Agent Secrets and a **new** agent run injects it (`NCAAF_FINAL_EVAL_PULL=1`).
+**READY to fetch** only on a cold boot / resume of `bc-01a1471c-…` where `ODDS_API_KEY` injects (`NCAAF_FINAL_EVAL_PULL=1`).
 
 ## Credit plan (when key present)
 
