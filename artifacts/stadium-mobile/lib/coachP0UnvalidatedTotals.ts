@@ -4,9 +4,9 @@
 // block simulation-derived grades for affected markets and hard-stop same-team
 // team-total stacks. Does not invent odds, probs, or replacement sims.
 //
-// NCAAF game lines (spread / ML / alt / period sides) are also fail-closed:
-// nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks,
-// and matchup defense packs never enter score draws. Player props stay open.
+// NCAAF game lines (spread / ML / alt / period sides) stay fail-closed until
+// NCAAF_GAME_LINE_SIM_VALIDATED is flipped after engine validation (soft rates,
+// defense tilt, spreads/ML/totals checks). Player props stay open either way.
 //
 // Sport aliases (cfb → ncaaf) are normalized before the gate. Missing sport is
 // resolved only from trusted provider/event fields — never guessed from team
@@ -14,6 +14,13 @@
 //
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
+
+/**
+ * Flip only after ncaafGameLineSimValidation (+ human Phase E sign-off).
+ * Default false keeps P0 armed — player props alone do not clear this gate.
+ * Do not flip until validation supports enabling it.
+ */
+export const NCAAF_GAME_LINE_SIM_VALIDATED = false;
 
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
 export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
@@ -28,8 +35,8 @@ export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl
 
 /**
  * NCAAF only — full-game and period game-side markets that settle from
- * unvalidated nfl-drive score draws. NFL game lines remain open for now;
- * NCAAF props are untouched.
+ * nfl-drive score draws. Cleared only when NCAAF_GAME_LINE_SIM_VALIDATED.
+ * NFL game lines remain open for now; NCAAF props are untouched.
  */
 export const P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = new Set(["ncaaf"]);
 
@@ -224,6 +231,9 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
 
   const sport = resolveCoachPickSport(pick);
   if (!sport) return true; // unknown sport + game line → fail closed
+  if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
+    return false;
+  }
   return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
 }
 
@@ -251,6 +261,42 @@ export function p0UnvalidatedSimDecision(
 ): { accept: false; reason: string } | null {
   return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
 }
+
+/**
+ * True when a game-lines-only ask is locked exclusively to NCAAF (or aliases)
+ * while NCAAF_GAME_LINE_SIM_VALIDATED is false — every FG side/total the scan
+ * would seat is P0-blocked, so running slate sims only burns wall clock.
+ *
+ * Props-only / mixed-sport / unlocked boards return false so eligible sims still run.
+ */
+export function ncaafGameLineAskIsP0Blocked(opts: {
+  gameLinesOnly: boolean;
+  lockedSports: readonly string[] | null | undefined;
+}): boolean {
+  if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (!opts.gameLinesOnly) return false;
+  const sports = (opts.lockedSports ?? [])
+    .map((s) => String(s ?? "").toLowerCase().trim())
+    .filter(Boolean)
+    .map((s) => (NCAAF_SPORT_ALIASES.has(s) ? "ncaaf" : s));
+  if (sports.length === 0) return false;
+  return sports.every((s) => P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(s));
+}
+
+/**
+ * User-facing note when a college game-line ask is P0-blocked before scan.
+ * Short, fixed copy — must not describe a quality-bar / scan failure.
+ * `requestedLegs` kept for call-site compatibility; not shown in the note.
+ */
+export function p0BlockedNcaafGameLineAskNote(_requestedLegs?: number): string {
+  return (
+    "College football team picks are temporarily unavailable while validation is completed. " +
+    "No ticket was built."
+  );
+}
+
+/** Reliability failureReason for the intentional NCAAF unvalidated-market gate. */
+export const BLOCKED_UNVALIDATED_MARKET_REASON = "blocked_unvalidated_market" as const;
 
 function teamNickFromTotalPick(pickText: string): string {
   const tokens = String(pickText ?? "")

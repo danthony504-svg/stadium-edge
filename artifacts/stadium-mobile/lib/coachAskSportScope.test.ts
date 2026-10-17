@@ -7,6 +7,7 @@ import {
   explicitFootballPropsSportScope,
   filterPicksByAllowedSports,
   filterPoolByAllowedSports,
+  hardLockedSportsFromAsk,
   resolveAuthoritativeCandidateSport,
   resolveImmutableAskSportScope,
   rowMatchesAllowedSports,
@@ -29,6 +30,13 @@ test("explicitFootballPropsSportScope: NFL / NCAAF / generic", () => {
   assert.equal(explicitFootballPropsSportScope("8 leg college"), "ncaaf");
   assert.equal(explicitFootballPropsSportScope("5 leg football player props"), null);
   assert.equal(explicitFootballPropsSportScope("5 leg player props"), null);
+});
+
+test("hardLockedSportsFromAsk: exclusive NCAAF/NFL for P0 early-exit", () => {
+  assert.deepEqual(hardLockedSportsFromAsk("6 leg NCAAF"), ["ncaaf"]);
+  assert.deepEqual(hardLockedSportsFromAsk("8 leg college"), ["ncaaf"]);
+  assert.deepEqual(hardLockedSportsFromAsk("5 leg NFL player props"), ["nfl"]);
+  assert.equal(hardLockedSportsFromAsk("5 leg football player props"), null);
 });
 
 test("resolveImmutableAskSportScope forces singleton for explicit leagues", () => {

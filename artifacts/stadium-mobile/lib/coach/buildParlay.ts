@@ -54,6 +54,12 @@ import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
 import {
+  BLOCKED_UNVALIDATED_MARKET_REASON,
+  ncaafGameLineAskIsP0Blocked,
+  p0BlockedNcaafGameLineAskNote,
+  P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+} from "@/lib/coachP0UnvalidatedTotals";
+import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
 } from "@/lib/coachPrioritySports";
@@ -94,6 +100,7 @@ import {
 import {
   filterPicksByAllowedSports,
   filterPoolByAllowedSports,
+  hardLockedSportsFromAsk,
   resolveImmutableAskSportScope,
 } from "@/lib/coachAskSportScope";
 import {
@@ -264,6 +271,55 @@ export async function buildCoachParlay(opts: {
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
+
+  // Observe-only reliability markers — created before the P0 early exit /
+  // loadScanInputs so the blocked path can emit without slate sims.
+  const coachRelStarted = Date.now();
+  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
+
+  // Ask-only gate — before loadScanInputs / slate sims. Bare "6 leg NCAAF" /
+  // "8 leg college" is gameLinesOnly + NCAAF-locked; every FG market is P0
+  // while NCAAF_GAME_LINE_SIM_VALIDATED=false, so waiting on slate sims only stalls.
+  {
+    const earlyConstraint = parseCoachAskMarketConstraint(
+      opts.askText,
+      opts.priorUserTexts ?? [],
+    );
+    const earlyPropsOnly = earlyConstraint.propsOnly;
+    const earlyGameLinesOnly = earlyConstraint.gameLinesOnly && !earlyPropsOnly;
+    const earlyLockedSports = hardLockedSportsFromAsk(opts.askText);
+    if (
+      ncaafGameLineAskIsP0Blocked({
+        gameLinesOnly: earlyGameLinesOnly,
+        lockedSports: earlyLockedSports,
+      })
+    ) {
+      opts.onStatus?.("College game lines blocked (unvalidated simulation)…");
+      // Short fixed copy only — no long clarification / quality-bar wording.
+      const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
+      reportCoachScanReliability({
+        requestId: coachRelRequestId,
+        sportCategory: coachRelSport || "ncaaf",
+        requestedLegCount: target,
+        returnedLegCount: 0,
+        durationMs: Date.now() - coachRelStarted,
+        realOddsAvailable: null,
+        picks: [],
+        // Digest-visible policy block — not a scan/qualification/fulfillment miss.
+        eventType: "parlay_zero_results",
+        failureReason: BLOCKED_UNVALIDATED_MARKET_REASON,
+        rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+      });
+      return {
+        picks: [],
+        note,
+        scan: null,
+        timedOut: false,
+        propPoolSize: 0,
+      };
+    }
+  }
 
   const inputs = await loadScanInputs(
     opts.signal,
@@ -445,11 +501,7 @@ export async function buildCoachParlay(opts: {
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
 
-  // Observe-only reliability markers — never touch selection / UI.
-  // Created before props-only early return so that path can emit coach-events.
-  const coachRelStarted = Date.now();
-  const coachRelRequestId = `greenfield-${Date.now()}`;
-  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
+  // coachRel* markers created at function entry (before P0 early exit).
 
   // Greenfield props-only rebuild — dedicated local-first history/EV pipeline
   // for EVERY props-only ask (NFL, WNBA, multi-sport). The football-only ≥50%
