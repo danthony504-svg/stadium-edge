@@ -52,6 +52,19 @@ export function explicitFootballPropsSportScope(
 }
 
 /**
+ * Exclusive football sports named in the ask (`null` = mixed / unlocked).
+ * Used by the NCAAF P0 game-line early-exit — not a substitute for the
+ * immutable pool belt (`resolveImmutableAskSportScope`).
+ */
+export function hardLockedSportsFromAsk(
+  text: string | null | undefined,
+): string[] | null {
+  const explicit = explicitFootballPropsSportScope(text);
+  if (!explicit) return null;
+  return [explicit];
+}
+
+/**
  * Immutable allowed sports for the whole Coach pipeline.
  * Board sports from load are the base; explicit NFL/NCAAF force a singleton
  * so a widened/mixed pool cannot admit the other league.
