@@ -20,6 +20,10 @@ import {
 } from "../gameSimQualityGates.ts";
 import { impliedProb } from "../format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "../simMarketSupport.ts";
+import {
+  propProvenanceAllowsSeating,
+  type PropProbabilityProvenance,
+} from "../coachPropProbabilityProvenance.ts";
 
 /** Bump when qualification/render pipeline semantics change (device diagnostics). */
 export const COACH_PIPELINE_VERSION = "unified-quality-v1";
@@ -33,6 +37,7 @@ export type CoachQualificationReason =
   | "missing_score"
   | "sim_unsupported"
   | "sim_invalid"
+  | "insufficient_sim_provenance"
   | "grade_floor"
   | "confidence_floor"
   | "non_positive_edge"
@@ -62,12 +67,15 @@ export type CoachQualifyInput = {
     confidencePct?: number | null;
     edgePct?: number | null;
     simHit?: number | null;
+    propProbabilityProvenance?: PropProbabilityProvenance | null;
   } | null;
   /** Optional overrides when score is on a BoardScoredLeg, not the pick. */
   grade?: string | null;
   confidencePct?: number | null;
   edgePct?: number | null;
   simHit?: number | null;
+  /** Option C — required for player props; missing ⇒ insufficient. */
+  propProbabilityProvenance?: PropProbabilityProvenance | null;
 };
 
 export type CoachQualifyResult = {
@@ -166,6 +174,21 @@ export function evaluateCoachQualification(
 
   if (!pickHasSimGrade({ isProp, market, sport }, simHit)) {
     return { status: "rejected", reason: "sim_invalid", pipelineVersion };
+  }
+
+  // Option C — player props need authorized provenance (exact 10k or allowlisted history).
+  if (isProp) {
+    const provenance =
+      input.propProbabilityProvenance ??
+      input.finalAiScore?.propProbabilityProvenance ??
+      null;
+    if (!propProvenanceAllowsSeating(provenance)) {
+      return {
+        status: "rejected",
+        reason: "insufficient_sim_provenance",
+        pipelineVersion,
+      };
+    }
   }
 
   // Shared floor — single source (gameSimQualityGates). No confidence lift.

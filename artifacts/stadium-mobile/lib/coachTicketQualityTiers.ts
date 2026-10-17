@@ -14,6 +14,7 @@ import {
 } from "./pickRecommendation.ts";
 import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
+import { resolvePropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 
 /** User-facing ticket styles — controls how far quality gates relax when filling legs. */
 export type CoachTicketStyle = "safe" | "balanced" | "value" | "longshot";
@@ -101,6 +102,12 @@ export function legQualifiesAtMinGrade(
           .coachRequestStyle,
         qualificationStatus: status,
         finalAiScore: score,
+        propProbabilityProvenance: resolvePropProbabilityProvenance({
+          propProbabilityProvenance: (pick as {
+            propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+          }).propProbabilityProvenance,
+          finalAiScore: score,
+        }),
       },
       {
         requestStyle: pick.propsOnlyTicket

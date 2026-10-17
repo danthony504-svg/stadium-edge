@@ -28,12 +28,23 @@ import {
   isAnytimeTdPropMarket,
 } from "./anytimeTdPropModel.ts";
 import { gameValueForMarket } from "./propStats.ts";
+import {
+  exactMarket10kProvenance,
+  historicalModelProvenance,
+  propProvenanceAllowsSeating,
+  seatingHitFromProvenance,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 export type PropSimHit = {
   hitProbability: number | null;
   nullReason?: string | null;
   /** 0..1 rare-count reliability when computed from logs. */
   hitReliability?: number | null;
+  /** Deep MC draw count when from server; 0 for history fallback. */
+  simulations?: number | null;
+  /** Option C provenance — required for seating. */
+  probabilityProvenance?: PropProbabilityProvenance | null;
 };
 
 export type EnrichCoachPropSimResult = {
@@ -190,12 +201,35 @@ export async function enrichCoachPropSimHits(
     // (or fall through to local history) instead of treating as "already simulated".
     if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) {
       const clipped = clipPropSimHitForGrade(pick, row.hitProbability);
-      if (clipped != null && clipped !== row.hitProbability) {
-        out.set(key, { hitProbability: clipped, nullReason: null });
+      // Authorized exact 10k — keep; do not overwrite with history.
+      if (
+        propProvenanceAllowsSeating(row.probabilityProvenance) &&
+        row.probabilityProvenance?.source === "exact_market_10k"
+      ) {
+        if (clipped != null && clipped !== row.hitProbability) {
+          out.set(key, {
+            ...row,
+            hitProbability: clipped,
+            probabilityProvenance: {
+              ...row.probabilityProvenance!,
+              hitProbability: clipped,
+            },
+          });
+        }
         continue;
       }
-      if (row.hitProbability > 0 && row.hitProbability < 1) continue;
-      // Unclipped extreme 0/1 on non-binary markets: try local fallback.
+      if (clipped != null && clipped !== row.hitProbability) {
+        out.set(key, { ...row, hitProbability: clipped, nullReason: null });
+        continue;
+      }
+      if (
+        row.hitProbability > 0 &&
+        row.hitProbability < 1 &&
+        (row.simulations ?? 0) >= 10_000
+      ) {
+        continue;
+      }
+      // Unclipped extreme 0/1 or unauthorized source: try local fallback.
     }
     pending.push(pick);
   }
@@ -301,10 +335,19 @@ export async function enrichCoachPropSimHits(
         hitReliability = anytimeTdHitFromValues(vals, side).reliability;
       }
     }
-    out.set(key, {
+    const probabilityProvenance = historicalModelProvenance({
       hitProbability: local.hitProbability,
-      nullReason: null,
+      sport,
+      marketKey: market,
       hitReliability,
+    });
+    out.set(key, {
+      // Option C: unapproved history never becomes a seating hit.
+      hitProbability: seatingHitFromProvenance(probabilityProvenance),
+      nullReason: probabilityProvenance.nullReason,
+      hitReliability,
+      simulations: 0,
+      probabilityProvenance,
     });
   }
 

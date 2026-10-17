@@ -10,18 +10,39 @@ import {
 } from "./ticketStaging.ts";
 import { fillReservedPropSlots } from "./boardScanPropDelivery.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
+import {
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
+
+function stampScore(
+  score: NonNullable<ParsedPick["finalAiScore"]> | undefined,
+  pick: Partial<ParsedPick>,
+): ParsedPick["finalAiScore"] {
+  if (!score) return score;
+  if (!pick.isProp) return score;
+  const provenance = exactMarket10kProvenance({
+    hitProbability: score.simHit,
+    simulations: 10_000,
+    sport: pick.sport ?? "mlb",
+    marketKey: pick.propMarketKey ?? pick.market,
+  });
+  return { ...score, propProbabilityProvenance: provenance };
+}
 
 function leg(
   pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,
   rankScore: number,
   finalAiScore?: ParsedPick["finalAiScore"],
 ): BoardScoredLeg {
-  const full: ParsedPick = {
+  const score = stampScore(finalAiScore ?? pick.finalAiScore, pick);
+  const full = withExactMarket10kProvenance({
     isProp: false,
     sport: "mlb",
     ...pick,
-    finalAiScore: finalAiScore ?? pick.finalAiScore,
-  };
+    finalAiScore: score,
+    simHit: score?.simHit ?? 0.55,
+  } as ParsedPick);
   return {
     pick: full,
     evPct: 2,
@@ -30,7 +51,7 @@ function leg(
     impliedProbPct: 50,
     lineShoppingScore: 1,
     grade: "B",
-    simHit: 0.55,
+    simHit: full.finalAiScore?.simHit ?? 0.55,
     composite: 7,
     rankScore,
   };

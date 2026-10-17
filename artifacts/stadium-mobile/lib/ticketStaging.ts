@@ -56,6 +56,7 @@ import {
   type CoachQualificationReason,
   type CoachRequestStyle,
 } from "./coach/qualifyCoachCandidate.ts";
+import { resolvePropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 import { rareMultiCountNormalSeatAllowed } from "./rareMultiCountCoachGate.ts";
 import { anytimeTdNormalSeatAllowed } from "./anytimeTdPropModel.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
@@ -193,6 +194,12 @@ export function boardLegPoolRole(
         qualificationReason: (pick as { qualificationReason?: CoachQualificationReason })
           .qualificationReason,
         finalAiScore: score ?? null,
+        propProbabilityProvenance: resolvePropProbabilityProvenance({
+          propProbabilityProvenance: (pick as {
+            propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+          }).propProbabilityProvenance,
+          finalAiScore: score ?? pick.finalAiScore ?? null,
+        }),
       },
       {
         requestStyle,

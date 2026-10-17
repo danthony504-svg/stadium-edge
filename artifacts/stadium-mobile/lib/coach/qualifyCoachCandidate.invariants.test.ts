@@ -21,6 +21,7 @@ import { fillReservedPropSlots } from "../boardScanPropDelivery.ts";
 import { stageFootballPropsOnlyLegs } from "../coachFootballPropsOnly.ts";
 import type { BoardScoredLeg } from "../ticketStaging.ts";
 import { SLIP_UI_ENABLED } from "../slipUi.ts";
+import { withExactMarket10kProvenance } from "../coachPropProbabilityProvenance.ts";
 
 const SPORTS = [
   "nfl",
@@ -47,7 +48,7 @@ function makeProp(opts: {
   const edgePct =
     opts.edgePct ??
     Math.round((opts.simHit - 1 / (1 + Math.abs(opts.odds) / 100)) * 1000) / 10;
-  return {
+  return withExactMarket10kProvenance({
     isProp: true as const,
     sport: opts.sport,
     market: opts.market ?? "Home Runs",
@@ -60,6 +61,7 @@ function makeProp(opts: {
     pick: "Over 1.5",
     propsOnlyTicket: opts.propsOnlyTicket,
     qualificationStatus: opts.qualificationStatus,
+    simHit: opts.simHit,
     finalAiScore: {
       grade: opts.grade,
       confidencePct: opts.confidencePct,
@@ -69,7 +71,7 @@ function makeProp(opts: {
       recommends: opts.grade === "A" || opts.grade === "B",
       composite: 50,
     },
-  };
+  });
 }
 
 function scoredLegFromPick(pick: ReturnType<typeof makeProp>): BoardScoredLeg {
@@ -175,17 +177,20 @@ for (const sport of SPORTS) {
 
 test("Invariant C: missing confidence fails closed (not treated as zero pass)", () => {
   const r = qualifyCoachCandidate(
-    {
+    withExactMarket10kProvenance({
       isProp: true,
       market: "Home Runs",
+      propMarketKey: "batter_home_runs",
+      sport: "mlb",
       odds: 200,
+      simHit: 0.55,
       finalAiScore: {
         grade: "B",
         confidencePct: null,
         simHit: 0.55,
         edgePct: 3,
       },
-    },
+    }),
     { isProp: true },
   );
   assert.equal(r.status, "rejected");

@@ -148,6 +148,11 @@ export type ParsedPick = {
    * letter grade (not Not Rec.) even when holistic confidence sits at 50–51.
    */
   propsOnlyTicket?: boolean;
+  /**
+   * Option C — player-prop probability provenance. Must travel with the pick
+   * through qualify / ALT / backfill / partial / final. Never forge exact_market_10k.
+   */
+  propProbabilityProvenance?: import("@/lib/coachPropProbabilityProvenance").PropProbabilityProvenance | null;
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
   /**

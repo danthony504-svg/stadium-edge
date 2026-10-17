@@ -26,12 +26,19 @@ import {
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
+import {
+  historicalModelProvenance,
+  seatingHitFromProvenance,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 export type PropsOnlyHit = {
   hitProbability: number | null;
   nullReason?: string | null;
   /** 0..1 sample/threshold confidence — rare counts with thin evidence stay low. */
   hitReliability?: number | null;
+  /** Option C provenance — seating hit only when source authorizes. */
+  probabilityProvenance?: PropProbabilityProvenance | null;
 };
 
 export type PropsOnlyHistoryGame = {
@@ -363,26 +370,57 @@ export function gradeFootballPropFromHistory(
     line: poolRow?.line,
   });
   if (!market || line == null || !side || !norm.player) {
-    return { hitProbability: null, nullReason: "incomplete_prop" };
+    const probabilityProvenance = historicalModelProvenance({
+      hitProbability: null,
+      sport: norm.sport,
+      marketKey: market,
+      nullReason: "incomplete_prop",
+    });
+    return {
+      hitProbability: null,
+      nullReason: "incomplete_prop",
+      probabilityProvenance,
+    };
   }
   const mergedRecent = mergePropsOnlyHistoryGames(hist?.recent ?? []);
   if (!mergedRecent.length) {
-    return { hitProbability: null, nullReason: "no_player_history", hitReliability: 0 };
+    const probabilityProvenance = historicalModelProvenance({
+      hitProbability: null,
+      sport: norm.sport,
+      marketKey: market,
+      nullReason: "no_player_history",
+      hitReliability: 0,
+    });
+    return {
+      hitProbability: null,
+      nullReason: "no_player_history",
+      hitReliability: 0,
+      probabilityProvenance,
+    };
   }
   const { hit: hitProb, reliability } = localHitFromHistory(
     { ...hist, recent: mergedRecent },
     { market, line, side },
   );
   if (hitProb == null) {
+    const nullReason =
+      mergedRecent.length >= PROPS_ONLY_MIN_SAMPLE
+        ? isRareCountPropMarket(market)
+          ? "rare_count_insufficient_evidence"
+          : "insufficient_mapped_stats"
+        : "insufficient_game_log";
+    const probabilityProvenance = historicalModelProvenance({
+      hitProbability: null,
+      sport: norm.sport,
+      marketKey: market,
+      nullReason,
+      hitReliability: reliability,
+    });
     return {
       hitProbability: null,
-      nullReason:
-        mergedRecent.length >= PROPS_ONLY_MIN_SAMPLE
-          ? isRareCountPropMarket(market)
-            ? "rare_count_insufficient_evidence"
-            : "insufficient_mapped_stats"
-          : "insufficient_game_log",
+      nullReason,
       hitReliability: reliability,
+      probabilityProvenance,
     };
   }
   const clipped = clipPropSimHitForGrade(
@@ -390,12 +428,21 @@ export function gradeFootballPropFromHistory(
     hitProb,
   );
   if (clipped == null) {
+    const nullReason = isAnytimeTdPropMarket(market)
+      ? "anytime_td_insufficient_evidence"
+      : "rare_count_insufficient_evidence";
+    const probabilityProvenance = historicalModelProvenance({
+      hitProbability: null,
+      sport: norm.sport,
+      marketKey: market,
+      nullReason,
+      hitReliability: reliability,
+    });
     return {
       hitProbability: null,
-      nullReason: isAnytimeTdPropMarket(market)
-        ? "anytime_td_insufficient_evidence"
-        : "rare_count_insufficient_evidence",
+      nullReason,
       hitReliability: reliability,
+      probabilityProvenance,
     };
   }
   // Extreme market disagreement on TD: dampen toward implied when thin.
@@ -403,7 +450,22 @@ export function gradeFootballPropFromHistory(
     isAnytimeTdPropMarket(market) && norm.odds != null
       ? anytimeTdCalibrateToMarket(clipped, norm.odds, reliability)
       : clipped;
-  return { hitProbability: calibrated, nullReason: null, hitReliability: reliability };
+  // Option C: history hit seats only when sport/market is allowlisted.
+  const probabilityProvenance = historicalModelProvenance({
+    hitProbability: calibrated,
+    sport: norm.sport,
+    marketKey: market,
+    hitReliability: reliability,
+  });
+  return {
+    hitProbability: seatingHitFromProvenance(probabilityProvenance),
+    nullReason:
+      probabilityProvenance.source === "insufficient_evidence"
+        ? probabilityProvenance.nullReason
+        : null,
+    hitReliability: reliability,
+    probabilityProvenance,
+  };
 }
 
 export function gradeFootballPropsOnlyFromHistory(
@@ -437,10 +499,22 @@ export function softClipPropsOnlyHits(
     const raw = existing?.hitProbability;
     const clipped = clipPropSimHitForGrade(norm, raw);
     if (clipped !== raw) {
+      const prov = existing?.probabilityProvenance ?? null;
       hits.set(key, {
         hitProbability: clipped,
         nullReason: clipped == null ? "rare_count_insufficient_evidence" : null,
         hitReliability: existing?.hitReliability ?? null,
+        probabilityProvenance:
+          clipped == null && prov
+            ? {
+                ...prov,
+                source: "insufficient_evidence",
+                hitProbability: null,
+                nullReason: "rare_count_insufficient_evidence",
+              }
+            : prov
+              ? { ...prov, hitProbability: clipped }
+              : prov,
       });
     }
   }
@@ -460,6 +534,21 @@ export function lookupPropsOnlyHitReliability(
     if (r != null && Number.isFinite(r)) return Math.max(0, Math.min(1, r));
   }
   return 1;
+}
+
+export function lookupPropsOnlyProvenance(
+  pick: Parameters<typeof propsOnlySimLookupKey>[0],
+  poolRow: Parameters<typeof propsOnlySimLookupKey>[1],
+  hits: Map<string, PropsOnlyHit>,
+): PropProbabilityProvenance | null {
+  const keys = new Set<string>();
+  const primary = propsOnlySimLookupKey(pick, poolRow);
+  if (primary) keys.add(primary);
+  for (const key of keys) {
+    const p = hits.get(key)?.probabilityProvenance;
+    if (p) return p;
+  }
+  return null;
 }
 
 export function propsOnlyPickHasGrade(

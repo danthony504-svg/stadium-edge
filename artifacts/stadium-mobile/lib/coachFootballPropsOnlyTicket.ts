@@ -22,6 +22,7 @@ import {
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
   lookupPropsOnlyHitReliability,
+  lookupPropsOnlyProvenance,
   mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
@@ -92,6 +93,14 @@ import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
+import {
+  exactMarket10kProvenance,
+  insufficientPropProvenance,
+  preferPropProvenance,
+  propProvenanceAllowsSeating,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
+import type { PropsOnlyHit } from "./coachFootballPropsOnlyGrade.ts";
 
 export {
   FOOTBALL_PROPS_ONLY_BATCH,
@@ -257,6 +266,7 @@ function scoredLegFromHit(
   },
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
   hitReliability: number = 1,
+  probabilityProvenance: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null = null,
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -391,6 +401,7 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    propProbabilityProvenance: probabilityProvenance,
     propHolisticContext: {
       sport,
       marketKey,
@@ -435,6 +446,7 @@ function scoredLegFromHit(
       ...norm,
       propsOnlyTicket: true,
       finalAiScore: score,
+      propProbabilityProvenance: probabilityProvenance,
       ticketRole: norm.propIsAlt ? "alt" : "main",
     },
     evPct: ev,
@@ -704,19 +716,21 @@ export async function buildFootballPropsOnlyTicket(
   );
   softClipPropsOnlyHits(candidates, propHits, scopedPool);
 
-  // Server MC in parallel batches for still-null — never overwrite local grades.
-  const stillNull = candidates.filter((p) => {
+  // Deep MC for seats lacking authorized provenance (Option C). History-only
+  // hits that are not allowlisted do not count — request exact-market 10k.
+  // Same batching/timeout as before; no new endpoints.
+  const needsDeep = candidates.filter((p) => {
     const row = propsOnlyPoolRowForPick(p, scopedPool);
-    const h = lookupPropsOnlyHit(p, row, propHits);
-    return h == null || !Number.isFinite(h);
+    const prov = lookupPropsOnlyProvenance(p, row, propHits);
+    return !propProvenanceAllowsSeating(prov);
   });
-  if (stillNull.length && !opts.signal?.aborted) {
+  if (needsDeep.length && !opts.signal?.aborted) {
     opts.onStatus?.(
-      `Local grades ready — boosting ${stillNull.length} remaining via deep sim…`,
+      `Scoring ${needsDeep.length} props via exact-market deep sim…`,
     );
-    for (let i = 0; i < stillNull.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
+    for (let i = 0; i < needsDeep.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
       if (opts.signal?.aborted) break;
-      const batch = stillNull.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
+      const batch = needsDeep.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
       try {
         const serverRows = await Promise.race([
           fetchPropSimulations(
@@ -732,26 +746,64 @@ export async function buildFootballPropsOnlyTicket(
         ]);
         if (!serverRows) continue;
         for (const [k, v] of serverRows.hits) {
-          if (v.hitProbability != null && Number.isFinite(v.hitProbability)) {
-            const existing = propHits.get(k)?.hitProbability;
-            if (existing == null || !Number.isFinite(existing)) {
-              propHits.set(k, {
-                hitProbability: v.hitProbability,
-                nullReason: v.nullReason ?? null,
-              });
-            }
-          } else if (!propHits.has(k)) {
-            propHits.set(k, {
-              hitProbability: null,
-              nullReason: v.nullReason ?? null,
-            });
-          }
+          const existing = propHits.get(k);
+          const sport =
+            batch.find((p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k)
+              ?.sport ?? existing?.probabilityProvenance?.sport;
+          const marketKey = v.market ?? existing?.probabilityProvenance?.marketKey;
+          const incoming = exactMarket10kProvenance({
+            hitProbability: v.hitProbability,
+            simulations: v.simulations,
+            sport,
+            marketKey,
+            nullReason: v.nullReason ?? null,
+            hitReliability: existing?.hitReliability ?? null,
+          });
+          const merged = preferPropProvenance(
+            existing?.probabilityProvenance,
+            incoming,
+          );
+          propHits.set(k, {
+            hitProbability: propProvenanceAllowsSeating(merged)
+              ? merged.hitProbability
+              : null,
+            nullReason: merged.nullReason,
+            hitReliability: existing?.hitReliability ?? null,
+            probabilityProvenance: merged,
+          } satisfies PropsOnlyHit);
         }
         softClipPropsOnlyHits(batch, propHits, scopedPool);
       } catch {
-        /* keep local */
+        /* keep existing provenance — do not invent hits */
       }
     }
+  }
+
+  // Candidates still without authorized provenance stay insufficient (no invented hit).
+  for (const p of candidates) {
+    const row = propsOnlyPoolRowForPick(p, scopedPool);
+    const key = propsOnlySimLookupKey(p, row);
+    if (!key) continue;
+    const existing = propHits.get(key);
+    if (propProvenanceAllowsSeating(existing?.probabilityProvenance)) continue;
+    const prov =
+      existing?.probabilityProvenance ??
+      insufficientPropProvenance({
+        sport: p.sport,
+        marketKey: p.propMarketKey ?? p.market,
+        nullReason: existing?.nullReason ?? "insufficient_evidence",
+        hitReliability: existing?.hitReliability,
+      });
+    propHits.set(key, {
+      hitProbability: null,
+      nullReason: prov.nullReason,
+      hitReliability: existing?.hitReliability ?? null,
+      probabilityProvenance: {
+        ...prov,
+        source: "insufficient_evidence",
+        hitProbability: null,
+      },
+    });
   }
 
   const nullReasons = collectNullReasons(candidates, propHits, scopedPool);
@@ -899,7 +951,18 @@ export async function buildFootballPropsOnlyTicket(
     const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
     const reliability = lookupPropsOnlyHitReliability(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack, reliability);
+    const provenance = lookupPropsOnlyProvenance(pick, row, propHits);
+    // Never score a seat without authorized provenance (empty allowlist ⇒ need 10k).
+    if (!propProvenanceAllowsSeating(provenance) || raw == null) continue;
+    const leg = scoredLegFromHit(
+      pick,
+      raw,
+      row,
+      rushCtx,
+      oddsSlack,
+      reliability,
+      provenance,
+    );
     if (leg) propScored.push(leg);
   }
   propScored.sort(comparePropsOnlyLegsByReliableEv);

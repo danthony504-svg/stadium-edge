@@ -20,7 +20,8 @@ import type {
   RealOddsEntry,
 } from "@/lib/api";
 import { propMarketLabel } from "@/lib/propMarketLabel";
-import { lookupPropSimHit } from "@/lib/propSelection";
+import { lookupPropSimHit, propSimLookupKey } from "@/lib/propSelection";
+import type { PropProbabilityProvenance } from "@/lib/coachPropProbabilityProvenance";
 import type { GameInjuryReport } from "@/lib/injuries";
 import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
@@ -888,13 +889,39 @@ export function attachPickScores(
     const adjustedPropSimHit = p.isProp
       ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
       : propSimHit;
+    const propSimKey =
+      p.isProp && sims ? propSimLookupKey(p, propEntryEarly) : null;
+    const propSimMeta =
+      p.isProp && sims && propSimKey
+        ? (sims.get(propSimKey) as
+            | {
+                hitProbability: number | null;
+                simulations?: number | null;
+                probabilityProvenance?: PropProbabilityProvenance | null;
+              }
+            | undefined)
+        : undefined;
+    const propProbabilityProvenance: PropProbabilityProvenance | null = p.isProp
+      ? propSimMeta?.probabilityProvenance ??
+        p.propProbabilityProvenance ??
+        p.finalAiScore?.propProbabilityProvenance ??
+        null
+      : null;
+    // Option C: unauthorized provenance must not seat via a raw simHit.
+    const gatedPropSimHit =
+      p.isProp && propProbabilityProvenance
+        ? propProbabilityProvenance.source === "insufficient_evidence"
+          ? null
+          : adjustedPropSimHit
+        : adjustedPropSimHit;
     let finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
       edgePct: scores.edgePct,
       odds: p.odds,
       gameSim,
-      propSimHit: adjustedPropSimHit,
+      propSimHit: gatedPropSimHit,
+      propProbabilityProvenance,
       propHolisticContext: p.isProp
         ? {
             sport: p.sport ?? propEntry?.sport,
@@ -958,6 +985,9 @@ export function attachPickScores(
       scores: finalAiScore.rubric,
       finalAiScore,
       highRiskValuePlay: finalAiScore.highRiskValuePlay || p.highRiskValuePlay,
+      ...(p.isProp
+        ? { propProbabilityProvenance: propProbabilityProvenance ?? finalAiScore.propProbabilityProvenance ?? null }
+        : {}),
     };
   });
 }
