@@ -5,7 +5,8 @@
 **Context:** TUNING round closed unsuccessful ([`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md)).  
 **Criteria:** Locked M1–M4 / S1–S4 **unchanged**. FINAL_EVAL **untouched**. Closes **eval-only** — never train or tune against closing prices.  
 **Ops:** `NCAAF_GAME_LINE_SIM_VALIDATED=false` · no deploy/OTA · voice paused.  
-**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md).
+**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md).  
+**Pipeline audit:** [`ncaaf-tuning-pipeline-audit.md`](./ncaaf-tuning-pipeline-audit.md) — scoring joins sound; **FCS classification defect** blocks further modeling.
 
 ## 1. Problem statement (from preserved TUNING evidence)
 

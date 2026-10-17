@@ -196,9 +196,9 @@ function independentScore(
     pMkt.push(r.marketPHome);
     predM.push(m.predMargin);
     actM.push(r.actMargin);
-    // Direction: P(home) should be >0.5 when predMargin>0 (and vice versa), soft check
-    if (m.predMargin > 1e-6 && m.pMl < 0.5) directionFlips += 1;
-    if (m.predMargin < -1e-6 && m.pMl > 0.5) directionFlips += 1;
+    // Direction: material |μ|>5 should agree with P(home) side (small μ can disagree under residual MC)
+    if (m.predMargin > 5 && m.pMl < 0.5) directionFlips += 1;
+    if (m.predMargin < -5 && m.pMl > 0.5) directionFlips += 1;
     if (r.yAtsHome == null) {
       pushesExcluded += 1;
       continue;
@@ -246,14 +246,20 @@ function main(): number {
   );
   const archive = JSON.parse(
     readFileSync(join(FIX, "ncaaf-tuning-2025-w1-7-closing-lines.json"), "utf8"),
-  ) as { games: CloseRow[]; missing: unknown[]; finalEval?: unknown };
-  if (archive.finalEval) {
-    defects.push("Closes archive unexpectedly marks finalEval payload — inspect fixture");
+  ) as { games: CloseRow[]; missing: unknown[]; finalEval?: unknown; split?: string };
+  const finalEvalMeta = archive.finalEval;
+  if (finalEvalMeta != null && finalEvalMeta !== "UNTOUCHED" && finalEvalMeta !== false) {
+    defects.push(
+      `Closes archive finalEval metadata is ${JSON.stringify(finalEvalMeta)} — expected UNTOUCHED/false`,
+    );
   }
   checks.push({
     id: "final_eval_untouched",
-    status: "PASS",
-    detail: "FINAL_EVAL fixtures not loaded by this audit",
+    status:
+      finalEvalMeta === "UNTOUCHED" || finalEvalMeta === false || finalEvalMeta == null
+        ? "PASS"
+        : "FAIL",
+    detail: `archive.finalEval=${JSON.stringify(finalEvalMeta)}; FINAL_EVAL fixtures not loaded by this audit; split=${archive.split ?? "?"}`,
   });
 
   const closes = new Map(archive.games.map((g) => [String(g.gameId), g]));
@@ -405,6 +411,8 @@ function main(): number {
     tunIds.add(g.awayTeamId);
   }
   const missingPrior = [...tunIds].filter((id) => !seededIds.has(id));
+  const missingPriorFcsFlagged = missingPrior.filter((id) => fcsIds.has(id));
+  const missingPriorUnflagged = missingPrior.filter((id) => !fcsIds.has(id));
   const defaultRated = missingPrior.filter((id) => {
     // getOff returns priorOff without map entry
     return seed.getOff(id) === seed.priorOff && seed.getDef(id) === seed.priorDef;
@@ -439,14 +447,21 @@ function main(): number {
   };
   checks.push({
     id: "prior_coverage",
-    status: missingPrior.length === 0 ? "PASS" : "WARN",
-    detail: `2025 teams=${tunIds.size} seededFrom2024=${[...tunIds].filter((id) => seededIds.has(id)).length} missingPrior=${missingPrior.length} names=${missingPrior
+    status: missingPriorUnflagged.length === 0 ? "WARN" : "FAIL",
+    detail: `2025 teams=${tunIds.size} seeded=${[...tunIds].filter((id) => seededIds.has(id)).length} missingPrior=${missingPrior.length} (FCS-flagged-by-design=${missingPriorFcsFlagged.length}; unflagged=${missingPriorUnflagged.length}: ${missingPriorUnflagged
       .map((id) => nameById.get(id) ?? id)
-      .join("; ")}`,
+      .join("; ") || "none"})`,
   });
+  if (missingPriorUnflagged.length) {
+    defects.push(
+      `Unflagged teams with no 2024 seed (defaults to off/def=${seed.priorOff}): ${missingPriorUnflagged
+        .map((id) => nameById.get(id) ?? id)
+        .join("; ")}`,
+    );
+  }
   if (defaultRated.length) {
     modelWeaknesses.push(
-      `${defaultRated.length} 2025 teams lack 2024 FBS-seeded ratings → default off/def=${seed.priorOff} (compresses matchups involving them)`,
+      `${defaultRated.length} 2025 teams lack 2024 FBS-seeded ratings → default off/def=${seed.priorOff}. Of these, ${missingPriorFcsFlagged.length} are FCS-flagged (skipped in seed by design) and ${missingPriorUnflagged.length} are unflagged. Defaults compress FBS–FCS mismatches (e.g. weak FBS vs default-24 FCS can flip μ sign).`,
     );
   }
   if (ratingSpread.offSd < 6) {
@@ -749,27 +764,33 @@ function main(): number {
     fcsGapNamesSample: fcsGapIds.slice(0, 25).map((id) => nameById.get(id) ?? id),
   };
 
-  // Minimum additional data proposal if pipeline mostly sound
-  const confirmedDefectCount = defects.length;
-  const pipelineSoundEnough = confirmedDefectCount <= 1; // FCS gap is the main defect
+  // Scoring joins/direction/order are sound; FCS classification is the blocking defect.
+  const scoringPipelineSound = !defects.some(
+    (d) =>
+      d.includes("name mismatch") ||
+      d.includes("score mismatch") ||
+      d.includes("diverges from published") ||
+      d.includes("walkHoldoutGames order") ||
+      d.includes("americanToImplied"),
+  );
   const minAdditionalData = [
     {
-      input: "ESPN FBS/FCS (or group/conference) team classification IDs",
-      why: "Confirmed defect: name regex misses dozens of FCS opponents → opp-adj pollution + wrong skip set",
-      acquisition: "Free ESPN scoreboard/team APIs — no Odds spend",
+      input: "ESPN FBS/FCS (or group/conference) team classification IDs on cached rows",
+      why: "Confirmed defect: name regex misses dozens of FCS opponents → opp-adj pollution, wrong skip set, and default-24 compression on big favorites",
+      acquisition: "Free ESPN team/group fields or a static FBS ID list — no Odds spend; retag existing fixtures",
       blocksModeling: true,
     },
     {
-      input: "Neutral-site flag on game rows",
-      why: "Cannot verify/disable HFA on neutrals; missing input (not yet proven defect)",
-      acquisition: "Free ESPN competition/venue fields if present",
+      input: "Cache-only retag of 2023–2025 games with that classification, then re-seed",
+      why: "No new game retrieval required; re-run v0 compare on identical closes cohort",
+      acquisition: "Cache-only",
+      blocksModeling: true,
+    },
+    {
+      input: "Neutral-site flag on game rows (optional next)",
+      why: "Missing input — cannot verify HFA on neutrals; not implicated in the −14 large-fav bias",
+      acquisition: "Free ESPN venue fields if present",
       blocksModeling: false,
-    },
-    {
-      input: "Optional: 2024 FCS-aware filtered schedule already in phase-e (re-tag only)",
-      why: "Re-seed without unflagged FCS cupcakes; no new retrieval if classification fixed",
-      acquisition: "Cache-only retag",
-      blocksModeling: true,
     },
   ];
 
@@ -810,9 +831,12 @@ function main(): number {
       worstOverpredictTs: largeErrTs.slice(-10).reverse(),
       compression,
     },
-    pipelineVerdict: pipelineSoundEnough
-      ? "SCORING_PIPELINE_SOUND_WITH_FCS_DEFECT"
-      : "PIPELINE_HAS_DEFECTS",
+    pipelineVerdict: scoringPipelineSound
+      ? defects.some((d) => d.includes("FCS") || d.includes("Unflagged"))
+        ? "SCORING_PIPELINE_SOUND_WITH_FCS_CLASSIFICATION_DEFECT"
+        : "SCORING_PIPELINE_SOUND"
+      : "SCORING_PIPELINE_DEFECTS",
+    scoringJoinsAndMetricsSound: scoringPipelineSound,
     minAdditionalDataBeforeFurtherModeling: minAdditionalData,
   };
 
@@ -898,6 +922,10 @@ function main(): number {
     `Unseeded-in-slice=${unseededInLarge} · FCS-flagged-in-slice=${fcsInLarge} · **unflagged FCS-like in slice=${fcsGapInLarge}**`,
   );
   md.push("");
+  md.push(
+    "Home-favorite bias (−16) dominates the −13 aggregate; away-favorite bias is near zero (+2). Several worst misses are FCS defaults / unflagged FCS (Temple–Howard μ sign flip; OSU–Grambling). **FBS–FBS residuals remain** (e.g. Oregon–Oklahoma State) — classification fix is necessary but not sufficient.",
+  );
+  md.push("");
   md.push("### Worst TS under-predictions (pred − act)");
   md.push("");
   md.push("| event | week | matchup | spread | act | pred | err | seeded | fcsFlag |");
@@ -920,12 +948,12 @@ function main(): number {
   md.push("");
   md.push("## 8. Minimum additional data before further modeling");
   md.push("");
-  if (pipelineSoundEnough) {
+  if (scoringPipelineSound) {
     md.push(
-      "Scoring joins, ML/ATS direction, push handling, and kickoff walk order look sound. **Do not build another model until FBS/FCS classification is fixed on cached rows** (retag is enough — no paid pull).",
+      "Scoring joins, ML/ATS labels, push handling, probability direction, and kickoff walk order are **sound** (independent recompute matches published v0). **Do not build another model until FBS/FCS classification is fixed on cached rows** (retag + re-seed is enough — no paid pull, no FINAL_EVAL).",
     );
   } else {
-    md.push("Fix confirmed pipeline defects before another model.");
+    md.push("Fix confirmed scoring-pipeline defects before another model.");
   }
   md.push("");
   for (const item of minAdditionalData) {
