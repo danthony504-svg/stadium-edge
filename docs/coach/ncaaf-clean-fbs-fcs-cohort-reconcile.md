@@ -31,5 +31,5 @@ Same verified season-specific ESPN FBS/FCS IDs (`ncaaf-subdivision-espn-ids.json
 
 M3 TUNING screening should report both:
 
-1. **Supported screen set** — FBS–FBS + rated + verified venue (`releaseEligible`) joined to closes (eval-only).  
+1. **Supported screen set** — FBS–FBS + rated + verified venue (`evaluableSupported`) joined to closes (eval-only).  
 2. Optional footnote of full-ESPN FBS–FCS = 119 vs fair FBS–FCS = 85 for continuity with identical-334 docs.

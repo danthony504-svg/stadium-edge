@@ -28,8 +28,9 @@ export type PredictScoreMarginOpts = {
 
 /**
  * Predict score/margin means + σ. Causal: uses ratings as of call time only.
- * Venue unknown → HFA not applied; releaseEligible=false (not silent neutral).
+ * Venue unknown → HFA not applied; evaluableSupported=false (not silent neutral).
  * Injury missing → listed in missingOptional; no invented adjustment.
+ * productionReleaseApproved is always false on this research stamp.
  */
 export function predictScoreMargin(
   opts: PredictScoreMarginOpts,
@@ -43,7 +44,8 @@ export function predictScoreMargin(
       stamp,
       eventId: pregame.eventId,
       ok: false,
-      releaseEligible: false,
+      evaluableSupported: false,
+      productionReleaseApproved: false,
       reason: support.reason,
     };
   }
@@ -60,8 +62,7 @@ export function predictScoreMargin(
   }
 
   // HFA only when venue is explicitly home. Neutral → 0 with hfaApplied false
-  // but release-eligible (when otherwise ok). Unknown → 0, NOT rewritten to
-  // neutral; releaseEligible false.
+  // but still evaluable. Unknown → 0, NOT rewritten to neutral; not evaluable.
   let hfaPoints = 0;
   let hfaApplied = false;
   if (pregame.venue.kind === "home") {
@@ -106,16 +107,16 @@ export function predictScoreMargin(
   }
   if (av.usable) featuresUsed.push("availability_snapshot");
 
-  // Venue unresolved → not release-eligible (frozen decision). Injury missing is
-  // allowed for research (missingOptional) and does NOT invent adjustments; it
-  // also does not satisfy E4 injury validation (separate gate).
-  const releaseEligible = !venueUnknown;
+  // Venue unresolved → not evaluable for supported-input scoring (frozen).
+  // Evaluable ≠ production-approved.
+  const evaluableSupported = !venueUnknown;
 
   return {
     stamp,
     eventId: pregame.eventId,
     ok: true,
-    releaseEligible,
+    evaluableSupported,
+    productionReleaseApproved: false,
     homeScoreMean: pts.homeOff,
     awayScoreMean: pts.awayOff,
     marginMean: pts.marginMean,

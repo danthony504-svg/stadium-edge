@@ -95,7 +95,7 @@ type PredRow = {
   week: number;
   matchupScope: string;
   ok: boolean;
-  releaseEligible: boolean;
+  evaluableSupported: boolean;
   reason?: string;
   marginMean?: number;
   marginSd?: number;
@@ -116,7 +116,7 @@ const withhold: Record<string, number> = {};
 let venueHome = 0;
 let venueNeutral = 0;
 let venueUnknown = 0;
-let releaseEligible = 0;
+let evaluableSupported = 0;
 let okPred = 0;
 
 for (const g of tuning) {
@@ -132,7 +132,7 @@ for (const g of tuning) {
     week: g.week ?? 0,
     matchupScope: pre.matchupScope,
     ok: pred.ok,
-    releaseEligible: pred.ok ? pred.releaseEligible : false,
+    evaluableSupported: pred.ok ? pred.evaluableSupported : false,
     venueKind: pre.venue.kind,
   };
 
@@ -142,7 +142,7 @@ for (const g of tuning) {
     rows.push(base);
   } else {
     okPred++;
-    if (pred.releaseEligible) releaseEligible++;
+    if (pred.evaluableSupported) evaluableSupported++;
     const pMl = pHomeMlFromMargin(pred.marginMean, pred.marginSd);
     const spread = close?.closeSpreadHome ?? null;
     const pCover =
@@ -202,12 +202,12 @@ for (const g of tuning) {
   }
 }
 
-/** M3 screen: supported FBS–FBS, ok, releaseEligible, with closes + labels. */
+/** M3 screen: supported FBS–FBS, ok, evaluableSupported, with closes + labels. */
 function screen(predicate: (r: PredRow) => boolean) {
   const set = rows.filter(
     (r) =>
       r.ok &&
-      r.releaseEligible &&
+      r.evaluableSupported &&
       r.matchupScope === "fbs_fbs" &&
       r.pHomeMl != null &&
       r.yMl != null &&
@@ -253,7 +253,9 @@ function screen(predicate: (r: PredRow) => boolean) {
 
 const overall = screen(() => true);
 const week1 = screen((r) => r.week === 1);
-const largeFav = screen((r) => (r.absCloseSpread ?? 0) >= 14);
+// Canonical prior identical-334 large: abs > 14 (not >= 14).
+const largeFav = screen((r) => (r.absCloseSpread ?? 0) > 14);
+const largeFavGe14 = screen((r) => (r.absCloseSpread ?? 0) >= 14);
 
 const m2 = {
   stamp: NCAAF_CLEAN_ENGINE_STAMP,
@@ -262,7 +264,7 @@ const m2 = {
     home: venueHome,
     neutral: venueNeutral,
     unknown: venueUnknown,
-    releaseEligible,
+    evaluableSupported,
   },
   okPredictions: okPred,
   withhold,
@@ -287,6 +289,7 @@ const report = {
   finalEval: "UNTOUCHED",
   closesInFeatures: false,
   injury: "injury_unavailable (E4 open)",
+  naming: { evaluableSupported: "research eval inputs — NOT production approval", productionReleaseApproved: false },
   totalsAlts: "do_not_block_ml_ats_research",
   ops: {
     ncaafGate: false,
@@ -304,10 +307,13 @@ const report = {
   m2WithVenueSidecar: m2,
   residualSignDefinition,
   m3Screen: {
-    note: "Screening only on supported FBS–FBS + releaseEligible + close-joined labels. Not FINAL_EVAL. Rebuild ≠ pass.",
+    note: "Screening only on supported FBS–FBS + evaluableSupported + close-joined labels. Not FINAL_EVAL. Rebuild ≠ pass.",
     overall,
     week1,
-    largeFavorite14plus: largeFav,
+    largeFavorite14plus_gt14: largeFav,
+    largeFavorite14plus_ge14_sensitivity: largeFavGe14,
+    largeFavoriteNote:
+      "Canonical abs>14 matches identical-334 (n≈94). abs>=14 was first-screen bug (n≈107).",
     lockedCriteriaReminder: {
       M3: "brierEngine <= brierMarket + 0.02",
       S2: "brierEngine < 0.25 (ATS vs coin)",
@@ -334,7 +340,7 @@ const md = `# Clean engine M2 rerun + M3 TUNING screen
 | Neutral | ${venueNeutral} |
 | Unknown | ${venueUnknown} |
 | ok predictions | ${okPred} |
-| releaseEligible | ${releaseEligible} |
+| evaluableSupported | ${evaluableSupported} |
 
 Withholds: \`${JSON.stringify(withhold)}\`
 

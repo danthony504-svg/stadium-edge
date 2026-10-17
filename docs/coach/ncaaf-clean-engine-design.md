@@ -11,7 +11,7 @@
 | # | Topic | Decision |
 |---|--------|----------|
 | 1 | Stamp | **`ncaaf-score-margin-v1-research`** (exact) |
-| 2 | Unknown venue | Stay **`unknown`**. Attempt source recovery. If unresolved → **`releaseEligible=false`** (`venue_unknown_material`). **Do not** silently treat as neutral (do not rewrite `kind` to `neutral`; do not apply home HFA). |
+| 2 | Unknown venue | Stay **`unknown`**. Attempt source recovery. If unresolved → **`evaluableSupported=false`** (`venue_unknown_material`). **Do not** silently treat as neutral (do not rewrite `kind` to `neutral`; do not apply home HFA). **`evaluableSupported` ≠ production approval** (`productionReleaseApproved` always false on this stamp). |
 | 3 | ML ties | Model two-way finals **including OT**. Historical tied/invalid finals → **exclude and report**; **no** half-wins. |
 | 4 | Historical injury | `injury_unavailable` allowed for research with **no invented adjustment**. Does **not** satisfy injury validation. |
 
@@ -205,7 +205,7 @@ type MissingInput =
 |--------------|---------------|
 | `home` | Apply declared home-field offset (locked before TUNING screen of that candidate) |
 | `neutral` | HFA = 0 |
-| `unknown` | **Frozen:** keep `unknown`; attempt recovery; if unresolved → `releaseEligible=false` + `venue_unknown_material`. HFA **not applied** (≠ rewriting to neutral). |
+| `unknown` | **Frozen:** keep `unknown`; attempt recovery; if unresolved → `evaluableSupported=false` + `venue_unknown_material`. HFA **not applied** (≠ rewriting to neutral). |
 
 Source: ESPN competition/venue fields when present on game rows (free). Current TUNING/phase-e fixtures lack venue fields → **data blocker** until recovered.
 
@@ -238,7 +238,8 @@ type CleanEnginePrediction = {
   stamp: "ncaaf-score-margin-v1-research";
   eventId: string;
   ok: true;
-  releaseEligible: boolean;    // false when venue unknown / injury validation unmet / etc.
+  evaluableSupported: boolean; // research eval inputs ok — NOT production approval
+  productionReleaseApproved: false;
   // Stage A
   homeScoreMean: number;
   awayScoreMean: number;
@@ -254,7 +255,8 @@ type CleanEnginePrediction = {
   stamp: "ncaaf-score-margin-v1-research";
   eventId: string;
   ok: false;
-  releaseEligible: false;
+  evaluableSupported: false;
+  productionReleaseApproved: false;
   reason: MissingInput;
 };
 ```
@@ -331,7 +333,7 @@ Review gate between milestones — do not skip ahead into ALT or FINAL_EVAL.
 |-------------|-------|
 | Chronological FBS–FBS rating update | **DONE** (`CleanOppAdjStrength`) |
 | Uncertainty from `nFbsGames` | **DONE** |
-| Venue protocol | unknown → no HFA + `releaseEligible=false`; neutral → HFA 0; home → HFA |
+| Venue protocol | unknown → no HFA + `evaluableSupported=false`; neutral → HFA 0; home → HFA |
 | Settlement helpers | **DONE** (ML tie exclude; ATS/total push) |
 | Score-only TUNING report | **DONE** — [`ncaaf-clean-m2-report.md`](./ncaaf-clean-m2-report.md) |
 

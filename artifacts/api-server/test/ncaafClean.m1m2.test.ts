@@ -285,7 +285,7 @@ test("unrated side → ok:false unrated_fbs_side (no invented μ)", () => {
   assert.equal(pred.reason, "unrated_fbs_side");
 });
 
-test("venue unknown: research may predict but releaseEligible=false; HFA not applied", () => {
+test("venue unknown: research may predict but evaluableSupported=false; HFA not applied", () => {
   const strength = new CleanOppAdjStrength({ season: 2025 });
   strength.off.set("2306", 28);
   strength.def.set("2306", 20);
@@ -305,7 +305,8 @@ test("venue unknown: research may predict but releaseEligible=false; HFA not app
   const pred = predictScoreMargin({ pregame: pre, strength });
   assert.equal(pred.ok, true);
   if (!pred.ok) return;
-  assert.equal(pred.releaseEligible, false);
+  assert.equal(pred.evaluableSupported, false);
+  assert.equal(pred.productionReleaseApproved, false);
   assert.equal(pred.hfaApplied, false);
   assert.ok(pred.missingOptional.includes("venue_unknown_material"));
   assert.ok(pred.missingOptional.includes("injury_unavailable"));
@@ -318,7 +319,8 @@ test("venue unknown: research may predict but releaseEligible=false; HFA not app
   assert.equal(predHome.ok, true);
   if (!predHome.ok) return;
   assert.equal(predHome.hfaApplied, true);
-  assert.equal(predHome.releaseEligible, true);
+  assert.equal(predHome.evaluableSupported, true);
+  assert.equal(predHome.productionReleaseApproved, false);
   assert.ok(predHome.marginMean > pred.marginMean);
 });
 

@@ -117,8 +117,14 @@ export type CleanEnginePredictionOk = {
   stamp: NcaafCleanEngineStamp;
   eventId: string;
   ok: true;
-  /** False when venue unresolved or injury validation unmet, etc. */
-  releaseEligible: boolean;
+  /**
+   * Research-only: inputs are complete enough to **evaluate** (supported
+   * matchup + resolved venue for HFA protocol). This is NOT production
+   * release approval — always pair with productionReleaseApproved=false.
+   */
+  evaluableSupported: boolean;
+  /** Always false on this research stamp until human E6 / product gate. */
+  productionReleaseApproved: false;
   homeScoreMean: number;
   awayScoreMean: number;
   marginMean: number;
@@ -136,7 +142,8 @@ export type CleanEnginePredictionFail = {
   stamp: NcaafCleanEngineStamp;
   eventId: string;
   ok: false;
-  releaseEligible: false;
+  evaluableSupported: false;
+  productionReleaseApproved: false;
   reason: MissingInput;
 };
 

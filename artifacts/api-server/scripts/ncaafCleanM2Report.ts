@@ -53,7 +53,7 @@ tuning.sort((a, b) => Date.parse(a.kickoffIso) - Date.parse(b.kickoffIso));
 
 const reasonCounts: Record<string, number> = {};
 let okPred = 0;
-let releaseEligible = 0;
+let evaluableSupported = 0;
 let venueUnknown = 0;
 let injuryUnavailable = 0;
 let tiedOrInvalid = 0;
@@ -70,7 +70,7 @@ for (const g of tuning) {
     reasonCounts[pred.reason] = (reasonCounts[pred.reason] ?? 0) + 1;
   } else {
     okPred++;
-    if (pred.releaseEligible) releaseEligible++;
+    if (pred.evaluableSupported) evaluableSupported++;
     if (pred.missingOptional.includes("injury_unavailable")) injuryUnavailable++;
     if (pred.missingOptional.includes("venue_unknown_material")) {
       /* counted via venueUnknown on pregame */
@@ -123,7 +123,7 @@ const report = {
   nTuningGames: tuning.length,
   nFbsFbsRows: fbsFbs,
   nOkPredictions: okPred,
-  nReleaseEligible: releaseEligible,
+  nEvaluableSupported: evaluableSupported,
   nVenueUnknown: venueUnknown,
   nInjuryUnavailableOnOk: injuryUnavailable,
   nTiedOrInvalidFinalsOnOk: tiedOrInvalid,
@@ -139,7 +139,7 @@ const report = {
       id: "venue_fields_absent",
       severity: "release_blocker",
       detail:
-        "TUNING/phase-e game fixtures lack venueKind/neutralSite fields — all rows recover as venue.kind=unknown → releaseEligible=false. Need free ESPN venue recovery retag before release-eligible preds.",
+        "TUNING/phase-e game fixtures lack venueKind/neutralSite fields — all rows recover as venue.kind=unknown → evaluableSupported=false. Need free ESPN venue recovery retag before release-eligible preds.",
     },
     {
       id: "injury_snapshots_absent",
@@ -183,7 +183,7 @@ const md = `# Clean engine M2 report — \`${NCAAF_CLEAN_ENGINE_STAMP}\`
 | TUNING games | ${report.nTuningGames} |
 | FBS–FBS rows | ${report.nFbsFbsRows} |
 | ok predictions (rated FBS–FBS) | ${report.nOkPredictions} |
-| releaseEligible | ${report.nReleaseEligible} |
+| evaluableSupported | ${report.nEvaluableSupported} |
 | venue.kind=unknown | ${report.nVenueUnknown} |
 | injury_unavailable (on ok) | ${report.nInjuryUnavailableOnOk} |
 | tied/invalid finals (on ok path) | ${report.nTiedOrInvalidFinalsOnOk} |
@@ -212,7 +212,7 @@ ${report.dataBlockersBeforeM3
 
 ## Next
 
-Do **not** start M3 close-joined tuning until venue recovery path is agreed (or M3 is explicitly scoped as screen-only with releaseEligible=false acknowledged).
+Do **not** start M3 close-joined tuning until venue recovery path is agreed (or M3 is explicitly scoped as screen-only with evaluableSupported=false acknowledged).
 `;
 
 writeFileSync(OUT_MD, md);
