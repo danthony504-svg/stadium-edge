@@ -273,8 +273,8 @@ function HeaderTiles({
           label="Edge"
           value={`${edge >= 0 ? "+" : ""}${edge.toFixed(1)}`}
           valueColor={edgeColor}
-          caption={edge >= 0 ? "Positive Edge" : "Negative Edge"}
-          suffix="%"
+          caption={edge >= 0 ? "pp vs implied" : "pp vs implied"}
+          suffix=" pp"
         />
       ) : null}
     </View>
