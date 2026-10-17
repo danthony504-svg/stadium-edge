@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
@@ -45,6 +45,12 @@ import {
   type PropPoolEntry,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
+import {
+  availablePropCategories,
+  collectBoardMarkets,
+  isCurrentPropsBoardReady,
+  type PropCategory,
+} from "@/lib/propCategories";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { selectionScoreForEntry } from "@/lib/propSelection";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
@@ -89,21 +95,6 @@ const REC_CAP = 6; // cards shown in the rail
 // is genuinely "value", not noise; empty (hidden) when nothing qualifies.
 const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
 const VALUE_CAP = 8; // cards shown in the value rail
-
-const PROP_CATEGORIES: {
-  label: string;
-  icon: ComponentProps<typeof Feather>["name"];
-  markets: string[];
-}[] = [
-  { label: "Hits", icon: "edit-3", markets: ["batter_hits"] },
-  { label: "Total Bases", icon: "shield", markets: ["batter_total_bases"] },
-  { label: "Home Runs", icon: "circle", markets: ["batter_home_runs"] },
-  { label: "Runs", icon: "activity", markets: ["batter_runs"] },
-  { label: "RBIs", icon: "target", markets: ["batter_rbis"] },
-  { label: "Stolen Bases", icon: "hexagon", markets: ["batter_stolen_bases"] },
-  { label: "Strikeouts (Pitchers)", icon: "disc", markets: ["pitcher_strikeouts"] },
-  { label: "Pitcher Outs", icon: "pie-chart", markets: ["pitcher_outs"] },
-];
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
@@ -157,7 +148,14 @@ function teamAbbrFor(prop: PlayerProp, teams: TeamInfo | null): string | null {
 // of pickable games available in the window (so the UI knows whether scrolling
 // can load more). `total` is the count BEFORE the per-page game limit and before
 // dropping games that returned zero props.
-type GamePropsPage = { games: GameProps[]; total: number };
+// `gen`/`league` stamp the sport-switch generation so a late response for a
+// prior pill cannot repaint under the newly selected sport.
+type GamePropsPage = {
+  games: GameProps[];
+  total: number;
+  gen?: number;
+  league?: string;
+};
 
 // Fetch odds (for the pickable game list + Odds API event ids) and ESPN games
 // (for team ids → headshots), then pull player props for the soonest `limit`
@@ -391,11 +389,22 @@ function PropsScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
   const [sport, setSport] = useState(
     params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
   );
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
+  // Bumped on every pill change so late in-flight responses from the previous
+  // sport cannot restore that board (or its category/filter state).
+  const sportFetchGenRef = useRef(0);
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  // Last-tapped popular category for the selected sport — cleared on switch so
+  // an MLB "Hits" filter never sticks onto NBA/NFL.
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  // Load-more page size for the selected sport (reset inside selectSport).
+  const [gamesLimit, setGamesLimit] = useState(INITIAL_GAMES);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // When the player sheet sends the user to the full-breakdown route we HIDE it
@@ -471,12 +480,34 @@ function PropsScreen() {
     });
   };
 
+  const selectSport = useCallback(
+    (id: string) => {
+      if (id === sportRef.current) return;
+      sportRef.current = id;
+      sportFetchGenRef.current += 1;
+      // Drop incompatible UI state immediately — category filters, open sheets,
+      // and in-flight selected-sport prop fetches from the previous pill.
+      setActiveCategoryId(null);
+      setSheet(null);
+      setSheetHidden(false);
+      setTeamSheet(null);
+      setGamesLimit(INITIAL_GAMES);
+      void queryClient.cancelQueries({ queryKey: ["props-all"] });
+      void queryClient.cancelQueries({ queryKey: ["prop-grades"] });
+      void queryClient.cancelQueries({ queryKey: ["props-sim-rank"] });
+      void queryClient.cancelQueries({ queryKey: ["props-upsets"] });
+      void queryClient.cancelQueries({ queryKey: ["browse-odds"] });
+      setSport(id);
+    },
+    [queryClient],
+  );
+
   // When navigated to with a player/sport (e.g. from the Home featured row),
   // sync the search + sport selector to that target.
   useEffect(() => {
-    if (params.sp && isPillSport(String(params.sp))) setSport(String(params.sp));
+    if (params.sp && isPillSport(String(params.sp))) selectSport(String(params.sp));
     if (params.q != null) setQuery(String(params.q));
-  }, [params.q, params.sp]);
+  }, [params.q, params.sp, selectSport]);
 
   const propsSports = useMemo(() => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id)), []);
   // Pills shown on this tab: every props-capable league PLUS the moneyline-only
@@ -512,14 +543,6 @@ function PropsScreen() {
     };
   }, []);
 
-  // Load-more: the selected sport's browse list grows in GAMES_STEP increments as
-  // the user scrolls (see onScroll). Reset to the initial batch whenever the
-  // selected sport changes. Non-selected search sports always use INITIAL_GAMES.
-  const [gamesLimit, setGamesLimit] = useState(INITIAL_GAMES);
-  useEffect(() => {
-    setGamesLimit(INITIAL_GAMES);
-  }, [sport]);
-
   // One query per props sport. The selected sport always loads (it drives the
   // browse list + the AI rail); the rest load only once the user starts a search
   // — so search spans EVERY league at once, not just the selected pill. Per-sport
@@ -530,10 +553,13 @@ function PropsScreen() {
       return {
         queryKey: ["props-all", s.id, limit],
         queryFn: async ({ signal }: { signal?: AbortSignal }) => {
+          // Capture generation at request start — a late resolve after a pill
+          // change keeps the old gen and isCurrentPropsBoardReady rejects it.
+          const gen = sportFetchGenRef.current;
           const page = await fetchAllProps(s.id, limit, signal);
           // Persist the freshest snapshot so the next open is instant-from-cache.
-          void savePropsSnapshot(s.id, page);
-          return page;
+          void savePropsSnapshot(s.id, { games: page.games, total: page.total });
+          return { ...page, gen, league: s.id };
         },
         staleTime: 2 * 60_000,
         // Keep data around long after the tab loses focus so returning to it is
@@ -541,16 +567,40 @@ function PropsScreen() {
         gcTime: 30 * 60_000,
         // Show the previous batch while a larger one loads (load-more = no
         // spinner), and on a cold start fall back to the persisted snapshot so the
-        // last-known props paint immediately while fresh data arrives.
-        placeholderData: (prev: GamePropsPage | undefined) => prev ?? snapshots[s.id],
+        // last-known props paint immediately while fresh data arrives. Never
+        // reuse another sport's placeholder when the query key sport changes.
+        placeholderData: (
+          prev: GamePropsPage | undefined,
+          previousQuery: { queryKey: readonly unknown[] } | undefined,
+        ) => {
+          if (previousQuery?.queryKey?.[1] === s.id && prev) return prev;
+          const snap = snapshots[s.id];
+          return snap
+            ? { ...snap, gen: sportFetchGenRef.current, league: s.id }
+            : undefined;
+        },
         enabled: s.id === sport || fetchAllSports,
       };
     }),
   });
 
   // The selected sport's query drives the browse view, the AI rail, and refresh.
-  const selIdx = Math.max(0, propsSports.findIndex((s) => s.id === sport));
-  const propsQ = sportQueries[selIdx]!;
+  // Browse-only pills are NOT in propsSports — never fall back to index 0 (MLB).
+  const selIdx = propsSports.findIndex((s) => s.id === sport);
+  const propsQ = selIdx >= 0 ? sportQueries[selIdx] : undefined;
+
+  // Only paint the board when the settled/placeholder payload matches the
+  // active sport + sport-switch generation (blocks out-of-order restores).
+  const boardReady = isCurrentPropsBoardReady({
+    sport,
+    gen: sportFetchGenRef.current,
+    dataGen: propsQ?.data?.gen,
+    dataSport: propsQ?.data?.league,
+    games: propsQ?.data?.games,
+    isBrowseSport,
+  });
+  const boardGames = boardReady ? (propsQ?.data?.games ?? []) : [];
+  const boardTotal = boardReady ? (propsQ?.data?.total ?? 0) : 0;
 
   // Every loaded game across all leagues, each tagged with its own sport. Search
   // reads this pool so a player/team match in ANY league surfaces at once.
@@ -606,8 +656,8 @@ function PropsScreen() {
     side: "Over" | "Under";
   };
   const gradeCandidates = useMemo<Cand[]>(() => {
-    if (isBrowseSport) return [];
-    const data = propsQ.data?.games ?? [];
+    if (isBrowseSport || !boardReady) return [];
+    const data = boardGames;
     const out: Cand[] = [];
     const seen = new Set<string>();
     for (const g of data) {
@@ -660,7 +710,7 @@ function PropsScreen() {
       }
     }
     return out;
-  }, [propsQ.data, sport, isBrowseSport]);
+  }, [boardGames, boardReady, sport, isBrowseSport]);
 
   // Real hit-rate grade per candidate. For each player we pull their REAL game
   // log and count how often they cleared THIS posted line over their last
@@ -671,7 +721,7 @@ function PropsScreen() {
     .join(",");
   const gradesQ = useQuery({
     queryKey: ["prop-grades", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: boardReady && gradeCandidates.length > 0,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) =>
       gradePropCands(
@@ -707,7 +757,7 @@ function PropsScreen() {
 
   const simRankQ = useQuery({
     queryKey: ["props-sim-rank", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: boardReady && gradeCandidates.length > 0,
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
       const picks = gradeCandidates.map((c) => c.pick);
@@ -722,7 +772,7 @@ function PropsScreen() {
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
     queryKey: ["props-upsets", sport],
-    enabled: !isBrowseSport,
+    enabled: !isBrowseSport && boardReady,
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 5 * 60_000,
   });
@@ -827,8 +877,8 @@ function PropsScreen() {
   // a plain-English caption ("+3.2% edge • fair ~48%"). Hidden when none qualify.
   type ValueItem = { pick: ParsedPick; ev: number; caption: string; edge: number | null; fairPct: number | null; price: number };
   const valueProps = useMemo<ValueItem[]>(() => {
-    if (isBrowseSport) return [];
-    const data = propsQ.data?.games ?? [];
+    if (isBrowseSport || !boardReady) return [];
+    const data = boardGames;
     const out: ValueItem[] = [];
     const seen = new Set<string>();
     for (const g of data) {
@@ -878,7 +928,7 @@ function PropsScreen() {
       }
     }
     return out.sort((a, b) => b.ev - a.ev).slice(0, VALUE_CAP);
-  }, [propsQ.data, sport, isBrowseSport]);
+  }, [boardGames, boardReady, sport, isBrowseSport]);
 
   // Open the right detail page for a recommended card: prop breakdown for player
   // props, the team breakdown page for an upset (team moneyline) pick. The upset
@@ -908,9 +958,27 @@ function PropsScreen() {
     });
   };
 
+  const boardMarkets = useMemo(() => collectBoardMarkets(boardGames), [boardGames]);
+  const propCategories = useMemo<PropCategory[]>(
+    () => (isBrowseSport || !boardReady ? [] : availablePropCategories(sport, boardMarkets)),
+    [sport, boardMarkets, isBrowseSport, boardReady],
+  );
+
   const filtered = useMemo(() => {
-    if (isBrowseSport) return [];
-    const data = propsQ.data?.games ?? [];
+    if (isBrowseSport || !boardReady) return [];
+    let data = boardGames;
+    const active = activeCategoryId
+      ? propCategories.find((c) => c.id === activeCategoryId)
+      : null;
+    if (active) {
+      const allow = new Set(active.markets);
+      data = data
+        .map((g) => ({
+          ...g,
+          props: g.props.filter((p) => allow.has(p.market)),
+        }))
+        .filter((g) => g.props.length > 0);
+    }
     const q = query.trim().toLowerCase();
     if (!q) return data;
     return data
@@ -919,7 +987,7 @@ function PropsScreen() {
         props: g.props.filter((p) => p.player.toLowerCase().includes(q)),
       }))
       .filter((g) => g.props.length > 0);
-  }, [propsQ.data, query, isBrowseSport]);
+  }, [boardGames, boardReady, query, isBrowseSport, activeCategoryId, propCategories]);
 
   const totalProps = useMemo(
     () => filtered.reduce((n, g) => n + g.props.length, 0),
@@ -929,18 +997,21 @@ function PropsScreen() {
   // Load-more: are there more pickable games than we've currently loaded for the
   // selected sport? (Only meaningful in the non-search browse view.)
   const hasMoreGames =
-    !isBrowseSport && !searching && (propsQ.data?.total ?? 0) > gamesLimit;
+    !isBrowseSport && !searching && boardReady && boardTotal > gamesLimit;
   // True while the larger batch is in flight (showing the previous batch via
   // placeholderData) — drives the footer "Loading more games…" indicator.
-  const loadingMore = hasMoreGames && propsQ.isFetching;
+  const propsFetching = !!propsQ?.isFetching;
+  const propsLoading = !!propsQ?.isLoading;
+  const propsError = !!propsQ?.isError;
+  const loadingMore = hasMoreGames && propsFetching;
   // Guard so onScroll only bumps the limit once per batch (it fires rapidly).
   const loadMoreGuard = useRef(false);
   useEffect(() => {
-    if (!propsQ.isFetching) loadMoreGuard.current = false;
-  }, [propsQ.isFetching]);
+    if (!propsFetching) loadMoreGuard.current = false;
+  }, [propsFetching]);
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!hasMoreGames || propsQ.isFetching || loadMoreGuard.current) return;
+      if (!hasMoreGames || propsFetching || loadMoreGuard.current) return;
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const distanceToBottom =
         contentSize.height - (contentOffset.y + layoutMeasurement.height);
@@ -949,7 +1020,7 @@ function PropsScreen() {
         setGamesLimit((g) => g + GAMES_STEP);
       }
     },
-    [hasMoreGames, propsQ.isFetching],
+    [hasMoreGames, propsFetching],
   );
 
   // While searching, also surface TEAMS whose name matches the query — parsed
@@ -1056,11 +1127,22 @@ function PropsScreen() {
     });
   };
 
+  // Drop a category filter that no longer exists for the active board (sport
+  // switch or empty markets) so incompatible filter state cannot linger.
+  useEffect(() => {
+    if (!activeCategoryId) return;
+    if (!propCategories.some((c) => c.id === activeCategoryId)) {
+      setActiveCategoryId(null);
+    }
+  }, [activeCategoryId, propCategories]);
+
   const popularPlayers = useMemo(() => {
-    if (isBrowseSport) return [] as { g: GameProps; prop: PlayerProp; team: string | null }[];
+    if (isBrowseSport || !boardReady) {
+      return [] as { g: GameProps; prop: PlayerProp; team: string | null }[];
+    }
     const out: { g: GameProps; prop: PlayerProp; team: string | null }[] = [];
     const seen = new Set<string>();
-    for (const g of propsQ.data?.games ?? []) {
+    for (const g of boardGames) {
       for (const p of g.props) {
         const key = p.player.toLowerCase();
         if (seen.has(key)) continue;
@@ -1070,13 +1152,19 @@ function PropsScreen() {
       }
     }
     return out;
-  }, [propsQ.data, isBrowseSport]);
+  }, [boardGames, boardReady, isBrowseSport]);
 
-  const openCategory = (markets: string[]) => {
-    if (isBrowseSport) return;
-    for (const g of propsQ.data?.games ?? []) {
-      const hit = g.props.find((p) => markets.includes(p.market));
+  const openCategory = (cat: PropCategory) => {
+    if (isBrowseSport || !boardReady) return;
+    const gen = sportFetchGenRef.current;
+    const sportAtOpen = sport;
+    setActiveCategoryId(cat.id);
+    for (const g of boardGames) {
+      if (g.sport !== sportAtOpen) continue;
+      const hit = g.props.find((p) => cat.markets.includes(p.market));
       if (hit) {
+        // Ignore if the user switched sports before we opened the sheet.
+        if (sportFetchGenRef.current !== gen || sportRef.current !== sportAtOpen) return;
         openSheet(g, hit);
         return;
       }
@@ -1085,30 +1173,134 @@ function PropsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {/* Fixed header (not a sticky ScrollView child) — same pattern as Home so
+          search/filters never overlay player cards or section headings. */}
+      <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
+        <PageTitleRow
+          icon="user"
+          title="Player Props Only"
+          subtitle="Build from just player props."
+        />
+
+        {!searching ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 14 }}
+          >
+            {SPORTS.filter((s) => isPillSport(s.id)).map((s) => {
+              const active = sport === s.id;
+              return (
+                <Pressable
+                  key={s.id}
+                  onPress={() => selectSport(s.id)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingVertical: 7,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? colors.primary : colors.border,
+                    backgroundColor: active ? colors.primary : colors.card,
+                  }}
+                >
+                  <MaterialCommunityIcons name={s.icon} size={15} color={active ? "#fff" : colors.foreground} />
+                  <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+                    {s.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+
+        <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16 }}>
+          <View
+            style={{
+              flex: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 11,
+            }}
+          >
+            <Feather name="search" size={17} color={colors.mutedForeground} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search players"
+              placeholderTextColor={colors.mutedForeground}
+              style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {query.length > 0 ? (
+              <Pressable onPress={() => setQuery("")} hitSlop={8}>
+                <Feather name="x" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={() => {
+              // Clear an active category filter (Filters control is a reset today).
+              setActiveCategoryId(null);
+            }}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 7,
+              paddingHorizontal: 14,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: activeCategoryId ? colors.primary : colors.border,
+              backgroundColor: activeCategoryId ? colors.primary : colors.card,
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Feather
+              name="filter"
+              size={15}
+              color={activeCategoryId ? "#fff" : colors.mutedForeground}
+            />
+            <Text
+              style={{
+                color: activeCategoryId ? "#fff" : colors.foreground,
+                fontFamily: FONT.medium,
+                fontSize: 13,
+              }}
+            >
+              {activeCategoryId ? "Clear" : "Filters"}
+            </Text>
+          </Pressable>
+        </View>
+      </AppHeader>
+
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        stickyHeaderIndices={[0]}
         onScroll={onScroll}
         scrollEventThrottle={200}
         contentContainerStyle={{
+          paddingTop: 8,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
           <RefreshControl
-            refreshing={isBrowseSport ? browseOddsQ.isFetching : propsQ.isFetching}
-            onRefresh={() => (isBrowseSport ? browseOddsQ.refetch() : propsQ.refetch())}
+            refreshing={isBrowseSport ? browseOddsQ.isFetching : propsFetching}
+            onRefresh={() =>
+              isBrowseSport ? browseOddsQ.refetch() : propsQ?.refetch()
+            }
             tintColor={colors.mutedForeground}
           />
         }
       >
-        {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
-        <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
-          <PageTitleRow
-            icon="user"
-            title="Player Props Only"
-            subtitle="Build from just player props."
-          />
-
+        {!searching ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
             <View
               style={{
@@ -1148,93 +1340,7 @@ function PropsScreen() {
               </View>
             </View>
           </View>
-
-          {!searching ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 14 }}
-            >
-              {SPORTS.filter((s) => isPillSport(s.id)).map((s) => {
-                const active = sport === s.id;
-                return (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => setSport(s.id)}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      paddingVertical: 7,
-                      paddingHorizontal: 10,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: active ? colors.primary : colors.border,
-                      backgroundColor: active ? colors.primary : colors.card,
-                    }}
-                  >
-                    <MaterialCommunityIcons name={s.icon} size={15} color={active ? "#fff" : colors.foreground} />
-                    <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
-                      {s.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : null}
-
-          <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16 }}>
-            <View
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 12,
-                paddingHorizontal: 12,
-                paddingVertical: 11,
-              }}
-            >
-              <Feather name="search" size={17} color={colors.mutedForeground} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search players"
-                placeholderTextColor={colors.mutedForeground}
-                style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-              {query.length > 0 ? (
-                <Pressable onPress={() => setQuery("")} hitSlop={8}>
-                  <Feather name="x" size={16} color={colors.mutedForeground} />
-                </Pressable>
-              ) : null}
-            </View>
-            <Pressable
-              onPress={() => {}}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 7,
-                paddingHorizontal: 14,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                opacity: pressed ? 0.8 : 1,
-              })}
-            >
-              <Feather name="filter" size={15} color={colors.mutedForeground} />
-              <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 13 }}>
-                Filters
-              </Text>
-            </Pressable>
-          </View>
-        </AppHeader>
+        ) : null}
 
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
@@ -1458,7 +1564,7 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching ? (
+        {!searching && propCategories.length > 0 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
             <Text
               style={{
@@ -1473,28 +1579,35 @@ function PropsScreen() {
               Popular Prop Categories
             </Text>
             <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
-              {PROP_CATEGORIES.map((cat, i) => (
-                <Pressable
-                  key={cat.label}
-                  onPress={() => openCategory(cat.markets)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 13,
-                    paddingHorizontal: 14,
-                    paddingVertical: 14,
-                    backgroundColor: pressed ? colors.surface : colors.card,
-                    borderTopWidth: i === 0 ? 0 : 1,
-                    borderTopColor: colors.border,
-                  })}
-                >
-                  <Feather name={cat.icon} size={19} color={colors.primary} />
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
-                    {cat.label}
-                  </Text>
-                  <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-                </Pressable>
-              ))}
+              {propCategories.map((cat, i) => {
+                const active = activeCategoryId === cat.id;
+                return (
+                  <Pressable
+                    key={cat.id}
+                    onPress={() => openCategory(cat)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 13,
+                      paddingHorizontal: 14,
+                      paddingVertical: 14,
+                      backgroundColor: pressed || active ? colors.surface : colors.card,
+                      borderTopWidth: i === 0 ? 0 : 1,
+                      borderTopColor: colors.border,
+                    })}
+                  >
+                    <Feather
+                      name={cat.icon as ComponentProps<typeof Feather>["name"]}
+                      size={19}
+                      color={colors.primary}
+                    />
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
+                      {cat.label}
+                    </Text>
+                    <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         ) : null}
@@ -1535,10 +1648,10 @@ function PropsScreen() {
                 ))}
               </>
             )
-          ) : !searching && propsQ.isLoading ? (
+          ) : !searching && (propsLoading || (!boardReady && propsFetching)) ? (
             <Loading label="Loading player props…" />
-          ) : !searching && propsQ.isError ? (
-            <ErrorState onRetry={() => propsQ.refetch()} />
+          ) : !searching && propsError ? (
+            <ErrorState onRetry={() => propsQ?.refetch()} />
           ) : searching ? (
             // Searching → players AND teams across EVERY league at once. Show a
             // TEAMS section (if any team name matches) above one compact tappable
@@ -1610,8 +1723,8 @@ function PropsScreen() {
           ) : totalProps === 0 ? (
             <EmptyState
               icon="user"
-              title="No props in the window"
-              subtitle={`No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
+              title="No player props available right now."
+              subtitle="Check back closer to game time, or try another league."
             />
           ) : (
             filtered.map((g, gi) => (
@@ -1632,7 +1745,7 @@ function PropsScreen() {
                       .filter((a) => a.alt && a.player === p.player && a.market === p.market)
                       .sort((a, b) => (a.line ?? 0) - (b.line ?? 0))}
                     gameLabel={g.gameLabel}
-                    sport={sport}
+                    sport={g.sport || sport}
                     onOpen={() => openSheet(g, p)}
                   />
                 ))}
@@ -1645,7 +1758,7 @@ function PropsScreen() {
           {!searching && !isBrowseSport && (loadingMore || hasMoreGames) ? (
             <Pressable
               onPress={() => {
-                if (!propsQ.isFetching && hasMoreGames) setGamesLimit((g) => g + GAMES_STEP);
+                if (!propsFetching && hasMoreGames) setGamesLimit((g) => g + GAMES_STEP);
               }}
               style={{ paddingVertical: 16, alignItems: "center", justifyContent: "center" }}
             >
