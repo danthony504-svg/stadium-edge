@@ -273,6 +273,7 @@ export type FullBoardScanResult = {
     oddsLabelsBound?: number;
     oddsLabelsUnresolved?: number;
     gameSimsFetchNull?: number;
+    gameSimsStampRejected?: number;
     gameSimsTimedOut?: number;
     propSimEvaluated?: number;
   };
@@ -1586,6 +1587,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   let gameSimsAttempted = false;
   let gameSimsFetchNull = 0;
+  let gameSimsStampRejected = 0;
   let gameSimsTimedOut = 0;
   let slateUnresolved = 0;
   if (!opts.propsOnly) {
@@ -1638,6 +1640,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         );
         for (const [label, sim] of batchResult.sims) gameSimulations.set(label, sim);
         gameSimsFetchNull += batchResult.fetchNull.length;
+        gameSimsStampRejected += batchResult.stampRejected.length;
         slateUnresolved += batchResult.unresolved.length;
         await scoreGamesAndMaybePartial(batch.map(([game]) => game));
         if (opts.signal?.aborted) break;
@@ -1757,6 +1760,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     oddsLabelsBound: oddsBind.bound,
     oddsLabelsUnresolved: Math.max(oddsBind.unresolved.length, slateUnresolved),
     gameSimsFetchNull,
+    gameSimsStampRejected,
     gameSimsTimedOut,
     propSimEvaluated: propSimEvaluatedAcc,
   };

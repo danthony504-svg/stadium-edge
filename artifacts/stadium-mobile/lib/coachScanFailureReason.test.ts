@@ -42,6 +42,27 @@ test("0 sims with healthy map but no unresolved counters is GAME_SIMS_FETCH_EMPT
   assert.doesNotMatch(formatCoachScanFailureTrace(reason!), /TEAM_IDS_UNRESOLVED/);
 });
 
+test("stamp-rejected draws are GAME_SIMS_STAMP_REJECTED not generic FETCH_EMPTY", () => {
+  // greenfield-1792246362208 class: missing_sim_output with stamp gate
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 5,
+    teamIdMapSize: 20,
+    gameEntryCount: 5,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 0,
+    propLegsScored: 0,
+    oddsLabelsBound: 5,
+    oddsLabelsUnresolved: 0,
+    gameSimsFetchNull: 5,
+    gameSimsStampRejected: 5,
+    gameSimsAttempted: true,
+  });
+  assert.equal(reason?.code, "GAME_SIMS_STAMP_REJECTED");
+  assert.match(reason!.detail, /stamp/i);
+});
+
 test("scan null surfaces SCAN_THREW", () => {
   const reason = deriveCoachScanFailureReason({
     stagedPickCount: 0,

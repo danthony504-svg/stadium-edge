@@ -16,6 +16,7 @@ test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("TEAM_IDS_UNRESOLVED")?.alertable, true);
   assert.equal(mapScanFailureCode("PROP_POOL_EMPTY")?.eventType, "coach_alt_market_failure");
   assert.equal(mapScanFailureCode("GAME_SIMS_FETCH_EMPTY")?.failureReason, "missing_sim_output");
+  assert.equal(mapScanFailureCode("GAME_SIMS_STAMP_REJECTED")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
 });
 

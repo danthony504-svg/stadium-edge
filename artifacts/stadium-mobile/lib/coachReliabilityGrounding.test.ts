@@ -182,3 +182,89 @@ test("valid parse + team matches neither => mismatch", () => {
     true,
   );
 });
+
+test("MLB Rays @ Guardians TB/CLE/TBR are grounded (greenfield false-positive fix)", () => {
+  for (const teamAbbr of ["TB", "CLE", "TBR"] as const) {
+    assert.equal(
+      pickHasPlayerGameGroundingMismatch({
+        game: "Rays @ Guardians",
+        teamAbbr,
+        player: "Junior Caminero",
+        isProp: true,
+        market: "Hits",
+        propMarketKey: "batter_hits",
+        sport: "mlb",
+      }),
+      false,
+      `expected ${teamAbbr} grounded on Rays @ Guardians`,
+    );
+  }
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Tampa Bay Rays @ Cleveland Guardians",
+      teamAbbr: "TBR",
+      player: "Jose Ramirez",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+});
+
+test("full 6/6 ticket still alerts when one leg is a real MLB mismatch", () => {
+  const picks = [
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "A",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "CLE",
+      player: "B",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "NYY",
+      player: "Aaron Judge",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "C",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "CLE",
+      player: "D",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "E",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+  ];
+  const g = evaluateReturnedPicksGrounding(picks);
+  assert.equal(g.hasMismatch, true);
+  assert.equal(g.mismatchCount, 1);
+  assert.equal(g.affectedGame, "Rays @ Guardians");
+});
