@@ -1,10 +1,19 @@
 # Clean research-only NCAAF engine — architecture & milestones (design freeze)
 
-**Status:** DESIGN FOR REVIEW — **no scoring implementation this turn**  
+**Status:** DESIGN **FROZEN** — M1/M2 implementation in progress under this lock  
 **Branch:** `cursor/ncaaf-clean-engine-design-8b51`  
 **Date:** 2026-10-17  
 **Supersedes as research path:** drive residual/shrink restoration and team-strength v0 (both **archived**, not extended)  
 **Does not change:** live stamp `ppg-per-drive-v1` · `NCAAF_GAME_LINE_SIM_VALIDATED=false` · FINAL_EVAL empty · production freeze · voice paused
+
+### Frozen decisions (2026-10-17)
+
+| # | Topic | Decision |
+|---|--------|----------|
+| 1 | Stamp | **`ncaaf-score-margin-v1-research`** (exact) |
+| 2 | Unknown venue | Stay **`unknown`**. Attempt source recovery. If unresolved → **`releaseEligible=false`** (`venue_unknown_material`). **Do not** silently treat as neutral (do not rewrite `kind` to `neutral`; do not apply home HFA). |
+| 3 | ML ties | Model two-way finals **including OT**. Historical tied/invalid finals → **exclude and report**; **no** half-wins. |
+| 4 | Historical injury | `injury_unavailable` allowed for research with **no invented adjustment**. Does **not** satisfy injury validation. |
 
 ---
 
@@ -62,7 +71,7 @@ A rebuild is **not** an automatic pass. New code must clear the **same locked cr
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  RESEARCH ONLY — stamp: ncaaf-score-margin-v1-research (proposed)│
+│  RESEARCH ONLY — stamp: ncaaf-score-margin-v1-research (frozen)  │
 │  Flag: ncaafCleanEngineResearch / NCAAF_CLEAN_ENGINE_RESEARCH=1 │
 └─────────────────────────────────────────────────────────────────┘
                 │
@@ -196,9 +205,9 @@ type MissingInput =
 |--------------|---------------|
 | `home` | Apply declared home-field offset (locked before TUNING screen of that candidate) |
 | `neutral` | HFA = 0 |
-| `unknown` | Either withhold (`venue_unknown_material`) **or** treat as neutral with flagged `MissingInput` soft-warn — choose **one** protocol in Stage A lock doc **before** scoring |
+| `unknown` | **Frozen:** keep `unknown`; attempt recovery; if unresolved → `releaseEligible=false` + `venue_unknown_material`. HFA **not applied** (≠ rewriting to neutral). |
 
-Source: ESPN competition/venue fields already on or joinable to existing event IDs (free). No paid data.
+Source: ESPN competition/venue fields when present on game rows (free). Current TUNING/phase-e fixtures lack venue fields → **data blocker** until recovered.
 
 ### 4.5 Injury / availability (supported inputs)
 
@@ -226,9 +235,10 @@ type AvailabilityInput = {
 
 ```ts
 type CleanEnginePrediction = {
-  stamp: "ncaaf-score-margin-v1-research"; // exact string TBD at first code lock
+  stamp: "ncaaf-score-margin-v1-research";
   eventId: string;
   ok: true;
+  releaseEligible: boolean;    // false when venue unknown / injury validation unmet / etc.
   // Stage A
   homeScoreMean: number;
   awayScoreMean: number;
@@ -236,14 +246,15 @@ type CleanEnginePrediction = {
   marginSd: number;
   totalMean: number;
   totalSd: number;
-  // Optional draws / analytic CDF — implementation choice locked in Stage A
+  hfaApplied: boolean;         // true only when venue.kind === "home"
   uncertainty: number;
-  featuresUsed: string[];      // audit
-  missingOptional: MissingInput[]; // e.g. injury_unavailable still ok:true
+  featuresUsed: string[];
+  missingOptional: MissingInput[]; // e.g. injury_unavailable; does not invent adjustment
 } | {
   stamp: "ncaaf-score-margin-v1-research";
   eventId: string;
   ok: false;
+  releaseEligible: false;
   reason: MissingInput;
 };
 ```
@@ -258,7 +269,7 @@ Reuse Phase-E settlement conventions (already unit-checked):
 
 | Market | Probability | Settlement |
 |--------|-------------|------------|
-| **ML** | `P(homeScore > awayScore)`; ties → push / exclude or push-split — **declare before Stage B** (recommend: exclude ML pushes if any; college rarely ties) | `y = 1{homeScore > awayScore}` |
+| **ML** | `P(homeScore > awayScore)` under OT-inclusive two-way finals | Historical ties/invalid → **exclude + report**; **no** half-wins. `y = 1{home > away}` |
 | **Spread / ATS** | `P(homeScore + closeSpreadHome > awayScore)` for eval at close line | Cover if `homeScore + line > awayScore`; **push if adj==0** → exclude from Brier |
 | **Total** | `P(homeScore + awayScore > closeTotal)` | Over/under/push analog; requires `closeTotal` archive |
 | **ALT** | Same settlement at alternate line | Only after main markets validated; requires posted ALT prices |
@@ -304,31 +315,27 @@ Review gate between milestones — do not skip ahead into ALT or FINAL_EVAL.
 
 ### M0 — Design freeze (this document)
 
-**Exit:** Human review of architecture + contract.  
-**Out of scope:** New scoring code, Odds spend, gate flip.
+**Exit:** **DONE** — decisions § frozen table above.
 
 ### M1 — Skeleton + isolation
 
 | Deliverable | Notes |
 |-------------|-------|
-| Package `sportSim/ncaafClean/` | Types, `MissingInput`, stamp constant |
-| `predict()` stub | Returns `ok:false` / `insufficient_history` until M2 |
-| Unit tests | Contract / withhold / no import from `nflDriveSim` product path |
-| Offline script hook | Read TUNING games; emit empty prediction audit |
-| Prove | Live stamp unchanged; gate false; NFL tests green |
+| Package `sportSim/ncaafClean/` | **DONE** |
+| Unit tests | **DONE** (`test/ncaafClean.m1m2.test.ts`) |
+| Prove | Live stamp unchanged; gate false; no product imports of `ncaafClean` |
 
 ### M2 — Stage A generative core (score / margin)
 
 | Deliverable | Notes |
 |-------------|-------|
-| Chronological FBS–FBS rating update | Opponent-adjusted off/def; SOS fields populated |
-| Uncertainty from `nFbsGames` | Explicit; unrated → null μ → withhold |
-| Venue HFA protocol locked | Neutral = 0 |
-| Output | `homeScoreMean/awayScoreMean/marginMean/marginSd/totalMean/totalSd` |
-| Score-only TUNING diags | Margin calibration bins; **no** close objective |
-| Compare archive | Report vs locked drive + v0 on identical supported set (informational) |
+| Chronological FBS–FBS rating update | **DONE** (`CleanOppAdjStrength`) |
+| Uncertainty from `nFbsGames` | **DONE** |
+| Venue protocol | unknown → no HFA + `releaseEligible=false`; neutral → HFA 0; home → HFA |
+| Settlement helpers | **DONE** (ML tie exclude; ATS/total push) |
+| Score-only TUNING report | **DONE** — [`ncaaf-clean-m2-report.md`](./ncaaf-clean-m2-report.md) |
 
-**Exit for M2:** Score-only diagnostics + settlement plumbing ready; **not** a restore claim.
+**Exit for M2:** Score-only diagnostics + settlement plumbing ready; **not** a restore claim. **Blockers before M3** listed in M2 report (venue fields absent → 0 release-eligible).
 
 ### M3 — Stage B moneyline + Stage C spreads
 
@@ -399,13 +406,9 @@ artifacts/api-server/scripts/ncaafCleanTuningScreen.ts
 
 ---
 
-## 10. Review questions for the next turn
+## 10. Review questions
 
-1. Approve stamp name `ncaaf-score-margin-v1-research` (or prefer another)?  
-2. Venue `unknown`: withhold vs neutral-with-flag?  
-3. ML ties: exclude vs half-credit?  
-4. Proceed to **M1 skeleton** only, or wait for further design edits?  
-5. Injury on TUNING: accept universal `injury_unavailable` until forward collector exists?
+**Resolved** (frozen decisions table). Next gate: M2 report + data blockers before M3.
 
 ---
 
