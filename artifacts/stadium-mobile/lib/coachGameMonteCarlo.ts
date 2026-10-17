@@ -9,6 +9,7 @@ import {
 } from "./coachContextCache.ts";
 import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 import {
+  buildDefaultGameCoverQueries,
   buildGameCoverQuery,
   gamePickCoverQueryId,
   gameSimHitForPick,
@@ -213,6 +214,8 @@ export type SlateGameSimStatus = {
   loaded: boolean;
   /** Ids resolved but API returned null or threw. */
   fetchNull: boolean;
+  /** Draw returned but engineVersion stamp rejected by client gate. */
+  stampRejected?: boolean;
 };
 
 export type SlateGameSimBatchResult = {
@@ -223,6 +226,8 @@ export type SlateGameSimBatchResult = {
   resolved: string[];
   /** Resolved but fetch returned nothing / threw. */
   fetchNull: string[];
+  /** Resolved + HTTP body present but stamp gate rejected the draw. */
+  stampRejected: string[];
   statuses: SlateGameSimStatus[];
 };
 
@@ -253,6 +258,7 @@ export async function fetchSlateGameSimulationsWithStatus(
   const unresolved: string[] = [];
   const resolved: string[] = [];
   const fetchNull: string[] = [];
+  const stampRejected: string[] = [];
   const statuses: SlateGameSimStatus[] = [];
   const entries = [...evalLinesByGame.entries()];
   const SLATE_SIM_CONCURRENCY = 4;
@@ -265,6 +271,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         resolved: false,
         loaded: false,
         fetchNull: false,
+        stampRejected: false,
       });
       return;
     }
@@ -277,6 +284,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         resolved: false,
         loaded: false,
         fetchNull: false,
+        stampRejected: false,
       });
       return;
     }
@@ -297,6 +305,20 @@ export async function fetchSlateGameSimulationsWithStatus(
       seen.add(q.id);
       coverQueries.push(q);
     }
+    // Abbr-only / unparseable posted lines can yield zero cover queries even
+    // when ESPN ids bound. Fall back to default ML sides so the slate still
+    // draws — empty queries previously collapsed into false FETCH_EMPTY.
+    if (!coverQueries.length) {
+      for (const q of buildDefaultGameCoverQueries(
+        gameLabel,
+        ids.homeTeam,
+        ids.awayTeam,
+      )) {
+        if (seen.has(q.id)) continue;
+        seen.add(q.id);
+        coverQueries.push(q);
+      }
+    }
     if (!coverQueries.length) {
       fetchNull.push(gameLabel);
       statuses.push({
@@ -304,6 +326,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         resolved: true,
         loaded: false,
         fetchNull: true,
+        stampRejected: false,
       });
       return;
     }
@@ -333,6 +356,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         simulations: COACH_GAME_SIMS,
         coverQueries,
       });
+      // Preserve existing stamp accept checks (predicate arg + post-fetch gate).
       const resultRaw = await withCoachGameSimCache(
         simFp,
         () => fetchGameOutcomeSimulation(simOpts, signal),
@@ -341,7 +365,9 @@ export async function fetchSlateGameSimulationsWithStatus(
       );
       // UFC/MMA: when production game-outcome rejects name-only (or returns
       // null), mirror Simulator — client fight analysis + 10k MC.
-      let result = resultRaw && gameDrawEngineAccepted(resultRaw, sportKey) ? resultRaw : null;
+      const rawPresent = !!resultRaw && typeof resultRaw === "object";
+      let result =
+        resultRaw && gameDrawEngineAccepted(resultRaw, sportKey) ? resultRaw : null;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -349,7 +375,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         ids.awayTeam
       ) {
         const { fetchUfcSimulatorGameOutcome } = await import("./ufcSimulatorSim.ts");
-        result = await fetchUfcSimulatorGameOutcome(
+        const ufcRaw = await fetchUfcSimulatorGameOutcome(
           {
             sport: sportKey,
             homeTeamId: ids.homeTeamId || "",
@@ -362,6 +388,8 @@ export async function fetchSlateGameSimulationsWithStatus(
           },
           signal,
         );
+        result =
+          ufcRaw && gameDrawEngineAccepted(ufcRaw, sportKey) ? ufcRaw : null;
       }
       if (result && gameDrawEngineAccepted(result, sportKey)) {
         // Keep the server cover rates. ESPN period averages must not rescale
@@ -374,6 +402,19 @@ export async function fetchSlateGameSimulationsWithStatus(
           resolved: true,
           loaded: true,
           fetchNull: false,
+          stampRejected: false,
+        });
+      } else if (rawPresent && !gameDrawEngineAccepted(resultRaw, sportKey)) {
+        // Stamp gate failed — not the same as HTTP null / throw.
+        // GAME_SIMS_STAMP_REJECTED path (also counted in fetchNull for legacy).
+        stampRejected.push(gameLabel);
+        fetchNull.push(gameLabel);
+        statuses.push({
+          gameLabel,
+          resolved: true,
+          loaded: false,
+          fetchNull: true,
+          stampRejected: true,
         });
       } else {
         fetchNull.push(gameLabel);
@@ -382,6 +423,7 @@ export async function fetchSlateGameSimulationsWithStatus(
           resolved: true,
           loaded: false,
           fetchNull: true,
+          stampRejected: false,
         });
       }
     } catch {
@@ -391,6 +433,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         resolved: true,
         loaded: false,
         fetchNull: true,
+        stampRejected: false,
       });
     }
   }
@@ -400,7 +443,7 @@ export async function fetchSlateGameSimulationsWithStatus(
     await Promise.all(entries.slice(i, i + SLATE_SIM_CONCURRENCY).map(simGame));
   }
 
-  return { sims: out, unresolved, resolved, fetchNull, statuses };
+  return { sims: out, unresolved, resolved, fetchNull, stampRejected, statuses };
 }
 
 /** Fetch 10k sim for game-line legs whose games are missing from an existing map. */

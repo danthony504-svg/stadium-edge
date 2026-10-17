@@ -169,6 +169,24 @@ test("game-phase timeout is GAME_SIMS_TIMED_OUT not TEAM_IDS", () => {
   assert.equal(reason?.code, "GAME_SIMS_TIMED_OUT");
 });
 
+test("stamp-rejected draws are GAME_SIMS_STAMP_REJECTED not generic FETCH_EMPTY", () => {
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 5,
+    teamIdMapSize: 10,
+    gameEntryCount: 5,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 0,
+    propLegsScored: 0,
+    oddsLabelsBound: 5,
+    gameSimsFetchNull: 5,
+    gameSimsStampRejected: 5,
+    gameSimsAttempted: true,
+  });
+  assert.equal(reason?.code, "GAME_SIMS_STAMP_REJECTED");
+});
+
 test("non-empty ticket has no failure reason", () => {
   assert.equal(
     deriveCoachScanFailureReason({ stagedPickCount: 3, gameLegsScored: 3 }),

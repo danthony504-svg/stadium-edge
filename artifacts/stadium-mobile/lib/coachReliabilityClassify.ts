@@ -35,13 +35,16 @@ export function mapScanFailureCode(
       };
     case "GAME_SIMS_TIMED_OUT":
     case "GAME_SIMS_FETCH_EMPTY":
+    case "GAME_SIMS_STAMP_REJECTED":
     case "GAME_SIMS_ALL_NULL":
     case "GAME_LINES_NO_SIM_GRADE":
     case "PROP_ALL_NO_SIM_GRADE":
       return {
         eventType: "coach_simulation_failure",
         failureReason:
-          code === "GAME_SIMS_FETCH_EMPTY" || code === "GAME_SIMS_ALL_NULL"
+          code === "GAME_SIMS_FETCH_EMPTY" ||
+          code === "GAME_SIMS_ALL_NULL" ||
+          code === "GAME_SIMS_STAMP_REJECTED"
             ? "missing_sim_output"
             : "simulation_failure",
         alertable: true,

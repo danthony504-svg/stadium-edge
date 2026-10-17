@@ -55,6 +55,7 @@ import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
+import { applyDeliveryGroundingGate } from "@/lib/coachDeliveryGrounding";
 import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
@@ -715,6 +716,20 @@ export async function buildCoachParlay(opts: {
       if (shortfallNote) recoveredNote = shortfallNote;
     }
 
+    // Final belt — recovery/top-up must not reintroduce another local day
+    // or an explicitly excluded matchup.
+    picks = filterPicksForSlateDay(picks, inputs.slateDay);
+    picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
+    // Delivery grounding — remove proven player/team/game mismatches; refill
+    // only from qualified leftovers. Unknown identity stays on the ticket.
+    const deliveryGrounding = applyDeliveryGroundingGate({
+      picks,
+      // Props-only ticket builder does not expose a qualified leftover pool;
+      // remove mismatches and report honest shortfall (no unqualified refill).
+      qualifiedCandidates: [],
+      target,
+    });
+    picks = deliveryGrounding.picks;
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     const teamShortfall = coachAskTeamShortfallNote(
       inputs.teamScope,
@@ -722,10 +737,6 @@ export async function buildCoachParlay(opts: {
       picks.length,
       inputs.oddsGames.length,
     );
-    // Final belt — recovery/top-up must not reintroduce another local day
-    // or an explicitly excluded matchup.
-    picks = filterPicksForSlateDay(picks, inputs.slateDay);
-    picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
     const shortfall = resolveCoachParlayShortfallLead({
       askText: opts.askText ?? "",
       requestedLegs: target,
@@ -777,6 +788,17 @@ export async function buildCoachParlay(opts: {
         timedOut: false,
         scanMissing: false,
         deliveryCommitted: false,
+        requestScope: inputs.teamScope
+          ? {
+              sport: inputs.teamScope.sport,
+              team: inputs.teamScope.displayName ?? inputs.teamScope.parsedTeam ?? null,
+            }
+          : { sport: coachRelSport },
+        candidateIds: picks.map((p) => `${p.game}|${p.market}|${p.pick}`.slice(0, 120)),
+        gameIds: [...new Set(picks.map((p) => String(p.game ?? "").trim()).filter(Boolean))].slice(
+          0,
+          12,
+        ),
       });
     }
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
@@ -1046,6 +1068,16 @@ export async function buildCoachParlay(opts: {
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
   // Terminal style belt — final delivered American odds after lean / fill.
   picks = filterPicksForTicketStyle(picks, ticketStyle);
+  // Delivery grounding — after belts, before shortfall + reliability report.
+  const deliveryGrounding = applyDeliveryGroundingGate({
+    picks,
+    qualifiedCandidates: [
+      ...(scan?.qualifiedCandidates ?? []),
+      ...(latest?.qualifiedCandidates ?? []),
+    ],
+    target,
+  });
+  picks = deliveryGrounding.picks;
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
@@ -1134,6 +1166,18 @@ export async function buildCoachParlay(opts: {
       timedOut: deliveryTimedOut,
       scanMissing: deliveryScanMissing,
       deliveryCommitted: false,
+      requestScope: teamScope
+        ? {
+            sport: teamScope.sport,
+            team: teamScope.displayName ?? teamScope.parsedTeam ?? null,
+          }
+        : { sport: coachRelSport },
+      candidateIds: picks.map((p) => `${p.game}|${p.market}|${p.pick}`.slice(0, 120)),
+      gameIds: [...new Set(picks.map((p) => String(p.game ?? "").trim()).filter(Boolean))].slice(
+        0,
+        12,
+      ),
+      simFailureReason: scan?.failureReason?.code ?? null,
     });
   }
 
