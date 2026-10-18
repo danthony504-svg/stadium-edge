@@ -29,9 +29,13 @@ export type HistoricalAcceptance = {
 const validProbability = (n: number) => Number.isFinite(n) && n >= 0 && n <= 1;
 export function evaluateHistoricalNcaafAcceptance(
   games: HistoricalNcaafGame[],
-  opts: { marketBaselineBrier?: number; minimumHoldoutGames?: number } = {},
+  opts: { marketBaselineBrier?: number; minimumHoldoutGames?: number; independentHoldoutVerified?: boolean; exactLineBindingVerified?: boolean; injuryConservatismVerified?: boolean; humanSignoff?: boolean } = {},
 ): HistoricalAcceptance {
   const reasons: string[] = [];
+  if (opts.independentHoldoutVerified !== true) reasons.push("holdout_provenance_unverified");
+  if (opts.exactLineBindingVerified !== true) reasons.push("exact_line_binding_unverified");
+  if (opts.injuryConservatismVerified !== true) reasons.push("injury_conservatism_unverified");
+  if (opts.humanSignoff !== true) reasons.push("human_signoff_required");
   const minimum = opts.minimumHoldoutGames ?? 500;
   if (games.length < minimum) reasons.push("insufficient_independent_holdout");
   if (new Set(games.map(g => g.gameId)).size !== games.length) reasons.push("duplicate_game_ids");
