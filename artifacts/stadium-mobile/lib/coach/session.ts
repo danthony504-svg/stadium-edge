@@ -21,11 +21,9 @@ export type CoachSession = {
 };
 
 /**
- * Scoring budget after the prop board is loaded. Sized so game-line sims and
- * prop/alt scoring can finish — empty propPool + short budget was locking
- * "2 game totals" as a shortfall before props ever ran.
- * Deep tickets (8+) get more wall time; production 8-leg asks were latching
- * empty before the board finished.
+ * Total request budget from Coach send (load + enrichment + scan + finalize).
+ * Deep tickets (8+) get more wall time. Load time counts against this window —
+ * do not reset the clock after prop prefetch (that caused ~180s freezes).
  */
 /**
  * Wall reserved inside the absolute budget for staging / correlation /
@@ -55,14 +53,19 @@ export function coachScoringWorkBudgetMs(requestedLegs: number): number {
 }
 
 /**
- * Failsafe while prefetching the posted prop/alt board before scoring starts.
- * Must outlast the scoring budget window so load never starves an 8-leg scan.
+ * Load-phase failsafe — same as the total request budget. Prefetch may not
+ * extend past the monotonic deadline (legacy absolute+15s caused ~180s freezes
+ * when combined with a post-load clock reset).
  */
 export function coachPropLoadFailsafeMs(requestedLegs = 6): number {
-  return Math.max(90_000, coachAbsoluteBudgetMs(requestedLegs) + 15_000);
+  return coachAbsoluteBudgetMs(requestedLegs);
 }
 
-/** Restart the absolute clock (e.g. when scoring starts after prop prefetch). */
+/**
+ * @deprecated PR-B: do not reset the Coach wall after prop prefetch.
+ * Kept for non-parlay callers / tests. Parlay uses a single monotonic deadline
+ * from beginCoachSession.
+ */
 export function resetCoachAbsoluteClock(session: CoachSession, now = Date.now()): void {
   if (session.absoluteTimer) {
     clearTimeout(session.absoluteTimer);

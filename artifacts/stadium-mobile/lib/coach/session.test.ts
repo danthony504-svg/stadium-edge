@@ -22,9 +22,10 @@ test("6-leg absolute budget is 90s (room for props + alts)", () => {
   assert.equal(coachAbsoluteBudgetMs(6), 90_000);
 });
 
-test("prop load failsafe covers board prefetch without scoring", () => {
-  assert.equal(coachPropLoadFailsafeMs(6), 105_000);
-  assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8) + 15_000);
+test("prop load failsafe equals total request budget (PR-B monotonic clock)", () => {
+  assert.equal(coachPropLoadFailsafeMs(6), 90_000);
+  assert.equal(coachPropLoadFailsafeMs(6), coachAbsoluteBudgetMs(6));
+  assert.equal(coachPropLoadFailsafeMs(8), coachAbsoluteBudgetMs(8));
 });
 
 test("resetCoachAbsoluteClock clears timer and restarts budget window", () => {
