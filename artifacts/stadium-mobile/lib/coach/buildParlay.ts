@@ -1185,6 +1185,7 @@ export async function buildCoachParlay(opts: {
 
   let scanTimeout: ReturnType<typeof setTimeout> | null = null;
   let scanAbortListener: (() => void) | null = null;
+  let timed: { scan: FullBoardScanResult | null; timedOut: boolean };
   try {
     const timeoutPromise = new Promise<{ scan: null; timedOut: true }>((resolve) => {
       // Remaining time only — never a fresh full budget after load.
@@ -1201,7 +1202,7 @@ export async function buildCoachParlay(opts: {
         scanTimeout = setTimeout(scanAbortListener, waitMs);
       }
     });
-    var timed = await Promise.race([
+    timed = await Promise.race([
       scanPromise.then((scan) => ({ scan, timedOut: false as const })),
       timeoutPromise,
     ]);
