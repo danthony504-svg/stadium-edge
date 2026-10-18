@@ -628,17 +628,23 @@ export function coachAskTeamScope(
 ): CoachAskTeamScope | null {
   const t = stripTeamExclusionClauses(String(text ?? ""));
   if (!t.trim()) return null;
-  // City-only asks require an explicit league to disambiguate Atlanta's
-  // Falcons/Braves/Hawks and prevent an unscoped multi-game fallback.
-  if (/\batlanta\b/i.test(t)) {
-    if (/\bnfl\b|\bfootball\b/i.test(t) && !/\bcollege\b|\bncaaf\b/i.test(t)) {
-      return scopeFromEntry("falcons", NICK_TO_SPORT.falcons!);
+  // Resolve city-only team requests by an explicit league. A city shared by
+  // multiple franchises in that league must remain unresolved.
+  const leagueHints = sportsHintFromText(t);
+  if (leagueHints.size === 1) {
+    const sport = [...leagueHints][0]!;
+    const matched = new Map<string, { nick: string; entry: NickEntry }>();
+    for (const [nick, entry] of Object.entries(NICK_TO_SPORT)) {
+      if (entry.sport !== sport) continue;
+      // Require the full city token, never arbitrary substrings of team names.
+      const cities = entry.tokens.slice(1).filter((token) => token.includes(" ") || token.length >= 5);
+      if (!cities.some((city) => nickPattern(city).test(t))) continue;
+      const identity = [entry.sport, [...entry.tokens].sort().join("|")].join(":");
+      if (!matched.has(identity)) matched.set(identity, { nick, entry });
     }
-    if (/\bmlb\b|\bbaseball\b/i.test(t)) {
-      return scopeFromEntry("braves", NICK_TO_SPORT.braves!);
-    }
-    if (/\bnba\b|\bbasketball\b/i.test(t) && !/\bwnba\b|\bncaab\b/i.test(t)) {
-      return scopeFromEntry("hawks", NICK_TO_SPORT.hawks!);
+    if (matched.size === 1) {
+      const found = [...matched.values()][0]!;
+      return scopeFromEntry(found.nick, found.entry);
     }
   }
   for (const nick of nickKeysLongestFirst()) {
