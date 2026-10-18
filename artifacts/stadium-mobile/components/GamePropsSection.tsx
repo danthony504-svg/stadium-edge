@@ -33,7 +33,16 @@ export function GamePropsSection({ game }: { game: OddsGame }) {
   const q = useQuery({
     queryKey: ["game-props", game.sport, game.id],
     queryFn: ({ signal }) =>
-      getProps({ sport: game.sport, eventId: game.id, home: game.homeTeam, away: game.awayTeam }, signal),
+      getProps(
+        {
+          sport: game.sport,
+          eventId: game.id,
+          home: game.homeTeam,
+          away: game.awayTeam,
+          startsAt: game.commenceTime,
+        },
+        signal,
+      ),
     enabled: supported,
     staleTime: 60_000,
   });

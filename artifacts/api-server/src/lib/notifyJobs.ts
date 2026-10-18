@@ -584,8 +584,15 @@ async function computeDailyEdges(): Promise<EdgeScan> {
       const propGames = await Promise.all(
         pickable.map(async (g): Promise<ArbPropGame> => {
           // ESPN team ids resolved server-side in /sports/props (propEventTeamIdentity).
+          const pq = new URLSearchParams({
+            sport: sp,
+            eventId: g.id,
+            home: g.homeTeam,
+            away: g.awayTeam,
+          });
+          if (g.commenceTime) pq.set("startsAt", g.commenceTime);
           const r = await fetchJson<{ props?: ArbPropInput[] }>(
-            `/sports/props?sport=${encodeURIComponent(sp)}&eventId=${encodeURIComponent(g.id)}&home=${encodeURIComponent(g.homeTeam)}&away=${encodeURIComponent(g.awayTeam)}`,
+            `/sports/props?${pq.toString()}`,
           );
           return {
             game: `${g.awayTeam} @ ${g.homeTeam}`,

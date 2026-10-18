@@ -105,7 +105,13 @@ async function scanArb(sport: string, signal?: AbortSignal): Promise<ScanResult>
       pickable.map(async (g): Promise<ArbPropGame> => {
         try {
           const r = await getProps(
-            { sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam },
+            {
+              sport,
+              eventId: g.id,
+              home: g.homeTeam,
+              away: g.awayTeam,
+              startsAt: g.commenceTime,
+            },
             signal,
           );
           return {
