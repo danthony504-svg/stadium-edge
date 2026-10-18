@@ -11,7 +11,7 @@ export const FIRST_RUN_TOUR_STEPS = [
   { title: "Save your picks", body: "Sign in to save picks and access features included in your subscription." },
 ] as const;
 
-export function FirstRunCoachTour() {
+export function FirstRunCoachTour({ replayKey = 0 }: { replayKey?: number }) {
   const [visible, setVisible] = useState(false);
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -21,6 +21,7 @@ export function FirstRunCoachTour() {
       .catch(() => { /* fail closed: don't interrupt users when storage is unavailable */ });
     return () => { active = false; };
   }, []);
+  useEffect(() => { if (replayKey > 0) { setIndex(0); setVisible(true); } }, [replayKey]);
   const finish = useCallback(() => {
     setVisible(false);
     setIndex(0);
