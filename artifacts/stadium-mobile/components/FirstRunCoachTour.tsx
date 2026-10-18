@@ -4,7 +4,7 @@ import { Modal, Pressable, Text, View, useWindowDimensions } from "react-native"
 
 const TOUR_KEY = "stadium-edge:first-run-tour:v1";
 export const FIRST_RUN_TOUR_STEPS = [
-  { title: "Welcome to Stadium Edge", body: "Explore games and real sportsbook lines without signing in." },
+  { title: "Welcome to Stadium Edge", body: "Start with Search to explore games, players and real sportsbook lines without signing in." },
   { title: "Build Best Parlay", body: "Open AI Coach to request picks. Only qualified selections are shown." },
   { title: "Choose a sport", body: "Select a sport at the top to see its games and available markets." },
   { title: "Understand your picks", body: "Open View AI Breakdown to understand grades, confidence, and supported simulation evidence." },
@@ -33,6 +33,7 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   useEffect(() => { if (replayKey > 0) { setIndex(0); setVisible(true); } }, [replayKey]);
   useEffect(() => {
     if (!visible) { setAnchorFrame(null); return; }
+    setAnchorFrame(null);
     const target = index === 0 ? searchAnchorRef : index === 1 ? coachAnchorRef : index === 2 ? sportAnchorRef : undefined;
     if (!target?.current) { setAnchorFrame(null); return; }
     let active = true;
