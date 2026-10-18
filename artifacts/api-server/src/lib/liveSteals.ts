@@ -202,8 +202,9 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
   const propCands = cands.slice(0, MAX_PROP_GAMES);
 
   // Resolve ESPN team IDs the same way Coach does (build map from /sports/games,
-  // then resolve odds-board labels). Without IDs, props.ts fail-closes via
-  // propBelongsToGameTeams — never weaken that gate; pass real IDs instead.
+  // then resolve odds-board labels). props.ts also resolves authoritatively via
+  // propEventTeamIdentity when ids are omitted; when we pass ids they must match
+  // that resolve (swapped/wrong ids fail closed). Never weaken propBelongsToGameTeams.
   const espnGames: Array<{
     sport?: string;
     homeTeam?: string;
