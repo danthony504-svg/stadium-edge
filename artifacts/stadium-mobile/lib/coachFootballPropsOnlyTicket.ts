@@ -515,6 +515,7 @@ async function prefetchCandidateHistory(
   pool: PropPoolEntry[],
   seeded: Record<string, PlayerHistorySlice>,
   espnGames?: EspnGame[],
+  parentSignal?: AbortSignal,
 ): Promise<Record<string, PlayerHistorySlice>> {
   const out = { ...seeded };
   const rows: { player: string; athleteId: string; sport: string }[] = [];
@@ -556,11 +557,16 @@ async function prefetchCandidateHistory(
 
   const concurrency = 8;
   for (let i = 0; i < rows.length; i += concurrency) {
+    if (parentSignal?.aborted) break;
     const batch = rows.slice(i, i + concurrency);
     await Promise.all(
       batch.map(async (r) => {
         try {
+          if (parentSignal?.aborted) return;
           const ac = new AbortController();
+          const onParentAbort = () => ac.abort();
+          parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+          if (parentSignal?.aborted) ac.abort();
           const t = setTimeout(() => ac.abort(), 14_000);
           try {
             const h = await getPlayerHistory(
@@ -600,6 +606,7 @@ async function prefetchCandidateHistory(
             };
           } finally {
             clearTimeout(t);
+            parentSignal?.removeEventListener("abort", onParentAbort);
           }
         } catch {
           /* honest skip */
@@ -755,6 +762,7 @@ export async function buildFootballPropsOnlyTicket(
     scopedPool,
     opts.playerHistory ?? {},
     opts.espnGames,
+    opts.signal,
   );
 
   const localHistories: Record<string, PropsOnlyHistorySlice | undefined> = {};
