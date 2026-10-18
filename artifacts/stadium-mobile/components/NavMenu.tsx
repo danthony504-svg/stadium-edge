@@ -55,16 +55,19 @@ export function NavMenu() {
   const [open, setOpen] = useState(false);
   const [tourFocus, setTourFocus] = useState<TourMenuFocus | null>(null);
   const menuScrollRef = useRef<ScrollView>(null);
+  const tourRowOffsets = useRef<Record<string, number>>({});
   useEffect(() => subscribeTourMenuFocus((focus) => {
     setTourFocus(focus);
     setOpen(!!focus);
   }), []);
   useEffect(() => {
     if (!tourFocus) return;
-    const id = setTimeout(() => menuScrollRef.current?.scrollTo({
-      y: tourFocus.route === "/simulator" ? 160 : 208,
-      animated: true,
-    }), 120);
+    // Scroll using measured row positions rather than hard-coded offsets,
+    // which vary with device font size and accessibility settings.
+    const id = setTimeout(() => {
+      const y = tourRowOffsets.current[tourFocus.route];
+      if (y !== undefined) menuScrollRef.current?.scrollTo({ y: Math.max(0, y - 130), animated: true });
+    }, 120);
     return () => clearTimeout(id);
   }, [tourFocus?.route]);
 
@@ -191,6 +194,14 @@ export function NavMenu() {
                 return (
                   <Pressable
                     key={d.route}
+                    onLayout={(event) => {
+                      tourRowOffsets.current[d.route] = event.nativeEvent.layout.y;
+                      if (tourFocus?.route === d.route) {
+                        menuScrollRef.current?.scrollTo({
+                          y: Math.max(0, event.nativeEvent.layout.y - 130), animated: true,
+                        });
+                      }
+                    }}
                     onPress={() => go(d.route)}
                     accessibilityLabel={locked ? `${d.label}, locked` : d.label}
                     style={({ pressed }) => ({
@@ -199,8 +210,8 @@ export function NavMenu() {
                       gap: 12,
                       paddingHorizontal: 16,
                       paddingVertical: 12,
-                      backgroundColor: tourFocus?.route === d.route ? "rgba(59,130,246,0.18)" : pressed ? colors.background : "transparent",
-                      borderWidth: tourFocus?.route === d.route ? 2 : 0,
+                      backgroundColor: tourFocus?.route === d.route ? "rgba(59,130,246,0.30)" : pressed ? colors.background : "transparent",
+                      borderWidth: tourFocus?.route === d.route ? 3 : 0,
                       borderColor: colors.primary,
                       borderRadius: tourFocus?.route === d.route ? 10 : 0,
                     })}
