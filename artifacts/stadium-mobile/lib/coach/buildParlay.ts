@@ -65,6 +65,10 @@ import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
+import {
+  createCoachPerfCounters,
+  resolveCoachClientUpdateId,
+} from "@/lib/coachPerfDiagnostics";
 import { applyDeliveryGroundingGate } from "@/lib/coachDeliveryGrounding";
 import {
   BLOCKED_UNVALIDATED_MARKET_REASON,
@@ -161,6 +165,8 @@ export type CoachParlayBuildResult = {
   reliabilityRequestId?: string;
   /** Monotonic request timing (observe-only). */
   timing?: CoachRequestTiming;
+  /** Observe-only funnel/perf counters for delivery-commit telemetry. */
+  perf?: ReturnType<typeof createCoachPerfCounters>;
 };
 
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
@@ -308,13 +314,21 @@ export async function buildCoachParlay(opts: {
     `greenfield-${Date.now()}`;
   const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
 
+  const perf = createCoachPerfCounters({
+    requestedSport: coachRelSport || null,
+  });
   const reportTimingFields = () => {
     finalizeCoachRequestTiming(timing);
     const rc = coachTimeoutRootCause(timing);
     return {
       loadMs: timing.loadMs,
+      // enrichmentMs = context Promise.all wall (not a sum of parallel legs).
+      enrichmentMs: timing.contextMs,
       scanMs: timing.scanMs,
       finalizationMs: timing.finalizationMs,
+      propSimMs: perf.propSimMs,
+      gameSimMs: perf.gameSimMs,
+      qualificationMs: perf.qualificationMs,
       totalMs: timing.totalMs,
       lastCompletedPhase: timing.lastCompletedPhase,
       pendingOperation: timing.pendingOperation,
@@ -322,6 +336,15 @@ export async function buildCoachParlay(opts: {
       rootCause: rc?.rootCause ?? undefined,
       rootCauseGrade: rc?.rootCauseGrade ?? undefined,
       durationMs: timing.totalMs ?? Date.now() - coachRelStarted,
+      requestedSport: perf.requestedSport ?? coachRelSport,
+      effectiveSports: perf.effectiveSports,
+      candidatesPoolBefore: perf.candidatesPoolBefore,
+      candidatesPoolAfter: perf.candidatesPoolAfter,
+      candidatesSelected: perf.candidatesSelected,
+      deepSimRequested: perf.deepSimRequested,
+      deepSimCompleted: perf.deepSimCompleted,
+      qualifiedCount: perf.qualifiedCount,
+      updateId: resolveCoachClientUpdateId(),
     };
   };
 
@@ -368,6 +391,7 @@ export async function buildCoachParlay(opts: {
         propPoolSize: 0,
         reliabilityRequestId: coachRelRequestId,
         timing,
+        perf,
       };
     }
   }
@@ -423,6 +447,7 @@ export async function buildCoachParlay(opts: {
       propPoolSize: 0,
       reliabilityRequestId: coachRelRequestId,
       timing,
+      perf,
     };
   }
 
@@ -474,6 +499,9 @@ export async function buildCoachParlay(opts: {
       boardSports: inputs.sports,
     }),
   };
+  perf.effectiveSports = askSportScope.allowedSports.length
+    ? [...askSportScope.allowedSports]
+    : null;
   const scopedPropPool = filterPoolByAllowedSports(
     collegeTeamPropPool,
     askSportScope,
@@ -610,6 +638,7 @@ export async function buildCoachParlay(opts: {
       propPoolSize,
       reliabilityRequestId: coachRelRequestId,
       timing,
+      perf,
     };
   }
 
@@ -708,6 +737,16 @@ export async function buildCoachParlay(opts: {
     });
     propsArm.dispose();
     markCoachPhase(timing, "props_only", Date.now() - propsOnlyStarted);
+    if (built.perf) {
+      perf.propSimMs = built.perf.propSimMs;
+      perf.qualificationMs = built.perf.qualificationMs;
+      perf.candidatesPoolBefore = built.perf.candidatesPoolBefore;
+      perf.candidatesPoolAfter = built.perf.candidatesPoolAfter;
+      perf.candidatesSelected = built.perf.candidatesSelected;
+      perf.deepSimRequested = built.perf.deepSimRequested;
+      perf.deepSimCompleted = built.perf.deepSimCompleted;
+      perf.qualifiedCount = built.perf.qualifiedCount;
+    }
     const propsOnlyTimedOut =
       propsArm.signal.aborted &&
       !opts.signal.aborted &&
@@ -1051,6 +1090,7 @@ export async function buildCoachParlay(opts: {
         teamGameScopeDiagnostics,
         reliabilityRequestId: coachRelRequestId,
         timing,
+        perf,
         ...(propsFailDiag ? { failDiag: propsFailDiag } : {}),
       };
     }
@@ -1063,6 +1103,7 @@ export async function buildCoachParlay(opts: {
       teamGameScopeDiagnostics,
       reliabilityRequestId: coachRelRequestId,
       timing,
+      perf,
       ...(propsFailDiag && picks.length < target ? { failDiag: propsFailDiag } : {}),
     };
   }
@@ -1266,6 +1307,16 @@ export async function buildCoachParlay(opts: {
   markCoachPending(timing, "finalization");
   const finalizationStarted = Date.now();
   if (timed.timedOut) deliveryTerminalized = true;
+  // Observe-only: copy sequential game-sim wall from scanner (not overlapping prop work).
+  if (scan?.failureDiagnostics?.gameSimMs != null) {
+    perf.gameSimMs = scan.failureDiagnostics.gameSimMs;
+  }
+  if (scan?.failureDiagnostics?.propSimEvaluated != null) {
+    perf.candidatesSelected = scan.failureDiagnostics.propSimEvaluated;
+  }
+  if (scan?.failureDiagnostics?.propPoolSize != null) {
+    perf.candidatesPoolAfter = scan.failureDiagnostics.propPoolSize;
+  }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
@@ -1429,6 +1480,7 @@ export async function buildCoachParlay(opts: {
 
   markCoachPhase(timing, "finalization", Date.now() - finalizationStarted);
   deliveryTerminalized = true;
+  perf.qualifiedCount = picks.length;
   // Fire-and-forget reliability — after ticket is finalized; never awaits.
   // Assembly is not delivery success — UI finishSession sets deliveryCommitted.
   reportCoachScanReliability({
@@ -1455,5 +1507,6 @@ export async function buildCoachParlay(opts: {
     teamGameScopeDiagnostics,
     reliabilityRequestId: coachRelRequestId,
     timing,
+    perf,
   };
 }

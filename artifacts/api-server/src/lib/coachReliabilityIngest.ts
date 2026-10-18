@@ -7,6 +7,7 @@ import {
   COACH_EVENT_TYPES,
   failureCategoryFor,
   mapScanFailureCode,
+  parseCoachPerfFields,
   type CoachEventType,
   type CoachFailureReason,
   type CoachQuestionKind,
@@ -113,6 +114,7 @@ export function parseCoachReliabilityIngestBody(
         240,
       ),
       correlationId,
+      ...parseCoachPerfFields(b),
     };
   }
 
@@ -157,5 +159,6 @@ export function parseCoachReliabilityIngestBody(
         ? sanitizeReliabilityText(b.rootCause, 240)
         : null,
     correlationId,
+    ...parseCoachPerfFields(b),
   };
 }

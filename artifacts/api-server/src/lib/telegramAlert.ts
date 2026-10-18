@@ -75,6 +75,12 @@ export function formatCoachReliabilityAlert(event: {
   affectedGame?: string | null;
   rootCause?: string | null;
   occurrenceCount?: number;
+  updateId?: string | null;
+  terminalStatus?: string | null;
+  loadMs?: number | null;
+  enrichmentMs?: number | null;
+  propSimMs?: number | null;
+  scanMs?: number | null;
 }): string {
   const n = event.occurrenceCount ?? 1;
   const legs =
@@ -90,9 +96,15 @@ export function formatCoachReliabilityAlert(event: {
     `legs: ${legs}`,
     `reason: ${event.failureReason}`,
     event.requestId ? `requestId: ${event.requestId}` : null,
+    event.updateId ? `updateId: ${event.updateId}` : null,
+    event.terminalStatus ? `terminalStatus: ${event.terminalStatus}` : null,
     event.affectedGame ? `game: ${event.affectedGame}` : null,
     event.rootCause ? `rootCause: ${event.rootCause}` : null,
     event.durationMs != null ? `durationMs: ${event.durationMs}` : null,
+    event.loadMs != null ? `loadMs: ${event.loadMs}` : null,
+    event.enrichmentMs != null ? `enrichmentMs: ${event.enrichmentMs}` : null,
+    event.propSimMs != null ? `propSimMs: ${event.propSimMs}` : null,
+    event.scanMs != null ? `scanMs: ${event.scanMs}` : null,
     event.realOddsAvailable != null
       ? `realOddsAvailable: ${event.realOddsAvailable}`
       : null,

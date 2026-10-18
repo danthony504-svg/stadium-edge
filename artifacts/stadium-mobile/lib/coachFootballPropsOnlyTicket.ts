@@ -114,6 +114,10 @@ import {
   recordDefenseIndexShadow,
   type ShadowPropInput,
 } from "./defenseIndexShadow.ts";
+import {
+  coachPerfElapsedMs,
+  coachPerfNowMs,
+} from "./coachPerfDiagnostics.ts";
 
 export {
   FOOTBALL_PROPS_ONLY_BATCH,
@@ -654,6 +658,18 @@ export type FootballPropsOnlyBuildOpts = {
   allowedSports?: readonly string[];
 };
 
+/** Observe-only counters — never used for selection. */
+export type FootballPropsOnlyPerf = {
+  propSimMs: number | null;
+  qualificationMs: number | null;
+  candidatesPoolBefore: number;
+  candidatesPoolAfter: number;
+  candidatesSelected: number;
+  deepSimRequested: number;
+  deepSimCompleted: number;
+  qualifiedCount: number;
+};
+
 export type FootballPropsOnlyResult = {
   picks: ParsedPick[];
   note: string;
@@ -663,6 +679,8 @@ export type FootballPropsOnlyResult = {
   scanComplete: boolean;
   /** Present when the ticket is empty or short — phone-visible why. */
   failDiag?: PropsOnlyFailDiag;
+  /** Observe-only phase timings / funnel counts. */
+  perf?: FootballPropsOnlyPerf;
 };
 
 export async function buildFootballPropsOnlyTicket(
@@ -673,11 +691,13 @@ export async function buildFootballPropsOnlyTicket(
       ? opts.allowedSports
       : [],
   };
+  const candidatesPoolBefore = opts.pool.length;
   // Fail closed when caller provides scope: unknown/other-league rows never sim.
   const scopedPool =
     sportScope.allowedSports.length > 0
       ? filterPoolByAllowedSports(opts.pool, sportScope)
-      : scopedPool;
+      : opts.pool;
+  const candidatesPoolAfter = scopedPool.length;
   const propPoolSize = scopedPool.length;
   const athleteLinked = countAthleteLinked(scopedPool);
   const sports = countPoolSports(scopedPool);
@@ -685,6 +705,16 @@ export async function buildFootballPropsOnlyTicket(
     ? PROPS_ONLY_RECOVERY_ODDS_SLACK
     : PROPS_ONLY_ODDS_SLACK;
   const candidates = selectFootballPropsOnlyCandidates(scopedPool, opts.target);
+  const emptyPerf = (): FootballPropsOnlyPerf => ({
+    propSimMs: null,
+    qualificationMs: null,
+    candidatesPoolBefore,
+    candidatesPoolAfter,
+    candidatesSelected: candidates.length,
+    deepSimRequested: 0,
+    deepSimCompleted: 0,
+    qualifiedCount: 0,
+  });
 
   if (!candidates.length) {
     const failDiag = buildPropsOnlyFailDiag({
@@ -714,6 +744,7 @@ export async function buildFootballPropsOnlyTicket(
       propLegsScored: 0,
       scanComplete: true,
       failDiag,
+      perf: emptyPerf(),
     };
   }
 
@@ -760,10 +791,13 @@ export async function buildFootballPropsOnlyTicket(
       propLine: p.propLine,
     });
   });
+  let propSimMs: number | null = null;
+  let deepSimCompleted = 0;
   if (needsDeep.length && !opts.signal?.aborted) {
     opts.onStatus?.(
       `Scoring ${needsDeep.length} props via exact-market deep sim…`,
     );
+    const propSimStarted = coachPerfNowMs();
     for (let i = 0; i < needsDeep.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
       if (opts.signal?.aborted) break;
       const batch = needsDeep.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
@@ -781,6 +815,7 @@ export async function buildFootballPropsOnlyTicket(
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
         ]);
         if (!serverRows) continue;
+        deepSimCompleted += serverRows.hits.size;
         for (const [k, v] of serverRows.hits) {
           deepSimMeta.set(k, v);
           const existing = propHits.get(k);
@@ -839,6 +874,7 @@ export async function buildFootballPropsOnlyTicket(
         /* keep existing provenance — do not invent hits */
       }
     }
+    propSimMs = coachPerfElapsedMs(propSimStarted);
   }
 
   // Stage 4 P1 — parallel shadow defenseIndex (local normal-CDF). Bounded,
@@ -1089,6 +1125,7 @@ export async function buildFootballPropsOnlyTicket(
       return [swapped];
     },
   );
+  const qualificationStarted = coachPerfNowMs();
   const propScored: BoardScoredLeg[] = [];
   for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
@@ -1132,6 +1169,7 @@ export async function buildFootballPropsOnlyTicket(
     sportScope.allowedSports.length > 0
       ? filterPicksByAllowedSports(stagedRaw, sportScope, opts.espnGames)
       : stagedRaw;
+  const qualificationMs = coachPerfElapsedMs(qualificationStarted);
   const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
@@ -1195,5 +1233,15 @@ export async function buildFootballPropsOnlyTicket(
     propLegsScored,
     scanComplete: true,
     ...(picks.length < opts.target ? { failDiag } : {}),
+    perf: {
+      propSimMs,
+      qualificationMs,
+      candidatesPoolBefore,
+      candidatesPoolAfter,
+      candidatesSelected: candidates.length,
+      deepSimRequested: needsDeep.length,
+      deepSimCompleted,
+      qualifiedCount: picks.length,
+    },
   };
 }
