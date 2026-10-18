@@ -177,8 +177,8 @@ test("NFL Buccaneers TB kept; MLB Rays on NFL game stripped", () => {
 });
 
 test("NHL prop missing team evidence is excluded even with a plausible game", () => {
-  const bad = prop({ game: "Blue Jackets @ Wild", teamAbbr: "", player: "Quinn Hughes", sport: "nhl", market: "Points", propMarketKey: "player_points" });
-  const valid = prop({ game: "Blue Jackets @ Wild", teamAbbr: "MIN", player: "Verified Player", sport: "nhl", market: "Points", propMarketKey: "player_points", pick: "Over 1.5" });
+  const bad = prop({ game: "Columbus Blue Jackets @ Minnesota Wild", teamAbbr: "", player: "Quinn Hughes", sport: "nhl", market: "Points", propMarketKey: "player_points" });
+  const valid = prop({ game: "Columbus Blue Jackets @ Minnesota Wild", teamAbbr: "MIN", player: "Verified Player", sport: "nhl", market: "Points", propMarketKey: "player_points", pick: "Over 1.5" });
   const out = applyDeliveryGroundingGate({picks:[bad],qualifiedCandidates:[valid],target:1});
   assert.equal(out.removedCount,1);
   assert.equal(out.replacedCount,1);
