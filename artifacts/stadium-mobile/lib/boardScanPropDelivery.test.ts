@@ -1239,3 +1239,66 @@ test("fillReservedPropSlots swaps NBA game lines for points / reb / ast props", 
   const families = new Set(props.map((p) => skillPropFamily(p.market)).filter(Boolean));
   assert.ok(families.size >= 3, `expected diverse NBA families, got ${[...families]}`);
 });
+
+test("five-leg budget note: full ticket before / at / after deadline", () => {
+  // Phone: "5 leg" → five multi-sport seats + "Stopped at the 75s delivery budget…"
+  const five = Array.from({ length: 5 }, (_, i) => ({
+    isProp: false,
+    market: i % 2 === 0 ? "Alt Spread" : "Spread",
+  }));
+  const beforeDeadline = buildFinalCoachParlayNote({
+    target: 5,
+    picks: five,
+    propPoolSize: 400,
+    propsPending: false,
+    shortfallLead: "",
+    timedOut: false,
+    budgetMs: 75_000,
+  });
+  assert.equal(beforeDeadline, "", "complete ticket before deadline has no budget copy");
+
+  const atDeadline = buildFinalCoachParlayNote({
+    target: 5,
+    picks: five,
+    propPoolSize: 400,
+    propsPending: false,
+    shortfallLead: "",
+    timedOut: true,
+    budgetMs: 75_000,
+  });
+  assert.equal(
+    atDeadline,
+    "",
+    "complete ticket at deadline must not claim budget stopped delivery",
+  );
+  assert.doesNotMatch(atDeadline, /Stopped at the 75s delivery budget/i);
+
+  const afterPartial = buildFinalCoachParlayNote({
+    target: 5,
+    picks: five.slice(0, 3),
+    propPoolSize: 400,
+    propsPending: false,
+    shortfallLead: buildFixedLegCountShortfallLead(5, 3),
+    timedOut: true,
+    budgetMs: 75_000,
+  });
+  // Shortfall lead wins over bare budget copy when present.
+  assert.match(afterPartial, /only 3 cleared/i);
+  assert.doesNotMatch(
+    afterPartial,
+    /Stopped at the 75s delivery budget/i,
+    "shortfall lead preferred when both timedOut and short",
+  );
+
+  const afterEmpty = buildFinalCoachParlayNote({
+    target: 5,
+    picks: [],
+    propPoolSize: 0,
+    propsPending: false,
+    shortfallLead: "",
+    timedOut: true,
+    budgetMs: 75_000,
+  });
+  assert.match(afterEmpty, /Stopped at the 75s delivery budget/i);
+  assert.match(afterEmpty, /cleared so far/i);
+});

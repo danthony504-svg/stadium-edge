@@ -97,10 +97,11 @@ test("buildParlay wires delivery grounding after final belts", async () => {
   const { join } = await import("node:path");
   const src = readFileSync(join(process.cwd(), "lib/coach/buildParlay.ts"), "utf8");
   assert.match(src, /applyDeliveryGroundingGate/);
-  assert.match(src, /Delivery grounding/);
-  // Gate must appear twice (props-only + mixed) and after final slate belts.
+  assert.match(src, /revalidateCoachTerminalDeliveryPicks/);
+  // Props-only keeps applyDeliveryGroundingGate; mixed uses shared revalidate
+  // (started / quality / grounding incl. ALT) after final slate belts.
   const gateHits = src.match(/applyDeliveryGroundingGate/g) ?? [];
-  assert.ok(gateHits.length >= 3, "import + props-only + mixed wire sites");
+  assert.ok(gateHits.length >= 2, "import + props-only wire sites");
   const propsBelt = src.indexOf(
     "picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);",
   );
@@ -109,10 +110,10 @@ test("buildParlay wires delivery grounding after final belts", async () => {
   const mixedSportBelt = src.lastIndexOf(
     "picks = filterPicksByAllowedSports(picks, askSportScope, inputs.espnGames);",
   );
-  const mixedGate = src.lastIndexOf("Delivery grounding — after belts");
+  const mixedGate = src.lastIndexOf("revalidateCoachTerminalDeliveryPicks");
   assert.ok(
     mixedSportBelt > 0 && mixedGate > mixedSportBelt,
-    "mixed gate after sport belt",
+    "mixed revalidate after sport belt",
   );
 });
 

@@ -1168,7 +1168,9 @@ export function buildFinalCoachParlayNote(opts: {
     propsIncompleteNote ||
     mixRefusedNote ||
     emptyBoardNote ||
-    (opts.timedOut
+    // Full N/N tickets must never claim the delivery budget stopped them —
+    // phone "5 leg" painted budget copy over five already-qualified seats.
+    (opts.timedOut && opts.picks.length < opts.target
       ? `Stopped at the ${Math.round((opts.budgetMs ?? 0) / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`
       : opts.picks.length
         ? ""
