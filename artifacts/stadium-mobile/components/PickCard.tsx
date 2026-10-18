@@ -1644,6 +1644,9 @@ function matchProp(
     propMarketKey: best.marketKey,
     propLine: best.line,
     propSide: best.side,
+    // Provider identity for seated-prop provenance — copy from pool, never invent.
+    eventId: best.eventId ?? null,
+    sportsbook: best.sportsbook ?? null,
   };
 }
 
@@ -2384,6 +2387,8 @@ export function backfillProps(
           propMarketKey: e.marketKey,
           propLine: e.line,
           propSide: e.side,
+          eventId: e.eventId ?? null,
+          sportsbook: e.sportsbook ?? null,
           edge: FILLER_BACKFILL_EDGE_NOTE,
         },
         gameMeta,
