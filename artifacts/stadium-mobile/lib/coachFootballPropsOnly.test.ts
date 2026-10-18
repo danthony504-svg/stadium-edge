@@ -663,7 +663,14 @@ test("same-date pass/rush/rec category rows merge before TD grade", () => {
   assert.equal(merged[0]?.stats?.rushingTouchdowns, "0");
   const td = pick("player_anytime_td", "Mahomes", 0.5, { athleteId: "3139477" });
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
-  assertUnapprovedHistoricalSeat(graded);
+  assert.equal(graded.hitProbability, null);
+  assert.equal(graded.probabilityProvenance?.source, "insufficient_evidence");
+  assert.ok(
+    ["unapproved_historical_model", "insufficient_mapped_stats"].includes(
+      graded.probabilityProvenance?.nullReason ?? "",
+    ),
+    "merged historical TD stats must never authorize seating",
+  );
 });
 
 test("propsOnlyPriorSeasonYear prefers second available season", () => {
