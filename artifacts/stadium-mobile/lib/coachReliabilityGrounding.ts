@@ -3,7 +3,11 @@
  * Does not change selection / grading / simulation / UI — classification only.
  */
 
-import { resolvePropPlayerSides } from "./resolvePropPlayerSides.ts";
+import {
+  normalizeTeamAbbr,
+  resolvePropPlayerSides,
+  teamAbbrMatchesTeamName,
+} from "./resolvePropPlayerSides.ts";
 
 /** Minimal pick shape used for reliability grounding (no Coach behavior change). */
 export type CoachReliabilityGroundingPick = {
@@ -14,6 +18,8 @@ export type CoachReliabilityGroundingPick = {
   propMarketKey?: string | null;
   athleteId?: string | null;
   market?: string | null;
+  /** When present, prefer sport-appropriate nick maps (mlb vs nfl CLE/TB). */
+  sport?: string | null;
 };
 
 export type ReturnedPicksGroundingResult = {
@@ -74,12 +80,26 @@ function compactTeam(name: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-function abbrMatchesTeamName(abbr: string, teamName: string): boolean {
-  const a = normAbbr(abbr);
+function abbrMatchesTeamName(
+  abbr: string,
+  teamName: string,
+  sport?: string | null,
+): boolean {
+  const a = normalizeTeamAbbr(abbr) || normAbbr(abbr);
   const compact = compactTeam(teamName);
   if (!a || !compact) return false;
   // Long abbrs can substring-match (e.g. ARI ⊂ arizonacardinals).
   if (a.length >= 3 && compact.includes(a.toLowerCase())) return true;
+
+  const sportKey = String(sport ?? "").toLowerCase();
+  // MLB (and unspecified mixed boards that already carry MLB nick labels like
+  // "Rays @ Guardians"): use the shared MLB nick map first so TB/CLE/TBR do
+  // not fall through to NFL buccaneers/browns-only tokens.
+  if (!sportKey || sportKey === "mlb" || sportKey === "baseball") {
+    if (teamAbbrMatchesTeamName(a, teamName)) return true;
+    if (sportKey === "mlb" || sportKey === "baseball") return false;
+  }
+
   const tokens = ABBR_NAME_TOKENS[a];
   if (!tokens?.length) return false;
   return tokens.some((t) => t.length >= 4 && compact.includes(t));
@@ -89,10 +109,13 @@ function isLikelyPlayerProp(pick: CoachReliabilityGroundingPick): boolean {
   if (pick.isProp === true) return true;
   if (pick.propMarketKey && String(pick.propMarketKey).trim()) return true;
   if (pick.athleteId && String(pick.athleteId).trim()) return true;
-  if (pick.player && String(pick.player).trim()) return true;
+  // Bare `player` without prop markers is not enough — game-line enrichment
+  // sometimes copies a team display name into player and must not trip grounding.
   const m = String(pick.market ?? "").toLowerCase();
   // Player markets commonly include these tokens; game ML/spread/total do not.
   if (
+    pick.player &&
+    String(pick.player).trim() &&
     /\b(pass|rush|receiv|yards|td|touchdown|reception|completion|interception|sack|tackle|points|rebounds|assists|threes|strikeout|home\s*run|hits|stolen)\b/.test(
       m,
     )
@@ -117,7 +140,7 @@ export function pickHasPlayerGameGroundingMismatch(
 ): boolean {
   if (!isLikelyPlayerProp(pick)) return false;
 
-  const ab = String(pick.teamAbbr ?? "").trim();
+  const ab = normalizeTeamAbbr(pick.teamAbbr);
   if (!ab) return false; // unknown team identity
 
   const game = String(pick.game ?? "").trim();
@@ -129,7 +152,8 @@ export function pickHasPlayerGameGroundingMismatch(
   const home = parts[1]!.trim();
   if (!away || !home) return false;
 
-  // Prefer existing side resolver (MLB / soft abbrs), then NFL token map.
+  // Prefer existing side resolver (MLB / soft abbrs + aliases), then
+  // sport-aware token map (MLB nicknames before NFL bucs/browns).
   const sides = resolvePropPlayerSides({
     awayName: away,
     homeName: home,
@@ -137,8 +161,9 @@ export function pickHasPlayerGameGroundingMismatch(
   });
   if (sides.teamName) return false;
 
-  const awayHit = abbrMatchesTeamName(ab, away);
-  const homeHit = abbrMatchesTeamName(ab, home);
+  const sport = pick.sport;
+  const awayHit = abbrMatchesTeamName(ab, away, sport);
+  const homeHit = abbrMatchesTeamName(ab, home, sport);
   if (awayHit && !homeHit) return false;
   if (homeHit && !awayHit) return false;
   if (awayHit && homeHit) return false; // ambiguous → unknown, not mismatch
