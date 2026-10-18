@@ -142,9 +142,14 @@ export function revalidateCoachTerminalDeliveryPicks<T extends CoachFlushPick>(
     typeof opts?.target === "number" && Number.isFinite(opts.target)
       ? Math.max(0, Math.floor(opts.target))
       : next.length;
+  // Replacements must pass the same pregame and score gates as existing seats.
+  // Otherwise a grounded-but-started or low-grade backup can re-enter here.
+  const eligibleReplacements = filterQualifiedFlushSeats(
+    filterFlushKnownStartedPicks(opts?.qualifiedCandidates ?? []),
+  );
   const grounded = applyDeliveryGroundingGate({
     picks: next as never,
-    qualifiedCandidates: (opts?.qualifiedCandidates ?? null) as never,
+    qualifiedCandidates: eligibleReplacements as never,
     target,
   });
   return grounded.picks as T[];

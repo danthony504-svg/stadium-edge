@@ -286,3 +286,21 @@ test("provisional football reserved seats are not a complete five-leg ticket", (
   assert.ok(out.length < 5, "reserved-seat provisional buffer stays below target");
   assert.equal(coachTerminalTicketIsComplete({ picks: out, requestedLegs: 5 }), false);
 });
+
+test("grounding refill must never reintroduce started or weak qualified backups", () => {
+  const future = new Date(Date.now() + 4 * 3600_000).toISOString();
+  const past = new Date(Date.now() - 3600_000).toISOString();
+  const pick = (id: string, startsAt: string, grade = "B", confidencePct = 60) => ({
+    id, pick: id, isProp: false, market: "Moneyline", game: "Yankees @ Red Sox",
+    teamAbbr: "NYY", startsAt, grade, confidencePct,
+  });
+  const result = revalidateCoachTerminalDeliveryPicks([pick("good", future)], {
+    target: 2,
+    qualifiedCandidates: [
+      pick("started-backup", past),
+      pick("weak-backup", future, "D", 40),
+      pick("good-backup", future),
+    ],
+  });
+  assert.deepEqual(result.map((p) => p.id), ["good", "good-backup"]);
+});
