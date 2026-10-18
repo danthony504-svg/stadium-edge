@@ -223,3 +223,110 @@ export function coachMayApplyLateBuildResult(opts: {
   if (opts.deliveryTerminalized) return false;
   return true;
 }
+
+/**
+ * Race a promise against a timeout and optional AbortSignals with guaranteed
+ * cleanup: timer cleared and abort listeners removed as soon as any branch
+ * settles (success, timeout, abort, or rejection).
+ *
+ * Used by buildParlay scan / grace / drain waits so a fast scan cannot leave
+ * orphaned timeouts or listeners across consecutive Coach requests.
+ */
+
+export type CoachRaceClock = {
+  setTimeout: typeof setTimeout;
+  clearTimeout: typeof clearTimeout;
+};
+
+let activeCoachRaceCount = 0;
+
+/** Test-only — pending raceWithTimeoutAndAbort calls (timer/listeners live). */
+export function getActiveCoachRaceCountForTests(): number {
+  return activeCoachRaceCount;
+}
+
+/** Test-only — reset leak counter between suites. */
+export function resetActiveCoachRaceCountForTests(): void {
+  activeCoachRaceCount = 0;
+}
+
+export async function raceWithTimeoutAndAbort<T>(opts: {
+  promise: Promise<T>;
+  timeoutMs: number;
+  signals?: AbortSignal[];
+  onTimeout: () => T;
+  /** Defaults to onTimeout when omitted. */
+  onAbort?: () => T;
+  clock?: CoachRaceClock;
+}): Promise<T> {
+  const clock = opts.clock ?? {
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+  };
+  const signals = (opts.signals ?? []).filter(
+    (s): s is AbortSignal => !!s && typeof s.addEventListener === "function",
+  );
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+  const listeners: Array<{ signal: AbortSignal; fn: () => void }> = [];
+
+  const cleanup = () => {
+    if (timer != null) {
+      clock.clearTimeout(timer);
+      timer = null;
+    }
+    for (const { signal, fn } of listeners) {
+      try {
+        signal.removeEventListener("abort", fn);
+      } catch {
+        /* fail soft */
+      }
+    }
+    listeners.length = 0;
+  };
+
+  activeCoachRaceCount += 1;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const finish = (produce: () => T) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          resolve(produce());
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      void opts.promise.then(
+        (value) => finish(() => value),
+        (err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        },
+      );
+
+      const waitMs = Math.max(0, Math.floor(opts.timeoutMs));
+      timer = clock.setTimeout(() => finish(opts.onTimeout), waitMs);
+
+      const abortProduce = () => (opts.onAbort ?? opts.onTimeout)();
+      for (const signal of signals) {
+        const onAbort = () => finish(abortProduce);
+        if (signal.aborted) {
+          onAbort();
+          continue;
+        }
+        signal.addEventListener("abort", onAbort);
+        listeners.push({ signal, fn: onAbort });
+      }
+    });
+  } finally {
+    // Belt-and-suspenders: settle path already cleaned; this covers rejects.
+    cleanup();
+    activeCoachRaceCount = Math.max(0, activeCoachRaceCount - 1);
+  }
+}
