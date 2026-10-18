@@ -389,6 +389,8 @@ function PropsScreen() {
     params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
   );
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  const [showFilters, setShowFilters] = useState(false);
+  const [marketFilter, setMarketFilter] = useState<string | null>(null);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // When the player sheet sends the user to the full-breakdown route we HIDE it
@@ -905,14 +907,14 @@ function PropsScreen() {
     if (isBrowseSport) return [];
     const data = propsQ.data?.games ?? [];
     const q = query.trim().toLowerCase();
-    if (!q) return data;
+    if (!q && !marketFilter) return data;
     return data
       .map((g) => ({
         ...g,
-        props: g.props.filter((p) => p.player.toLowerCase().includes(q)),
+        props: g.props.filter((p) => (!q || p.player.toLowerCase().includes(q)) && (!marketFilter || p.market === marketFilter)),
       }))
       .filter((g) => g.props.length > 0);
-  }, [propsQ.data, query, isBrowseSport]);
+  }, [propsQ.data, query, isBrowseSport, marketFilter]);
 
   const totalProps = useMemo(
     () => filtered.reduce((n, g) => n + g.props.length, 0),
@@ -1066,6 +1068,7 @@ function PropsScreen() {
   }, [propsQ.data, isBrowseSport]);
 
   const postedCategories = useMemo(() => categoriesForPostedMarkets(propsQ.data?.games ?? []), [propsQ.data]);
+  useEffect(() => { setMarketFilter(null); }, [sport]);
 
   const openCategory = (markets: string[]) => {
     if (isBrowseSport) return;
@@ -1210,7 +1213,10 @@ function PropsScreen() {
               ) : null}
             </View>
             <Pressable
-              onPress={() => {}}
+              onPress={() => setShowFilters((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Toggle player prop filters"
+              accessibilityState={{ expanded: showFilters }}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
@@ -1231,6 +1237,23 @@ function PropsScreen() {
           </View>
         </AppHeader>
 
+        {showFilters ? (
+          <View style={{ marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
+            <Text style={{ color: colors.mutedForeground, marginBottom: 8 }}>Filter posted {sport.toUpperCase()} markets</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {[{ label: "All markets", markets: [] as string[] }, ...postedCategories].map((cat) => {
+                const key = cat.markets[0] ?? null;
+                const active = marketFilter === key;
+                return (
+                  <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => setMarketFilter(key)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: active ? colors.primary : colors.border }}>
+                    <Text style={{ color: active ? colors.primary : colors.foreground, fontSize: 12 }}>{cat.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable accessibilityRole="button" onPress={() => { setQuery(""); setMarketFilter(null); setShowFilters(false); }}><Text style={{ color: colors.primary }}>Clear filters</Text></Pressable>
+          </View>
+        ) : null}
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
             hidden while searching. */}
