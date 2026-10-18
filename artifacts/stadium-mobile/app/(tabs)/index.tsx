@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { AppHeader } from "@/components/AppHeader";
+import { FirstRunCoachTour } from "@/components/FirstRunCoachTour";
 import { OtaHomeDiagnostics } from "@/components/OtaHomeDiagnostics";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
@@ -1887,6 +1888,7 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <FirstRunCoachTour />
       {/* Fixed header — logo, search, and sport pills are pinned to the top of
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
