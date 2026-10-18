@@ -2,8 +2,8 @@ import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useState } from "react";
-import { setTourMenuFocus, subscribeTourMenuFocus } from "@/lib/tourMenuFocus";
+import React, { useEffect, useRef, useState } from "react";
+import { setTourMenuFocus, subscribeTourMenuFocus, type TourMenuFocus } from "@/lib/tourMenuFocus";
 import { Dimensions, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -53,21 +53,40 @@ export function NavMenu() {
   const { isSignedIn } = useAuth();
   const { entitlement, requirePro } = useSubscription();
   const [open, setOpen] = useState(false);
-  const [tourFocus, setTourFocus] = useState<string | null>(null);
-  useEffect(() => subscribeTourMenuFocus((route) => { setTourFocus(route); if (route) setOpen(true); }), []);
+  const [tourFocus, setTourFocus] = useState<TourMenuFocus | null>(null);
+  const menuScrollRef = useRef<ScrollView>(null);
+  useEffect(() => subscribeTourMenuFocus((focus) => {
+    setTourFocus(focus);
+    setOpen(!!focus);
+  }), []);
+  useEffect(() => {
+    if (!tourFocus) return;
+    const id = setTimeout(() => menuScrollRef.current?.scrollTo({
+      y: tourFocus.route === "/simulator" ? 160 : 208,
+      animated: true,
+    }), 120);
+    return () => clearTimeout(id);
+  }, [tourFocus?.route]);
 
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
   const plans = plansMenuItem();
   const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
 
+  const close = () => {
+    if (tourFocus) tourFocus.onSkip();
+    setOpen(false);
+    setTourMenuFocus(null);
+  };
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
-    setOpen((v) => !v);
+    if (open) close();
+    else setOpen(true);
   };
 
   const go = (route: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
+    if (tourFocus) tourFocus.onSkip();
     setOpen(false);
     setTourMenuFocus(null);
     const premiumId = premiumFeatureForRoute(route);
@@ -136,8 +155,9 @@ export function NavMenu() {
         ) : null}
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => { setOpen(false); setTourMenuFocus(null); }}>
-        <Pressable style={{ flex: 1 }} onPress={() => { setOpen(false); setTourMenuFocus(null); }}>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+        <View style={{ flex: 1 }}>
+          <Pressable accessibilityLabel="Close navigation menu" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={close} />
           <View
             style={{
               position: "absolute",
@@ -159,6 +179,7 @@ export function NavMenu() {
             }}
           >
             <ScrollView
+              ref={menuScrollRef}
               bounces={false}
               nestedScrollEnabled
               keyboardShouldPersistTaps="handled"
@@ -178,22 +199,22 @@ export function NavMenu() {
                       gap: 12,
                       paddingHorizontal: 16,
                       paddingVertical: 12,
-                      backgroundColor: tourFocus === d.route ? "rgba(59,130,246,0.18)" : pressed ? colors.background : "transparent",
-                      borderWidth: tourFocus === d.route ? 2 : 0,
+                      backgroundColor: tourFocus?.route === d.route ? "rgba(59,130,246,0.18)" : pressed ? colors.background : "transparent",
+                      borderWidth: tourFocus?.route === d.route ? 2 : 0,
                       borderColor: colors.primary,
-                      borderRadius: tourFocus === d.route ? 10 : 0,
+                      borderRadius: tourFocus?.route === d.route ? 10 : 0,
                     })}
                   >
                     <Feather
                       name={d.icon}
                       size={18}
-                      color={active ? colors.primary : colors.mutedForeground}
+                      color={tourFocus?.route === d.route || active ? colors.primary : colors.mutedForeground}
                     />
                     <Text
                       style={{
                         flex: 1,
-                        color: active ? colors.foreground : colors.mutedForeground,
-                        fontFamily: active ? FONT.semibold : FONT.medium,
+                        color: tourFocus?.route === d.route ? colors.foreground : active ? colors.foreground : colors.mutedForeground,
+                        fontFamily: tourFocus?.route === d.route || active ? FONT.semibold : FONT.medium,
                         fontSize: 15,
                       }}
                     >
@@ -370,7 +391,40 @@ export function NavMenu() {
               </Pressable>
             </ScrollView>
           </View>
-        </Pressable>
+          {tourFocus ? (
+            <View
+              accessibilityLabel={tourFocus.step === 4 ? "Simulator tour" : "Edge Lock tour"}
+              style={{
+                position: "absolute", bottom: insets.bottom + 12, left: 16, right: 16,
+                backgroundColor: "#101b31", borderColor: "#398bff", borderWidth: 2,
+                borderRadius: 18, padding: 16, gap: 10,
+              }}
+            >
+              <Text style={{ color: "#88a9df", fontSize: 12 }}>STADIUM EDGE TOUR · {tourFocus.step} OF 5</Text>
+              <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "700" }}>
+                {tourFocus.step === 4 ? "Explore the Game Simulator" : "Discover Edge Lock"}
+              </Text>
+              <Text style={{ color: "#d3def2", fontSize: 14, lineHeight: 20 }}>
+                {tourFocus.step === 4
+                  ? "Simulator is highlighted in the menu. Explore possible outcomes and estimated probabilities — not guaranteed results."
+                  : "Edge Lock is highlighted in the menu. Compare model estimates with real sportsbook prices; an edge is not a guaranteed win."}
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Pressable accessibilityRole="button" onPress={tourFocus.onSkip} style={{ padding: 8 }}>
+                  <Text style={{ color: "#aabdd9" }}>Skip</Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+                  <Pressable accessibilityRole="button" onPress={tourFocus.onBack} style={{ padding: 8 }}>
+                    <Text style={{ color: "#ffffff" }}>Back</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={tourFocus.onNext} style={{ backgroundColor: "#347feb", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 }}>
+                    <Text style={{ color: "#ffffff", fontWeight: "700" }}>{tourFocus.step === 4 ? "Next" : "Finish"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
       </Modal>
     </>
   );
