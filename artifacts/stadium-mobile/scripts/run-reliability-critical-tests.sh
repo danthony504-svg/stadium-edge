@@ -63,4 +63,14 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     lib/boardFootballMixSim.test.ts
 )
 
+echo "== Coach ticket qualification / staging / absolute budget =="
+(
+  cd "$MOBILE"
+  export CRASH_REPORTING_DISABLED=1
+  export NODE_ENV=test
+  node --import ./test/register-hooks.mjs --test \
+    lib/coachFootballPropsOnly.test.ts \
+    lib/coach/session.test.ts
+)
+
 echo "Reliability critical tests PASSED."
