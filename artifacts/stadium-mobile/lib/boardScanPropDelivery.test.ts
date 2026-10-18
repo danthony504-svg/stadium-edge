@@ -18,6 +18,7 @@ import {
   askRequiresFootballPropMix,
   askIsCollegeFootballOnly,
   askAllowsNcaafPlayerProps,
+  propsSportLabelForAsk,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
   fillReservedPeriodSlots,
@@ -83,6 +84,14 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askAllowsNcaafPlayerProps("5 leg college longest rush"), true);
   assert.equal(askRequiresFootballPropMix("5 leg ncaaf completions"), true);
   assert.equal(askRequiresFootballPropMix("8 leg college"), false);
+});
+
+test("propsSportLabelForAsk: NFL player props ≠ college football (Stage2 device)", () => {
+  // askAllowsNcaafPlayerProps("…player props") is true for NFL — must not drive copy.
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), true);
+  assert.equal(propsSportLabelForAsk("5 leg NFL player props"), "NFL");
+  assert.equal(propsSportLabelForAsk("7 leg college football player props"), "college football");
+  assert.equal(propsSportLabelForAsk("6 leg football player props"), "football");
 });
 
 test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {

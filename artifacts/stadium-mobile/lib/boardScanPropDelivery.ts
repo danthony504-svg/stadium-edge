@@ -91,6 +91,21 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
  * count as opt-in even when the college game-lines default would otherwise
  * apply — named market intent beats the automatic board-mode default.
  */
+/**
+ * Shortfall / empty Coach copy sport wording for football props-only asks.
+ *
+ * Must NOT reuse `askAllowsNcaafPlayerProps` — that gate is true for any
+ * "player props" ask (including NFL) and incorrectly prints "college football"
+ * on NFL tickets (Stage 2 device acceptance screenshot failure).
+ */
+export function propsSportLabelForAsk(text?: string | null): string {
+  const t = String(text ?? "").toLowerCase();
+  if (!t.trim()) return "football";
+  if (askIsCollegeFootballOnly(t)) return "college football";
+  if (/\bnfl\b/.test(t)) return "NFL";
+  return "football";
+}
+
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
     .toLowerCase()

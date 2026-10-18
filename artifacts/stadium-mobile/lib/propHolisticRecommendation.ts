@@ -149,6 +149,12 @@ export type PropHolisticContext = {
   rubricScores?: PickSubScores;
   edgePct?: number | null;
   simHit?: number | null;
+  /**
+   * Exact Monte Carlo draw count for `simHit`. Only `10000` may label the
+   * factor "10k Simulation". Local history grades and unknown sources must
+   * not claim a completed 10k exact-market simulation (Stage 2 device FAIL).
+   */
+  monteCarloDraws?: number | null;
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -404,6 +410,11 @@ function scoreMatchupHistory(
   return { score: null };
 }
 
+/** Honest simulation-factor label — never claim 10k without draw proof. */
+export function propSimulationFactorLabel(monteCarloDraws?: number | null): string {
+  return monteCarloDraws === 10_000 ? "10k Simulation" : "Hit probability";
+}
+
 export function combinePropHolisticFactors(factors: PropHolisticFactor[]): number | null {
   let wSum = 0;
   let acc = 0;
@@ -534,7 +545,7 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
     },
     {
       key: "simulation",
-      label: "10k Simulation",
+      label: propSimulationFactorLabel(ctx.monteCarloDraws),
       score: scoreSimulation(ctx.simHit),
       display: ctx.simHit != null ? `${Math.round(ctx.simHit * 100)}% hit` : undefined,
       applicable: true,
@@ -766,7 +777,7 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
     },
     factor("simulation") ?? {
       key: "simulation",
-      label: "10k Simulation",
+      label: propSimulationFactorLabel(null),
       score: null,
       applicable: true,
       present: false,
