@@ -20,6 +20,67 @@ function apiBaseFromReq(req: { protocol: string; get(name: string): string | und
   return `${req.protocol}://${req.get("host")}/api`;
 }
 
+/** Parse /sports/props JSON for simulate/game — accepts { props } or legacy bare array. */
+export function parsePropsResponseForSimulateGame(body: unknown): {
+  propRows: Array<{
+    player: string;
+    market: string;
+    line: number | null;
+    athleteId?: string | null;
+    playerTeamId?: string | null;
+    alt?: boolean;
+    overPrice?: number | null;
+    underPrice?: number | null;
+    eventId?: string | null;
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+  }>;
+  identity: {
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+  } | null;
+  oddsEventId: string | null;
+} {
+  if (Array.isArray(body)) {
+    return {
+      propRows: body as NonNullable<ReturnType<typeof parsePropsResponseForSimulateGame>["propRows"]>,
+      identity: null,
+      oddsEventId: null,
+    };
+  }
+  const propsBody = (body ?? {}) as {
+    props?: typeof body extends never ? never : Array<{
+      player: string;
+      market: string;
+      line: number | null;
+      athleteId?: string | null;
+      playerTeamId?: string | null;
+      alt?: boolean;
+      overPrice?: number | null;
+      underPrice?: number | null;
+      eventId?: string | null;
+      oddsEventId?: string | null;
+      espnEventId?: string | null;
+    }>;
+    identity?: {
+      homeTeamId?: string | null;
+      awayTeamId?: string | null;
+      oddsEventId?: string | null;
+      espnEventId?: string | null;
+    } | null;
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+  };
+  const identity = propsBody.identity ?? null;
+  return {
+    propRows: propsBody.props ?? [],
+    identity,
+    oddsEventId: propsBody.oddsEventId ?? identity?.oddsEventId ?? null,
+  };
+}
+
 router.use("/sports/simulate", rateLimit({ windowMs: 60_000, max: 60, name: "simulate" }));
 
 function parseCoverQueries(raw: unknown): GameCoverQuery[] | undefined {
@@ -390,21 +451,19 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
 
   const baseUrl = apiBaseFromReq(req);
   try {
+    // /sports/props validates ESPN matchup ids via propEventTeamIdentity before gating.
     const propsUrl = `${baseUrl}/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`;
     const pr = await fetch(propsUrl);
     if (!pr.ok) {
       res.status(502).json({ error: `props fetch failed: ${pr.status}` });
       return;
     }
-    const propRows = (await pr.json()) as Array<{
-      player: string;
-      market: string;
-      line: number | null;
-      athleteId?: string | null;
-      alt?: boolean;
-      overPrice?: number | null;
-      underPrice?: number | null;
-    }>;
+    const parsed = parsePropsResponseForSimulateGame(await pr.json());
+    const propRows = parsed.propRows;
+    const identity = parsed.identity;
+    const homeTeamId = identity?.homeTeamId ?? undefined;
+    const awayTeamId = identity?.awayTeamId ?? undefined;
+    const oddsEventId = parsed.oddsEventId ?? eventId;
 
     const mains = propRows.filter((r) => !r.alt && r.line != null).slice(0, 25);
     const simRequests: SimPropRequest[] = [];
@@ -416,6 +475,7 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
           line: r.line as number,
           side: "Over",
           athleteId: r.athleteId,
+          playerTeamId: r.playerTeamId ?? null,
           sport,
         });
       }
@@ -426,6 +486,7 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
           line: r.line as number,
           side: "Under",
           athleteId: r.athleteId,
+          playerTeamId: r.playerTeamId ?? null,
           sport,
         });
       }
@@ -438,12 +499,18 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
         sport,
         homeTeam,
         awayTeam,
+        homeTeamId,
+        awayTeamId,
         tier: "quick",
         props: simRequests,
       }),
     });
     const data = (await simRes.json()) as Record<string, unknown>;
-    res.json({ eventId, ...data });
+    res.json({
+      eventId: oddsEventId,
+      espnEventId: identity?.espnEventId ?? null,
+      ...data,
+    });
   } catch (err) {
     req.log.error({ err }, "simulate/game failed");
     res.status(502).json({ error: err instanceof Error ? err.message : "simulate failed" });

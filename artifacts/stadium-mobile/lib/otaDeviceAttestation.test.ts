@@ -9,6 +9,7 @@ import {
   expectedHealthyLines,
   formatChannelTipMatchLabel,
   formatOtaChannelStreamLabel,
+  isKnownChannelTipUpdateId,
   isMissingOrEmbeddedUpdateId,
   resolveChannelTipMatch,
   resolveKnownChannelTipUpdateId,
@@ -44,6 +45,38 @@ test("Case A — runtime 1.1.0 + non-embedded + tip unknown", () => {
   assert.match(r.summary, /channel tip not probed/i);
 });
 
+test("Case A — unknown tip sentinel 'not available' is not a known mismatch", () => {
+  // Regression: snapshot stores OTA_DEBUG_UNAVAILABLE when latestManifest.id is
+  // absent; that must not become behind-tip Case B.
+  const running = "01a14bb3-1046-746c-afa4-722338e3ef7c";
+  const r = classifyDeviceAttestation({
+    runtimeVersion: "1.1.0",
+    updateId: running,
+    isEmbeddedLaunch: false,
+    channel: "preview",
+    channelTipUpdateId: "not available",
+  });
+  assert.equal(r.caseId, "A");
+  assert.equal(r.matchesChannelTip, null);
+  assert.notEqual(r.label, "Case B — running update is not the known channel tip");
+  assert.match(r.summary, /channel tip not probed/i);
+  assert.equal(isKnownChannelTipUpdateId("not available"), false);
+});
+
+test("Case A — unknown tip sentinels (unavailable / unknown / em-dash)", () => {
+  for (const tip of ["unavailable", "unknown", "—", "", null] as const) {
+    const r = classifyDeviceAttestation({
+      runtimeVersion: "1.1.0",
+      updateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+      isEmbeddedLaunch: false,
+      channel: "preview",
+      channelTipUpdateId: tip,
+    });
+    assert.equal(r.caseId, "A", `tip=${String(tip)}`);
+    assert.equal(r.matchesChannelTip, null, `tip=${String(tip)}`);
+  }
+});
+
 test("Case A — running update equals known channel tip", () => {
   const tip = "01a14afd-f1f8-7752-bbd1-6ddda65568ff";
   const r = classifyDeviceAttestation({
@@ -70,6 +103,44 @@ test("Case B — running update behind known channel tip", () => {
   assert.equal(r.caseId, "B");
   assert.equal(r.matchesChannelTip, false);
   assert.match(r.label, /not the known channel tip/i);
+});
+
+test("Case B — rollback scenario: running older tip vs newer known tip", () => {
+  // Device still on rollback content while channel tip advanced.
+  const r = classifyDeviceAttestation({
+    runtimeVersion: "1.1.0",
+    updateId: "01a14afd-f1f8-7752-bbd1-6ddda65568ff",
+    isEmbeddedLaunch: false,
+    channel: "preview",
+    channelTipUpdateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+  });
+  assert.equal(r.caseId, "B");
+  assert.equal(r.matchesChannelTip, false);
+  assert.equal(r.channelStreamLabel, "PREVIEW");
+  assert.match(r.label, /not the known channel tip/i);
+});
+
+test("preview vs production stream labels stay separated on tip mismatch", () => {
+  const preview = classifyDeviceAttestation({
+    runtimeVersion: "1.1.0",
+    updateId: "aaa",
+    isEmbeddedLaunch: false,
+    channel: "preview",
+    channelTipUpdateId: "bbb",
+  });
+  const production = classifyDeviceAttestation({
+    runtimeVersion: "1.1.0",
+    updateId: "aaa",
+    isEmbeddedLaunch: false,
+    channel: "production",
+    channelTipUpdateId: "bbb",
+  });
+  assert.equal(preview.caseId, "B");
+  assert.equal(production.caseId, "B");
+  assert.equal(preview.channelStreamLabel, "PREVIEW");
+  assert.equal(production.channelStreamLabel, "PRODUCTION");
+  assert.match(preview.summary, /PREVIEW/);
+  assert.match(production.summary, /PRODUCTION/);
 });
 
 test("Case A tip match is case-insensitive", () => {
@@ -198,6 +269,36 @@ test("resolveKnownChannelTipUpdateId prefers check, then context, then idle tip"
   );
 });
 
+test("resolveKnownChannelTipUpdateId rejects 'not available' context sentinel", () => {
+  assert.equal(
+    resolveKnownChannelTipUpdateId({
+      availableUpdateIdFromContext: "not available",
+      runningUpdateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+      updateAvailable: null,
+      isEmbeddedLaunch: false,
+    }),
+    null,
+  );
+  assert.equal(
+    resolveKnownChannelTipUpdateId({
+      availableUpdateIdFromCheck: "not available",
+      availableUpdateIdFromContext: "unknown",
+      runningUpdateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+    }),
+    null,
+  );
+  // Idle tip path still works when check reports no update available.
+  assert.equal(
+    resolveKnownChannelTipUpdateId({
+      availableUpdateIdFromContext: "not available",
+      runningUpdateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+      updateAvailable: false,
+      isEmbeddedLaunch: false,
+    }),
+    "01a14bb3-1046-746c-afa4-722338e3ef7c",
+  );
+});
+
 test("resolveChannelTipMatch / format labels", () => {
   assert.equal(
     resolveChannelTipMatch({
@@ -217,6 +318,13 @@ test("resolveChannelTipMatch / format labels", () => {
     resolveChannelTipMatch({
       runningUpdateId: "a",
       channelTipUpdateId: null,
+    }),
+    null,
+  );
+  assert.equal(
+    resolveChannelTipMatch({
+      runningUpdateId: "01a14bb3-1046-746c-afa4-722338e3ef7c",
+      channelTipUpdateId: "not available",
     }),
     null,
   );

@@ -28,6 +28,8 @@ function isCoachBettableCommence(commenceTime: string): boolean {
 }
 
 type OddsGame = {
+  /** Odds API event id — authoritative for /sports/props + provenance. */
+  id: string;
   sport: string;
   awayTeam: string;
   homeTeam: string;
@@ -62,16 +64,30 @@ type EspnGame = {
 };
 
 type PropsResponse = {
+  oddsEventId?: string | null;
+  espnEventId?: string | null;
+  identity?: {
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  } | null;
   props?: Array<{
     player: string;
     market: string;
     line: number | null;
     overPrice?: number | null;
     underPrice?: number | null;
+    overBook?: string | null;
+    underBook?: string | null;
     alt?: boolean;
     athleteId?: string | null;
     playerTeamId?: string | null;
     headshot?: string | null;
+    eventId?: string | null;
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+    sport?: string | null;
     ev?: number | null;
     evSide?: string | null;
     edge?: number | null;
@@ -204,16 +220,28 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
   const gamesToFetch = propCandidates.slice(0, MAX_PROP_GAMES);
   await pooled(gamesToFetch, PROPS_CONCURRENCY, async ({ sport, g, espn }) => {
     if (!espn?.homeTeam || !espn.awayTeam) return;
+    // Odds event id is authoritative for /sports/props + seated provenance.
+    // ESPN id alone mis-keys the Odds board and leaves pool rows without eventId.
+    const oddsEventId = String(g.id ?? "").trim();
+    if (!oddsEventId) return;
     const q = new URLSearchParams({
       sport,
-      eventId: espn.id,
+      eventId: oddsEventId,
       home: espn.homeTeam,
       away: espn.awayTeam,
     });
+    // Pass ESPN ids when known; /sports/props re-validates via propEventTeamIdentity.
     if (espn.homeTeamId) q.set("homeTeamId", espn.homeTeamId);
     if (espn.awayTeamId) q.set("awayTeamId", espn.awayTeamId);
     const r = await slateLoopbackGet<PropsResponse>(`/sports/props?${q.toString()}`);
     if (!r?.props?.length) return;
+
+    const resolvedOddsEventId =
+      r.oddsEventId ?? r.identity?.oddsEventId ?? oddsEventId;
+    const homeTeamId =
+      r.identity?.homeTeamId ?? espn.homeTeamId ?? null;
+    const awayTeamId =
+      r.identity?.awayTeamId ?? espn.awayTeamId ?? null;
 
     const game = `${g.awayTeam} @ ${g.homeTeam}`;
     const usable = r.props.filter((p) => p.overPrice != null || p.underPrice != null);
@@ -221,12 +249,18 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
     for (const altPass of [false, true]) {
       for (const p of usable) {
         if (!!p.alt !== altPass) continue;
+        const rowEventId =
+          p.eventId ?? p.oddsEventId ?? resolvedOddsEventId ?? null;
         realProps.push({
           sport,
           game,
           startsAt: g.commenceTime,
           player: p.player,
           athleteId: p.athleteId ?? null,
+          playerTeamId: p.playerTeamId ?? null,
+          eventId: rowEventId,
+          overBook: p.overBook ?? null,
+          underBook: p.underBook ?? null,
           market: p.market,
           line: p.line,
           over: p.overPrice ?? null,
@@ -251,8 +285,10 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
             teamAbbr,
             athleteId: p.athleteId ?? null,
             playerTeamId: p.playerTeamId ?? null,
-            homeTeamId: espn.homeTeamId ?? null,
-            awayTeamId: espn.awayTeamId ?? null,
+            homeTeamId,
+            awayTeamId,
+            eventId: rowEventId,
+            sportsbook: p.overBook ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
@@ -273,8 +309,10 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
             teamAbbr,
             athleteId: p.athleteId ?? null,
             playerTeamId: p.playerTeamId ?? null,
-            homeTeamId: espn.homeTeamId ?? null,
-            awayTeamId: espn.awayTeamId ?? null,
+            homeTeamId,
+            awayTeamId,
+            eventId: rowEventId,
+            sportsbook: p.underBook ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,

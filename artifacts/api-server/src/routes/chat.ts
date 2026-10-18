@@ -1163,10 +1163,34 @@ router.post("/chat", async (req, res): Promise<void> => {
                   await Promise.all(
                     idsToFetch.map(async (eventId) => {
                       try {
+                        // Team ids optional: /sports/props resolves ESPN home/away
+                        // authoritatively (propEventTeamIdentity) before the gate.
                         const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
                         if (!propsRes.ok) return;
-                        const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number; alt?: boolean; startsAt?: string }> };
+                        const data = await propsRes.json() as {
+                          home?: string;
+                          away?: string;
+                          oddsEventId?: string | null;
+                          identity?: { oddsEventId?: string | null } | null;
+                          props?: Array<{
+                            player: string;
+                            market: string;
+                            line: number;
+                            overPrice: number;
+                            underPrice: number;
+                            overBook?: string | null;
+                            underBook?: string | null;
+                            alt?: boolean;
+                            startsAt?: string;
+                            athleteId?: string | null;
+                            playerTeamId?: string | null;
+                            eventId?: string | null;
+                            oddsEventId?: string | null;
+                          }>;
+                        };
                         const gameLabel = `${data.away} @ ${data.home}`;
+                        const rootEventId =
+                          data.oddsEventId ?? data.identity?.oddsEventId ?? eventId;
                         for (const pr of (data.props || [])) {
                           if (!allowed.has(String(pr.market || ""))) continue;
                           freshProps.push({
@@ -1175,6 +1199,11 @@ router.post("/chat", async (req, res): Promise<void> => {
                             player: pr.player,
                             market: pr.market,
                             line: pr.line,
+                            athleteId: pr.athleteId ?? null,
+                            playerTeamId: pr.playerTeamId ?? null,
+                            eventId: pr.eventId ?? pr.oddsEventId ?? rootEventId ?? null,
+                            overBook: pr.overBook ?? null,
+                            underBook: pr.underBook ?? null,
                             ...(pr.overPrice != null ? { over: pr.overPrice } : {}),
                             ...(pr.underPrice != null ? { under: pr.underPrice } : {}),
                             alt: pr.alt === true,
@@ -1321,10 +1350,34 @@ router.post("/chat", async (req, res): Promise<void> => {
               await Promise.all(
                 idsToFetch.map(async (eventId) => {
                   try {
+                    // Team ids optional: /sports/props resolves ESPN home/away
+                    // authoritatively (propEventTeamIdentity) before the gate.
                     const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
                     if (!propsRes.ok) return;
-                    const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number; alt?: boolean; startsAt?: string }> };
+                    const data = await propsRes.json() as {
+                      home?: string;
+                      away?: string;
+                      oddsEventId?: string | null;
+                      identity?: { oddsEventId?: string | null } | null;
+                      props?: Array<{
+                        player: string;
+                        market: string;
+                        line: number;
+                        overPrice: number;
+                        underPrice: number;
+                        overBook?: string | null;
+                        underBook?: string | null;
+                        alt?: boolean;
+                        startsAt?: string;
+                        athleteId?: string | null;
+                        playerTeamId?: string | null;
+                        eventId?: string | null;
+                        oddsEventId?: string | null;
+                      }>;
+                    };
                     const gameLabel = `${data.away} @ ${data.home}`;
+                    const rootEventId =
+                      data.oddsEventId ?? data.identity?.oddsEventId ?? eventId;
                     for (const pr of (data.props || [])) {
                       if (!matchesAnySuffix(String(pr.market || ""))) continue;
                       freshProps.push({
@@ -1333,6 +1386,11 @@ router.post("/chat", async (req, res): Promise<void> => {
                         player: pr.player,
                         market: pr.market,
                         line: pr.line,
+                        athleteId: pr.athleteId ?? null,
+                        playerTeamId: pr.playerTeamId ?? null,
+                        eventId: pr.eventId ?? pr.oddsEventId ?? rootEventId ?? null,
+                        overBook: pr.overBook ?? null,
+                        underBook: pr.underBook ?? null,
                         // chat-payload shape uses `over`/`under`, not `overPrice`/`underPrice`
                         ...(pr.overPrice != null ? { over: pr.overPrice } : {}),
                         ...(pr.underPrice != null ? { under: pr.underPrice } : {}),
