@@ -1896,7 +1896,14 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <AppHeader bottomGap={0}>
-        <Pressable accessibilityRole="button" onPress={() => setTourReplayKey((v) => v + 1)}><Text>Replay tour</Text></Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Replay Stadium Edge walkthrough"
+          onPress={() => setTourReplayKey((v) => v + 1)}
+          style={{ alignSelf: "flex-end", paddingHorizontal: 16, paddingVertical: 8 }}
+        >
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: FONT.medium }}>Replay tour</Text>
+        </Pressable>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
