@@ -482,7 +482,7 @@ export function stageFootballPropsOnlyLegs(
   for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
     const msStart = thinSlate ? cap : 1;
     for (let msCap = msStart; msCap <= cap; msCap++) {
-      best = stageFootballPropsOnlyLegsWithCap(
+      const staged = stageFootballPropsOnlyLegsWithCap(
         ordered,
         target,
         cap,
@@ -491,6 +491,9 @@ export function stageFootballPropsOnlyLegs(
         allowRare,
         seatOpts,
       );
+      // Retry constraints can change which valid seats survive. Never replace
+      // the best already-qualified ticket with a shorter retry result.
+      if (staged.length > best.length) best = staged;
       if (best.length >= target) return best;
     }
   }
