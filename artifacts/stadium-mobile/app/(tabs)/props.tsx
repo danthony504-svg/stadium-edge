@@ -1214,8 +1214,9 @@ function PropsScreen() {
             </View>
             <Pressable
               onPress={() => setShowFilters((v) => !v)}
+              disabled={isBrowseSport}
               accessibilityRole="button"
-              accessibilityLabel="Toggle player prop filters"
+              accessibilityLabel={isBrowseSport ? "Player prop filters unavailable for this sport" : "Toggle player prop filters"}
               accessibilityState={{ expanded: showFilters }}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -1226,7 +1227,7 @@ function PropsScreen() {
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.card,
-                opacity: pressed ? 0.8 : 1,
+                opacity: isBrowseSport ? 0.45 : pressed ? 0.8 : 1,
               })}
             >
               <Feather name="filter" size={15} color={colors.mutedForeground} />
@@ -1237,7 +1238,7 @@ function PropsScreen() {
           </View>
         </AppHeader>
 
-        {showFilters ? (
+        {showFilters && !isBrowseSport ? (
           <View style={{ marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
             <Text style={{ color: colors.mutedForeground, marginBottom: 8 }}>Filter posted {sport.toUpperCase()} markets</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>

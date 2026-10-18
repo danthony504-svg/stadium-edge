@@ -42,6 +42,7 @@ import {
   redactPremiumPickFields,
   resolveCoachAskAccess,
   isFreeTwoLegCoachPreview,
+  freeCoachCardPresentation,
 } from "@/lib/coachPremiumGate";
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
@@ -1173,7 +1174,7 @@ export default function CoachScreen() {
                         ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
                         : item.text.trim()}
                     </Text>
-                    {!coachPremiumUnlocked && item.picks && item.picks.length > 0 ? (
+                    {freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal && item.picks && item.picks.length > 0 ? (
                       <Pressable
                         onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
                         accessibilityRole="button"
@@ -1208,7 +1209,7 @@ export default function CoachScreen() {
                   </View>
                 ) : null}
                 {item.picks?.map((pick, idx) => {
-                  const displayPick = coachPremiumUnlocked || isFreeTwoLegCoachPreview(item.requestedLegs)
+                  const displayPick = freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).revealPick
                     ? pick
                     : (redactPremiumPickFields(pick as never) as ParsedPick);
                   return (
@@ -1216,8 +1217,8 @@ export default function CoachScreen() {
                       <PickCard
                         pick={displayPick}
                         onPress={statsHandlerFor(pick)}
-                        lockPickDetails
-                        allowSlipActions={item.responseKind !== "nleg_ticket"}
+                        lockPickDetails={freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal}
+                        allowSlipActions={item.responseKind !== "nleg_ticket" && freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).allowSlipActions}
                       />
                     </View>
                   );
