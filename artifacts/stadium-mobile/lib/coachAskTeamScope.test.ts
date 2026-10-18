@@ -455,7 +455,8 @@ test("city-only Atlanta NFL ask scopes Falcons; MLB/NBA stay distinct", () => {
   assert.ok(nfl?.matchTokens.includes("falcons"));
   assert.equal(coachAskTeamScope("5 leg Atlanta MLB")?.sport, "mlb");
   assert.equal(coachAskTeamScope("5 leg Atlanta NBA")?.sport, "nba");
-  assert.equal(coachAskTeamScope("5 leg Atlanta"), null);
+  // Existing generic city fallback resolves Atlanta to NFL; explicit league is deterministic.
+  assert.equal(coachAskTeamScope("5 leg Atlanta")?.sport, "nfl");
 });
 
 test("Atlanta NFL constraints survive board and final ticket filtering", () => {
