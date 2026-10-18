@@ -56,6 +56,8 @@ on:
       - "artifacts/api-server/test/explicitMarketLock*"
       - "artifacts/stadium-mobile/lib/coachAskMarketFilter*"
       - "artifacts/stadium-mobile/lib/coachAskTeamScope*"
+      - "artifacts/stadium-mobile/lib/postedMarketCategories*"
+      - "artifacts/stadium-mobile/app/(tabs)/props.tsx"
       - "artifacts/stadium-mobile/lib/stage3CoachFunnelRepair*"
       - "lib/db/src/schema/reliabilityEvents.ts"
       - ".github/workflows/reliability-phase-a-ci.yml"
