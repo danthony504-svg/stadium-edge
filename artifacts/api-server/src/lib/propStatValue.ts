@@ -52,7 +52,71 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_reception_longest: ["longReception"],
   // ESPN gamelog exposes TGTS / receivingTargets — never invent when absent.
   player_targets: ["receivingTargets", "TGTS", "targets"],
+  // Football TD component markets — unambiguous machine names only.
+  player_rush_tds: ["rushingTouchdowns"],
+  player_reception_tds: ["receivingTouchdowns"],
 };
+
+/**
+ * Anytime TD scorer = player personally scores (rush / receiving / return).
+ * Passing TDs thrown by a QB are NOT scoring TDs for this market.
+ * Return / defensive TD fields are included only when ESPN exposes them.
+ */
+const SCORING_TD_FIELDS = [
+  "rushingTouchdowns",
+  "receivingTouchdowns",
+  "kickReturnTouchdowns",
+  "puntReturnTouchdowns",
+  "interceptionReturnTouchdowns",
+  "fumbleReturnTouchdowns",
+] as const;
+
+/** Sum scoring TDs for a game. Missing skill columns → null; optional return cols as 0. */
+export function scoringTouchdownsForGame(
+  stats: Record<string, string>,
+): number | null {
+  const rush = num(stats, "rushingTouchdowns");
+  const rec = num(stats, "receivingTouchdowns");
+  // Prefer rush/rec when present (skill logs). Pass-only rows without rush/rec
+  // are not scorer events — fail closed rather than count passingTouchdowns.
+  if (rush == null && rec == null) {
+    // Pure return specialist logs may only expose return TD fields.
+    let retSum = 0;
+    let retAny = false;
+    for (const lab of SCORING_TD_FIELDS) {
+      if (lab === "rushingTouchdowns" || lab === "receivingTouchdowns") continue;
+      const n = num(stats, lab);
+      if (n != null) {
+        retAny = true;
+        retSum += n;
+      }
+    }
+    return retAny ? retSum : null;
+  }
+  let sum = (rush ?? 0) + (rec ?? 0);
+  for (const lab of SCORING_TD_FIELDS) {
+    if (lab === "rushingTouchdowns" || lab === "receivingTouchdowns") continue;
+    const n = num(stats, lab);
+    if (n != null) sum += n;
+  }
+  return sum;
+}
+
+export function isFirstTdMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_alternate$/i, "")
+    .replace(/_/g, " ")
+    .trim();
+  if (!m) return false;
+  if (m === "player first td" || m === "player 1st td" || m === "first td") return true;
+  return /first\s*td|1st\s*td|first\s*touchdown/.test(m);
+}
+
+/** True when Over settlement requires ≥2 scoring TDs (not Anytime yes/no). */
+export function isMultiTdOverLine(line: number | null | undefined): boolean {
+  return line != null && Number.isFinite(line) && line >= 1.5;
+}
 
 const MARKET_MADE: Record<string, string[]> = {
   player_threes: ["3PM", "3PT"],
@@ -105,6 +169,31 @@ export function gameValueForMarket(
     const hr = num(stats, "HR");
     if (h == null || d == null || t == null || hr == null) return null;
     return h + d + 2 * t + 3 * hr;
+  }
+
+  // Rush+rec TD combo markets (explicit sum — not Anytime scorer).
+  if (market === "player_rush_reception_tds") {
+    const rush = num(stats, "rushingTouchdowns");
+    const rec = num(stats, "receivingTouchdowns");
+    if (rush == null || rec == null) return null;
+    return rush + rec;
+  }
+  if (market === "player_pass_rush_reception_tds") {
+    const pass = num(stats, "passingTouchdowns");
+    const rush = num(stats, "rushingTouchdowns");
+    const rec = num(stats, "receivingTouchdowns");
+    if (pass == null || rush == null || rec == null) return null;
+    return pass + rush + rec;
+  }
+
+  // Anytime TD scorer — rush/rec/return only. Never count passing TDs thrown.
+  // First TD is intentionally unmapped here: no trustworthy scoring-order feed
+  // (see diagnosePropSimNullReason → missing_scoring_order).
+  if (market === "player_anytime_td") {
+    return scoringTouchdownsForGame(stats);
+  }
+  if (isFirstTdMarket(market)) {
+    return null;
   }
 
   // Kicking points: prefer ESPN machine field; else exact FG×3 + XP identity.
@@ -166,7 +255,7 @@ export function isDiscreteCountMarket(market: string): boolean {
   const m = market.endsWith("_alternate")
     ? market.slice(0, -"_alternate".length)
     : market;
-  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions|pass_attempts|pass_completions|pass_interceptions|pass_longest|rush_attempts|rush_longest|reception_longest|tackles|defensive_interceptions|kicking_points|field_goals/i.test(
+  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|rush_tds|reception_tds|anytime_td|goal_scorer|receptions|pass_attempts|pass_completions|pass_interceptions|pass_longest|rush_attempts|rush_longest|reception_longest|tackles|defensive_interceptions|kicking_points|field_goals/i.test(
     m,
   );
 }
