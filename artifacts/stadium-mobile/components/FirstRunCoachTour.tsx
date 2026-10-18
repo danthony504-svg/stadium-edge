@@ -8,8 +8,8 @@ export const FIRST_RUN_TOUR_STEPS = [
   { title: "Welcome to Stadium Edge", body: "Start with Search to explore games, players and real sportsbook lines without signing in." },
   { title: "Build Best Parlay", body: "Open AI Coach to request picks. Only qualified selections are shown." },
   { title: "Choose a sport", body: "Select a sport at the top to see its games and available markets." },
-  { title: "Understand your picks", body: "Open View AI Breakdown to understand grades, confidence, and supported simulation evidence." },
-  { title: "Save your picks", body: "Sign in to save picks and access features included in your subscription." },
+  { title: "Explore the Game Simulator", body: "Run simulations to explore possible game outcomes and estimated probabilities. Simulations inform decisions, not guaranteed results." },
+  { title: "Discover Edge Lock", body: "Explore Edge Lock to review potential value between sportsbook odds and model estimates. An edge is an estimate, not a guaranteed win." },
 ] as const;
 
 type TourFrame = { x: number; y: number; width: number; height: number };
