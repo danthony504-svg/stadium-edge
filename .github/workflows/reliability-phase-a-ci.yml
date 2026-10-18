@@ -31,6 +31,11 @@ on:
       - "artifacts/api-server/test/telegramAlert*"
       - "artifacts/stadium-mobile/lib/coachReliability*"
       - "artifacts/stadium-mobile/lib/coach/buildParlay.ts"
+      # Stage 3 minimal preview OTA — ATD lock paths
+      - "artifacts/stadium-mobile/lib/explicitMarketLock*"
+      - "artifacts/stadium-mobile/lib/coachAskMarketFilter*"
+      - "artifacts/api-server/src/lib/explicitMarketLock*"
+      - "artifacts/api-server/test/explicitMarketLock*"
       - "lib/db/src/schema/reliabilityEvents.ts"
       - ".github/workflows/reliability-phase-a-ci.yml"
       - ".github/workflows/reliability-digest-cron.yml"
