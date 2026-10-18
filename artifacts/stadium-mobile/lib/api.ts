@@ -684,6 +684,12 @@ export type PlayerProp = {
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  /** Sport key from /sports/props (stamped server-side). */
+  sport?: string | null;
+  /** Odds API event id (canonical for seated-prop provenance). */
+  eventId?: string | null;
+  oddsEventId?: string | null;
+  espnEventId?: string | null;
   // National-team crest, resolved server-side for World Cup soccer props (which
   // carry no team id). REAL ESPN logo or null — never guessed. Lets the avatar
   // fall back to a crest when there's no headshot.
@@ -713,6 +719,18 @@ export type PropsResponse = {
   away: string | null;
   bookmaker: string | null;
   props: PlayerProp[];
+  /** First-class Odds / ESPN event ids (also nested under identity). */
+  oddsEventId?: string | null;
+  espnEventId?: string | null;
+  source?: string;
+  identity?: {
+    status?: string;
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    [key: string]: unknown;
+  } | null;
 };
 
 // Sports the props endpoint actually serves (MARKETS_BY_SPORT in props.ts).
@@ -1982,6 +2000,12 @@ export type RealPropEntry = {
   // prop to its playerHistory / mlbPlatoon entry and dedupe same-display-name
   // players. Null when the feed didn't supply it.
   athleteId?: string | null;
+  /** ESPN team id for the player's own side (from props roster stamp). */
+  playerTeamId?: string | null;
+  /** Odds API event id for this matchup — required for seated-prop provenance. */
+  eventId?: string | null;
+  overBook?: string | null;
+  underBook?: string | null;
   market: string;
   line: number | null;
   over: number | null;
@@ -4151,11 +4175,12 @@ async function buildLightParlayContext(
             headshot,
             teamAbbr,
             athleteId,
+            playerTeamId: p.playerTeamId ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
-            eventId: g.id,
+            eventId: p.eventId ?? g.id,
             // Side-specific book only — never invent from Under or aggregate list.
             sportsbook: p.overBook ?? null,
           });
@@ -4172,11 +4197,12 @@ async function buildLightParlayContext(
             headshot,
             teamAbbr,
             athleteId,
+            playerTeamId: p.playerTeamId ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
-            eventId: g.id,
+            eventId: p.eventId ?? g.id,
             sportsbook: p.underBook ?? null,
           });
         }
@@ -5259,8 +5285,10 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
     if (!p) continue;
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
-    // RealPropEntry is AI-lean (no per-side book / eventId). Leave those null
-    // so seated-prop provenance fail-closes rather than inventing books.
+    const eventId = p.eventId ?? null;
+    const playerTeamId = p.playerTeamId ?? null;
+    // Copy provider identity when present; never invent books/eventIds.
+    // Missing fields stay null so seated-prop provenance still fail-closes.
     if (p.over != null) {
       out.push({
         sport: p.sport,
@@ -5271,11 +5299,12 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         side: "Over",
         odds: p.over,
         athleteId,
+        playerTeamId,
         marketKey: p.market,
         startsAt: p.startsAt,
         alt: p.alt,
-        eventId: null,
-        sportsbook: null,
+        eventId,
+        sportsbook: p.overBook ?? null,
       });
     }
     if (p.line != null && p.under != null) {
@@ -5288,11 +5317,12 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         side: "Under",
         odds: p.under,
         athleteId,
+        playerTeamId,
         marketKey: p.market,
         startsAt: p.startsAt,
         alt: p.alt,
-        eventId: null,
-        sportsbook: null,
+        eventId,
+        sportsbook: p.underBook ?? null,
       });
     }
   }
@@ -5395,12 +5425,13 @@ export async function fetchFullBoardPropPool(
           player: p.player,
           line: p.line,
           athleteId,
+          playerTeamId: p.playerTeamId ?? null,
           marketKey: p.market,
           startsAt: g.commenceTime,
           alt: !!p.alt,
           headshot: p.headshot ?? null,
           teamAbbr,
-          eventId: g.id,
+          eventId: p.eventId ?? g.id,
         };
         if (p.overPrice != null) {
           const row: PropPoolEntry = {

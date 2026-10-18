@@ -39,7 +39,8 @@ function propSimKey(player: string, market: string, line: number, side: string):
   return `${player}|${market}|${line}|${side}`;
 }
 
-function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
+/** Seat a server slate pick — preserves provider identity fields from the pool. */
+export function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
   const pick =
     e.line != null
       ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
@@ -57,6 +58,11 @@ function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     teamAbbr: e.teamAbbr,
     player: e.player,
     athleteId: e.athleteId,
+    playerTeamId: e.playerTeamId ?? null,
+    homeTeamId: e.homeTeamId ?? null,
+    awayTeamId: e.awayTeamId ?? null,
+    eventId: e.eventId ?? null,
+    sportsbook: e.sportsbook ?? null,
     propMarketKey: e.marketKey,
     propLine: e.line,
     propSide: e.side,
@@ -229,6 +235,9 @@ async function fetchQuickPropSims(
       line: number;
       side: "Over" | "Under";
       athleteId?: string | null;
+      playerTeamId?: string | null;
+      homeTeamId?: string | null;
+      awayTeamId?: string | null;
       game: string;
     }>
   >();
@@ -245,6 +254,9 @@ async function fetchQuickPropSims(
       line: e.line,
       side: e.side,
       athleteId: e.athleteId,
+      playerTeamId: e.playerTeamId ?? null,
+      homeTeamId: e.homeTeamId ?? null,
+      awayTeamId: e.awayTeamId ?? null,
       game: e.game,
     });
     batches.set(e.sport, rows);
@@ -258,13 +270,22 @@ async function fetchQuickPropSims(
       line: e.line,
       side: e.side,
       athleteId: e.athleteId ?? null,
+      playerTeamId: e.playerTeamId ?? null,
+      homeTeamId: e.homeTeamId ?? null,
+      awayTeamId: e.awayTeamId ?? null,
     }));
     const parts = entries[0]?.game.split(" @ ") ?? [];
+    const homeTeamId =
+      entries.find((e) => e.homeTeamId)?.homeTeamId ?? undefined;
+    const awayTeamId =
+      entries.find((e) => e.awayTeamId)?.awayTeamId ?? undefined;
     const payload = {
       sport,
       tier: "quick" as const,
       homeTeam: parts[1]?.trim(),
       awayTeam: parts[0]?.trim(),
+      homeTeamId,
+      awayTeamId,
       props,
     };
     const resp = coachSlateSimsInProcess()
