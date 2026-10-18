@@ -250,6 +250,100 @@ type RawEventOdds = {
 // player-prop analytics, not just bookmaker odds.
 const normalizeName = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+
+/** Suffix-stripped + base keys for roster join — never invents athletes. */
+export function rosterNameKeys(s: string): string[] {
+  const base = normalizeName(s);
+  if (!base) return [];
+  const keys = new Set<string>([base]);
+  const stripped = base.replace(/(jr|sr|ii|iii|iv|v)$/i, "");
+  if (stripped && stripped !== base) keys.add(stripped);
+  return [...keys];
+}
+
+function setRosterKeys(
+  m: Map<string, RosterEntry>,
+  ambiguous: Set<string>,
+  name: string,
+  entry: RosterEntry,
+): void {
+  for (const k of rosterNameKeys(name)) {
+    if (ambiguous.has(k)) continue;
+    const existing = m.get(k);
+    if (existing && existing.teamId !== entry.teamId) {
+      m.delete(k);
+      ambiguous.add(k);
+      continue;
+    }
+    if (existing && existing.athleteId && entry.athleteId && existing.athleteId !== entry.athleteId) {
+      m.delete(k);
+      ambiguous.add(k);
+      continue;
+    }
+    m.set(k, entry);
+  }
+}
+
+export function lookupRosterEntry(
+  m: Map<string, RosterEntry> | null | undefined,
+  playerName: string,
+): RosterEntry | null {
+  if (!m) return null;
+  for (const k of rosterNameKeys(playerName)) {
+    const hit = m.get(k);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Stamp provider event/sport ids onto rows — never fabricate; only copy from identity. */
+export function stampPropRowIdentity<T extends Record<string, unknown>>(
+  props: T[],
+  sport: string,
+  identity: {
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+  } | null,
+): T[] {
+  const oddsEventId = identity?.oddsEventId ? String(identity.oddsEventId) : null;
+  const espnEventId = identity?.espnEventId ? String(identity.espnEventId) : null;
+  return props.map((p) => ({
+    ...p,
+    sport: (p.sport as string | undefined) || sport || null,
+    oddsEventId: (p.oddsEventId as string | null | undefined) ?? oddsEventId,
+    espnEventId: (p.espnEventId as string | null | undefined) ?? espnEventId,
+    // Canonical Odds event id for seated-prop provenance (mobile eventId).
+    eventId: (p.eventId as string | null | undefined) ?? oddsEventId,
+  }));
+}
+
+export function buildPropsResponsePayload(args: {
+  home: string | null;
+  away: string | null;
+  bookmaker?: string | null;
+  props: Array<Record<string, unknown>>;
+  sport: string;
+  identity: {
+    oddsEventId?: string | null;
+    espnEventId?: string | null;
+  } | null;
+  source?: string;
+}): Record<string, unknown> {
+  const stamped = stampPropRowIdentity(args.props, args.sport, args.identity);
+  const oddsEventId = args.identity?.oddsEventId ? String(args.identity.oddsEventId) : null;
+  const espnEventId = args.identity?.espnEventId ? String(args.identity.espnEventId) : null;
+  return {
+    home: args.home,
+    away: args.away,
+    ...(args.bookmaker !== undefined ? { bookmaker: args.bookmaker } : {}),
+    props: stamped,
+    identity: args.identity,
+    oddsEventId,
+    espnEventId,
+    ...(args.source ? { source: args.source } : {}),
+  };
+}
+
 type RosterAthlete = { id?: string | number; fullName?: string; displayName?: string; headshot?: { href?: string } | string };
 type EspnRoster = { athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string }> };
 type RosterEntry = { headshot: string | null; athleteId: string | null; teamId: string };
@@ -261,6 +355,7 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
     return (await r.json()) as EspnRoster;
   });
   const m = new Map<string, RosterEntry>();
+  const ambiguous = new Set<string>();
   // ESPN ships rosters in two shapes depending on sport: a flat
   // `athletes` array, or a position-grouped array of `{position, items}`.
   // Flatten both into one list so the lookup works across all sports.
@@ -277,7 +372,7 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
     if (!name) continue;
     const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
     const athleteId = a.id != null ? String(a.id) : null;
-    m.set(normalizeName(name), { headshot: href ?? null, athleteId, teamId });
+    setRosterKeys(m, ambiguous, name, { headshot: href ?? null, athleteId, teamId });
   }
   return m;
 }
@@ -554,23 +649,29 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             },
             { preGateCount: pp.length, postGateCount: gated.length },
           );
-          res.json({
-            home: homeName,
-            away: awayName,
-            bookmaker: "PrizePicks",
-            props: gated,
-            source: "PrizePicks",
-            identity: identityDiag,
-          });
+          res.json(
+            buildPropsResponsePayload({
+              home: homeName,
+              away: awayName,
+              bookmaker: "PrizePicks",
+              props: gated as unknown as Array<Record<string, unknown>>,
+              sport,
+              identity: identityDiag,
+              source: "PrizePicks",
+            }),
+          );
           return;
         }
       }
-      res.json({
-        home: null,
-        away: null,
-        props: [],
-        identity: identityDiag,
-      });
+      res.json(
+        buildPropsResponsePayload({
+          home: null,
+          away: null,
+          props: [],
+          sport,
+          identity: identityDiag,
+        }),
+      );
       return;
     }
 
@@ -875,16 +976,19 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         },
         "props team identity resolve failed; returning empty props",
       );
-      res.json({
-        home: data.home_team ?? null,
-        away: data.away_team ?? null,
-        bookmaker:
-          Array.from(
-            new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean)),
-          ).join(", ") || null,
-        props: [],
-        identity: identityDiag,
-      });
+      res.json(
+        buildPropsResponsePayload({
+          home: data.home_team ?? null,
+          away: data.away_team ?? null,
+          bookmaker:
+            Array.from(
+              new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean)),
+            ).join(", ") || null,
+          props: [],
+          sport,
+          identity: identityDiag,
+        }),
+      );
       return;
     }
     homeTeamId = identity.homeTeamId ?? "";
@@ -911,6 +1015,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           if (ambiguous.has(k)) continue;
           const existing = rosterMap.get(k);
           if (existing && existing.teamId !== v.teamId) {
+            rosterMap.delete(k);
+            ambiguous.add(k);
+            continue;
+          }
+          if (
+            existing?.athleteId &&
+            v.athleteId &&
+            existing.athleteId !== v.athleteId
+          ) {
             rosterMap.delete(k);
             ambiguous.add(k);
             continue;
@@ -959,7 +1072,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     }
 
     const enriched = aggregatedRows.map((p) => {
-      const r = rosterMap?.get(normalizeName(p.player));
+      const r = lookupRosterEntry(rosterMap, p.player);
       const w = wcMap?.get(nameTokenKey(p.player));
       return {
         ...p,
@@ -994,25 +1107,34 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           preGateCount: pp.length,
           postGateCount: gated.length,
         });
-        res.json({
-          home: homeName,
-          away: awayName,
-          bookmaker: "PrizePicks",
-          props: gated,
-          source: "PrizePicks",
-          identity: identityDiag,
-        });
+        res.json(
+          buildPropsResponsePayload({
+            home: homeName,
+            away: awayName,
+            bookmaker: "PrizePicks",
+            props: gated as unknown as Array<Record<string, unknown>>,
+            sport,
+            identity: identityDiag,
+            source: "PrizePicks",
+          }),
+        );
         return;
       }
     }
 
-    res.json({
-      home: data.home_team ?? null,
-      away: data.away_team ?? null,
-      bookmaker: Array.from(new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean))).join(", ") || null,
-      props,
-      identity: identityDiag,
-    });
+    res.json(
+      buildPropsResponsePayload({
+        home: data.home_team ?? null,
+        away: data.away_team ?? null,
+        bookmaker:
+          Array.from(
+            new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean)),
+          ).join(", ") || null,
+        props: props as unknown as Array<Record<string, unknown>>,
+        sport,
+        identity: identityDiag,
+      }),
+    );
   } catch (err) {
     req.log.error({ err, sport, homeName, awayName }, "Failed to fetch player props; trying PrizePicks fallback");
     if (homeName && awayName) {
@@ -1063,14 +1185,17 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             },
             { preGateCount: pp.length, postGateCount: gated.length },
           );
-          res.json({
-            home: homeName,
-            away: awayName,
-            bookmaker: "PrizePicks",
-            props: gated,
-            source: "PrizePicks",
-            identity: identityDiag,
-          });
+          res.json(
+            buildPropsResponsePayload({
+              home: homeName,
+              away: awayName,
+              bookmaker: "PrizePicks",
+              props: gated as unknown as Array<Record<string, unknown>>,
+              sport,
+              identity: identityDiag,
+              source: "PrizePicks",
+            }),
+          );
           return;
         }
       } catch (ppErr) {
@@ -1238,13 +1363,22 @@ async function fetchPrizePicksPropsForGame(
       ),
     );
     rosterMap = new Map<string, RosterEntry>();
-    // Fail closed on cross-team normalizeName collisions (mirror Odds path).
+    // Fail closed on cross-team / cross-athlete collisions (mirror Odds path).
     const ambiguous = new Set<string>();
     for (const m of maps) {
       for (const [k, v] of m) {
         if (ambiguous.has(k)) continue;
         const existing = rosterMap.get(k);
         if (existing && existing.teamId !== v.teamId) {
+          rosterMap.delete(k);
+          ambiguous.add(k);
+          continue;
+        }
+        if (
+          existing?.athleteId &&
+          v.athleteId &&
+          existing.athleteId !== v.athleteId
+        ) {
           rosterMap.delete(k);
           ambiguous.add(k);
           continue;
@@ -1276,7 +1410,7 @@ async function fetchPrizePicksPropsForGame(
     const pl = playerById.get(playerId);
     if (!pl) continue;
 
-    const roster = rosterMap?.get(normalizeName(pl.name)) ?? null;
+    const roster = lookupRosterEntry(rosterMap, pl.name);
     if (rosterMap) {
       // Roster-filtered: drop anyone not on either team's ESPN roster.
       if (!roster) continue;
