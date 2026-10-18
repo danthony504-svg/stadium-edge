@@ -50,7 +50,8 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/stage3TdSimMapping.test.ts \
     test/footballPropStatValue.test.ts \
     test/anytimeTdModel.test.ts \
-    test/monteCarlo.test.ts
+    test/monteCarlo.test.ts \
+    test/nflDriveSimCaps.test.ts
 )
 (
   cd "$MOBILE"
@@ -76,7 +77,11 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachPremiumGate.test.ts \
     lib/coachP0UnvalidatedTotals.test.ts \
     lib/postedMarketCategories.test.ts \
-    lib/coachTourPlacement.test.ts
+    lib/coachTourPlacement.test.ts \
+    lib/coachPerfDiagnostics.test.ts \
+    lib/coach/coachRequestDeadline.test.ts \
+    lib/coachTicketHold.test.ts \
+    lib/simMarketSupport.test.ts
 )
 
 echo "Reliability critical tests PASSED."
