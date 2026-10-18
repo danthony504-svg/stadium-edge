@@ -49,10 +49,15 @@ test("5 leg touchdown filter drops spreads (phone Air Force 1H leak)", () => {
 
 test("phone ask: 5 leg td / anytime td / first td market locks", () => {
   assert.equal(parseCoachAskMarketConstraint("5 leg td").propsOnly, true);
-  assert.ok(
+  assert.deepEqual(
+    parseCoachAskMarketConstraint("6 leg anytime td").allowedMarketKeys,
+    ["player_anytime_td"],
+  );
+  assert.equal(
     parseCoachAskMarketConstraint("6 leg anytime td").allowedMarketKeys?.includes(
-      "player_anytime_td",
+      "player_first_td",
     ),
+    false,
   );
   assert.deepEqual(
     parseCoachAskMarketConstraint("4 leg first touchdown").allowedMarketKeys,

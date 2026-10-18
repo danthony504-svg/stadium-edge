@@ -69,6 +69,7 @@ const HOME_RUN_PROP_KEYS = ["batter_home_runs"] as const;
 
 /** First-TD / anytime-TD / FG / combo asks. */
 const TD_PROP_KEYS = ["player_anytime_td", "player_first_td", "player_rush_tds", "player_reception_tds"] as const;
+const ANYTIME_TD_PROP_KEYS = ["player_anytime_td"] as const;
 const FIRST_TD_PROP_KEYS = ["player_first_td"] as const;
 const FG_PROP_KEYS = ["player_field_goals"] as const;
 const FOOTBALL_COMBO_PROP_KEYS = [
@@ -234,15 +235,20 @@ function hasFirstTdAsk(t: string): boolean {
   return /\b(?:first|1st)\s+(?:td|touchdown)\b/i.test(t);
 }
 
+/** Explicit anytime / ATD — never broaden to First TD or pass TDs. */
+function hasAnytimeTdAsk(t: string): boolean {
+  if (hasFirstTdAsk(t)) return false;
+  return /\banytime\s+(?:td|touchdown)\b/i.test(t) || /\batd\b/i.test(t);
+}
+
 /**
- * Anytime TD / bare "touchdown" / "td" market lock.
- * Phone: "5 leg touchdown" was NOT matching (only "anytime td") → board scanned
- * game lines, burned the delivery budget, and painted Air Force 1H spreads.
+ * Bare "touchdown" / "td" market lock (broader TD family).
+ * Phone: "5 leg touchdown" was NOT matching → board scanned game lines.
+ * Explicit anytime/ATD is handled separately via hasAnytimeTdAsk / fb_anytime_td.
  */
 function hasTouchdownPropAsk(t: string): boolean {
   if (hasFirstTdAsk(t)) return false;
-  if (/\banytime\s+(?:td|touchdown)\b/i.test(t)) return true;
-  if (/\batd\b/i.test(t)) return true;
+  if (hasAnytimeTdAsk(t)) return false;
   if (/\btouchdowns?\b/i.test(t)) return true;
   // Standalone "td" / "tds" ("5 leg td", "td props") — not a substring of other words.
   if (/\btds?\b/i.test(t)) return true;
@@ -368,6 +374,15 @@ export function parseCoachAskMarketConstraint(
       excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...FIRST_TD_PROP_KEYS],
+    };
+  }
+  if (hasAnytimeTdAsk(t)) {
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      excludeTotals: false,
+      maxGames,
+      allowedMarketKeys: [...ANYTIME_TD_PROP_KEYS],
     };
   }
   if (hasTouchdownPropAsk(t)) {
