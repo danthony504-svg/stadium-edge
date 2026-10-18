@@ -69,6 +69,7 @@ import {
   drainPendingTicketPicks,
 } from "@/lib/coach/pendingTicketPicks";
 import {
+  coachTerminalTicketIsComplete,
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
@@ -557,7 +558,6 @@ export default function CoachScreen() {
       const fireAbsoluteTerminal = () => {
         if (sendGenRef.current !== sendGen) return;
         if (coachSessionIsTerminal(sessionRef.current)) return;
-        abort.abort();
         // Do NOT call finishSession/setMessages inside a setMessages updater —
         // React can drop the nested update, leaving building:true forever while
         // the composer unlocks (stuck "Scoring ticket… N legs" card).
@@ -572,13 +572,22 @@ export default function CoachScreen() {
           requestedLegs,
           propPhaseIncomplete: propsPending,
         });
+        const fullTicket = coachTerminalTicketIsComplete({
+          picks,
+          requestedLegs,
+        });
+        // Stop remaining scan work either way — full buffer is success, not a
+        // user-facing timeout (empty note; never paint budget-stop copy).
+        abort.abort();
         finishSession(assistantId, {
           picks,
           text: picks.length
             ? ""
             : "Hit the delivery budget before the board finished — composer unlocked.",
           requestedLegs,
-          propsPending,
+          // Full N/N after revalidation is a completed ticket — do not mark
+          // props-pending shortfall when every seat already cleared.
+          propsPending: fullTicket ? false : propsPending,
         });
       };
 
@@ -729,6 +738,40 @@ export default function CoachScreen() {
                   : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
                 patchAssistant(assistantId, { picks: stored });
               }
+              // Early success before the absolute budget: N revalidated seats
+              // already cleared — stop scanning and latch without budget copy.
+              // Provisional football reserved-seat buffers stay below N after
+              // finalize and must not count as complete.
+              if (
+                requestedLegs >= 3 &&
+                picks.length >= requestedLegs &&
+                !coachSessionIsTerminal(sessionRef.current)
+              ) {
+                const askEarly = sessionAskTextRef.current || text;
+                const propsPendingEarly = propsIncompleteForFlush(askEarly, picks);
+                const validated = resolveCoachTerminalPicks({
+                  bufferedPicks: picks,
+                  messagePicks: null,
+                  askText: askEarly,
+                  requestedLegs,
+                  propPhaseIncomplete: propsPendingEarly,
+                });
+                if (
+                  coachTerminalTicketIsComplete({
+                    picks: validated,
+                    requestedLegs,
+                  })
+                ) {
+                  clearPendingTicketPicks(pendingTicketPicksRef);
+                  abort.abort();
+                  finishSession(assistantId, {
+                    picks: validated,
+                    text: "",
+                    requestedLegs,
+                    propsPending: false,
+                  });
+                }
+              }
             },
             onReadyToScan: () => {
               if (sendGenRef.current !== sendGen) return;
@@ -853,15 +896,22 @@ export default function CoachScreen() {
               const storedLate = coachPremiumUnlocked
                 ? picks
                 : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+              const lateFull = coachTerminalTicketIsComplete({
+                picks,
+                requestedLegs,
+              });
               patchAssistant(assistantId, {
                 building: false,
                 buildStatus: undefined,
                 picks: storedLate,
-                // Clear the empty-budget copy once a real ticket lands.
+                // Full late ticket: never keep timedOut budget-stop copy.
+                // Clear empty-budget / shortfall copy once a complete ticket lands.
                 text:
                   !coachPremiumUnlocked && storedLate.length > 0
                     ? `${storedLate.length} qualifying pick${storedLate.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-                    : sanitizeCoachUserNote(result.note),
+                    : lateFull
+                      ? ""
+                      : sanitizeCoachUserNote(result.note),
                 requestedLegs: requestedLegs || undefined,
               });
               unlockComposer();
@@ -901,7 +951,10 @@ export default function CoachScreen() {
 
           finishSession(assistantId, {
             picks,
-            text: sanitizeCoachUserNote(result.note),
+            // Full N/N after revalidation — never surface budget-stop copy.
+            text: coachTerminalTicketIsComplete({ picks, requestedLegs })
+              ? ""
+              : sanitizeCoachUserNote(result.note),
             requestedLegs,
           });
           return;

@@ -70,6 +70,7 @@ import {
   resolveCoachClientUpdateId,
 } from "@/lib/coachPerfDiagnostics";
 import { applyDeliveryGroundingGate } from "@/lib/coachDeliveryGrounding";
+import { revalidateCoachTerminalDeliveryPicks } from "@/lib/coachTicketHold";
 import {
   BLOCKED_UNVALIDATED_MARKET_REASON,
   ncaafGameLineAskIsP0Blocked,
@@ -1427,15 +1428,15 @@ export async function buildCoachParlay(opts: {
   picks = filterPicksByAllowedSports(picks, askSportScope, inputs.espnGames);
   // Delivery grounding — after belts, before shortfall + reliability report.
   // ALT/backfill/recovery/top-up cannot bypass: this is the last seat check.
-  const deliveryGrounding = applyDeliveryGroundingGate({
-    picks,
+  // Final pregame + quality + grounding re-check (incl. ALT). Games can tip
+  // during a long scan; unknown startsAt stays (enrichment gaps ≠ started).
+  picks = revalidateCoachTerminalDeliveryPicks(picks, {
+    target,
     qualifiedCandidates: [
       ...(scan?.qualifiedCandidates ?? []),
       ...(latest?.qualifiedCandidates ?? []),
     ],
-    target,
   });
-  picks = deliveryGrounding.picks;
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
@@ -1477,7 +1478,9 @@ export async function buildCoachParlay(opts: {
     propPoolSize,
     propsPending,
     shortfallLead: teamMiss || teamShortfall || shortfall,
-    timedOut: timed.timedOut,
+    // Note-only: full N/N tickets must not paint budget-stop copy even when
+    // the scan phase flagged timedOut during the finalization reserve.
+    timedOut: timed.timedOut && picks.length < target,
     budgetMs,
     scanMissing: !scan,
     // Drop staging scan notes on shortfall — they can claim a larger "qualified"

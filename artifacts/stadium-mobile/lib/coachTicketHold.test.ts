@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  coachBudgetStopNoteShouldShow,
+  coachTerminalTicketIsComplete,
+  filterFlushKnownStartedPicks,
+  filterQualifiedFlushSeats,
   resolveCoachTerminalPicks,
+  revalidateCoachTerminalDeliveryPicks,
   shouldPublishCoachTicketPicks,
 } from "./coachTicketHold.ts";
 
@@ -135,4 +140,149 @@ test("phone 5-leg MLB absolute flush ships all buffered GLs (not seat cap 2)", (
     propPhaseIncomplete: true,
   });
   assert.equal(out.length, 5, "must not truncate to reserved non-prop cap of 2");
+});
+
+test("five-leg budget terminal: before / at / after deadline completeness", () => {
+  const five = Array.from({ length: 5 }, (_, i) => ({
+    isProp: false,
+    id: `leg-${i}`,
+    grade: "B",
+    confidencePct: 58,
+    startsAt: new Date(Date.now() + 3 * 3600_000).toISOString(),
+  }));
+  const before = resolveCoachTerminalPicks({
+    bufferedPicks: five,
+    messagePicks: null,
+    askText: "5 leg",
+    requestedLegs: 5,
+    propPhaseIncomplete: false,
+  });
+  assert.equal(before.length, 5);
+  assert.equal(coachTerminalTicketIsComplete({ picks: before, requestedLegs: 5 }), true);
+  assert.equal(
+    coachBudgetStopNoteShouldShow({ timedOut: false, pickCount: 5, target: 5 }),
+    false,
+  );
+
+  // Exactly at deadline with full revalidated buffer — still complete, no stop note.
+  assert.equal(
+    coachBudgetStopNoteShouldShow({ timedOut: true, pickCount: 5, target: 5 }),
+    false,
+  );
+
+  const partial = resolveCoachTerminalPicks({
+    bufferedPicks: five.slice(0, 3),
+    messagePicks: null,
+    askText: "5 leg",
+    requestedLegs: 5,
+  });
+  assert.equal(partial.length, 3);
+  assert.equal(coachTerminalTicketIsComplete({ picks: partial, requestedLegs: 5 }), false);
+  assert.equal(
+    coachBudgetStopNoteShouldShow({ timedOut: true, pickCount: 3, target: 5 }),
+    true,
+  );
+});
+
+test("absolute flush revalidates known-started, quality floor, and ALT grounding", () => {
+  const started = new Date(Date.now() - 3600_000).toISOString();
+  const upcoming = new Date(Date.now() + 4 * 3600_000).toISOString();
+  const buffered = [
+    {
+      isProp: false,
+      id: "started",
+      market: "Spread",
+      game: "Chiefs @ Bills",
+      teamAbbr: "KC",
+      startsAt: started,
+      grade: "A",
+      confidencePct: 70,
+    },
+    {
+      isProp: false,
+      id: "weak",
+      market: "Alt Spread",
+      ticketRole: "alt" as const,
+      game: "Lakers @ Celtics",
+      teamAbbr: "LAL",
+      startsAt: upcoming,
+      grade: "C",
+      confidencePct: 40,
+    },
+    {
+      isProp: true,
+      id: "mismatch",
+      market: "player_points",
+      propMarketKey: "player_points",
+      game: "Lakers @ Celtics",
+      teamAbbr: "BOS",
+      player: "LeBron James",
+      startsAt: upcoming,
+      grade: "B",
+      confidencePct: 60,
+    },
+    {
+      isProp: false,
+      id: "ok-alt",
+      market: "Alt Spread",
+      ticketRole: "alt" as const,
+      game: "Yankees @ Red Sox",
+      teamAbbr: "NYY",
+      startsAt: upcoming,
+      grade: "B+",
+      confidencePct: 55,
+    },
+    {
+      isProp: false,
+      id: "ok-main",
+      market: "Spread",
+      game: "Bruins @ Leafs",
+      teamAbbr: "BOS",
+      startsAt: upcoming,
+      grade: "B",
+      confidencePct: 58,
+    },
+    {
+      isProp: false,
+      id: "unknown-start",
+      market: "Moneyline",
+      game: "Aces @ Liberty",
+      teamAbbr: "LV",
+      // Missing startsAt must survive flush (enrichment gap ≠ started).
+      grade: "B",
+      confidencePct: 54,
+    },
+  ];
+
+  assert.equal(filterFlushKnownStartedPicks(buffered).length, 5);
+  assert.equal(filterQualifiedFlushSeats(buffered).length, 5); // drops weak C/40
+
+  const out = revalidateCoachTerminalDeliveryPicks(buffered, { target: 5 });
+  const ids = out.map((p) => p.id);
+  assert.ok(!ids.includes("started"), "known-started dropped");
+  assert.ok(!ids.includes("weak"), "below 52/C+ ALT dropped");
+  assert.ok(!ids.includes("mismatch"), "grounding mismatch dropped");
+  assert.ok(ids.includes("ok-alt"), "qualified ALT kept");
+  assert.ok(ids.includes("ok-main"), "qualified main kept");
+  assert.ok(ids.includes("unknown-start"), "unknown startsAt preserved");
+});
+
+test("provisional football reserved seats are not a complete five-leg ticket", () => {
+  // Football mix + props pending caps GL seats — must not early-terminal as N/N.
+  const buffered = Array.from({ length: 5 }, (_, i) => ({
+    isProp: false,
+    id: `gl-${i}`,
+    grade: "B",
+    confidencePct: 60,
+    startsAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "5 leg nfl",
+    requestedLegs: 5,
+    propPhaseIncomplete: true,
+  });
+  assert.ok(out.length < 5, "reserved-seat provisional buffer stays below target");
+  assert.equal(coachTerminalTicketIsComplete({ picks: out, requestedLegs: 5 }), false);
 });
