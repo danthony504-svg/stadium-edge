@@ -50,7 +50,8 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/stage3TdSimMapping.test.ts \
     test/footballPropStatValue.test.ts \
     test/anytimeTdModel.test.ts \
-    test/monteCarlo.test.ts
+    test/monteCarlo.test.ts \
+    test/nflDriveSimCaps.test.ts
 )
 (
   cd "$MOBILE"
