@@ -75,10 +75,20 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   }, [visible, index, finish]);
   return (
     <Modal visible={visible && index < 3} transparent animationType="fade" onRequestClose={finish}>
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(2,8,22,0.84)", padding: 24 }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
         {anchorFrame ? (
-          <View pointerEvents="none" accessibilityElementsHidden style={{ position: "absolute", left: Math.max(0, anchorFrame.x - 4), top: anchorFrame.y - 4, width: anchorFrame.width + 8, height: anchorFrame.height + 8, borderColor: "#63a8ff", borderWidth: 4, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.24)" }} />
-        ) : null}
+          // Four dark panes create a genuinely transparent spotlight instead of
+          // tinting the control beneath a full-screen modal backdrop.
+          <>
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, height: Math.max(0, anchorFrame.y - 5), backgroundColor: "rgba(2,8,22,0.84)" }} />
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, top: Math.max(0, anchorFrame.y - 5), width: Math.max(0, anchorFrame.x - 5), height: anchorFrame.height + 10, backgroundColor: "rgba(2,8,22,0.84)" }} />
+            <View pointerEvents="none" style={{ position: "absolute", left: Math.min(screenWidth, anchorFrame.x + anchorFrame.width + 5), top: Math.max(0, anchorFrame.y - 5), right: 0, height: anchorFrame.height + 10, backgroundColor: "rgba(2,8,22,0.84)" }} />
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, top: anchorFrame.y + anchorFrame.height + 5, right: 0, bottom: 0, backgroundColor: "rgba(2,8,22,0.84)" }} />
+            <View pointerEvents="none" accessibilityElementsHidden style={{ position: "absolute", left: Math.max(0, anchorFrame.x - 5), top: Math.max(0, anchorFrame.y - 5), width: anchorFrame.width + 10, height: anchorFrame.height + 10, borderColor: "#63a8ff", borderWidth: 4, borderRadius: 14 }} />
+          </>
+        ) : (
+          <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: "rgba(2,8,22,0.84)" }} />
+        )}
         <View style={{ backgroundColor: "#101b31", borderColor: "#398bff", borderWidth: 1, borderRadius: 22, padding: 24, gap: 16, width: tooltipMaxWidth, ...(tooltipTop !== undefined ? { position: "absolute" as const, top: tooltipTop } : {}) }}>
           {anchorFrame && placement ? <Text style={{ color: "#63a8ff", fontSize: 13 }}>{placement.direction === "below" ? "↑" : "↓"} Highlighted control</Text> : null}
           <Text accessibilityRole="header" style={{ color: "#88a9df", fontSize: 13 }}>
