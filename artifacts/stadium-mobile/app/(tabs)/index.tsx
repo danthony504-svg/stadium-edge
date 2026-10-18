@@ -603,6 +603,7 @@ function HomeSportFeed({
   // soonest first) so any featured player is guaranteed to also appear when we
   // deep-link into the Props search. ESPN games only supply team ids/abbrs (for
   // headshots + team labels), matched by nickname.
+  const [tourReplayKey, setTourReplayKey] = useState(0);
   const featuredEnabled = PROPS_SPORTS.includes(sport);
   const featGames = useMemo(() => games.slice(0, 4), [games]);
 
@@ -1888,12 +1889,13 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <FirstRunCoachTour />
+      <FirstRunCoachTour replayKey={tourReplayKey} />
       {/* Fixed header — logo, search, and sport pills are pinned to the top of
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <AppHeader bottomGap={0}>
+        <Pressable accessibilityRole="button" onPress={() => setTourReplayKey((v) => v + 1)}><Text>Replay tour</Text></Pressable>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
