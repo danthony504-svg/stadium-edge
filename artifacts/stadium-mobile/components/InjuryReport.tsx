@@ -11,6 +11,7 @@ import {
   injuriesForMatchup,
   injuryEdge,
   injuryImpact,
+  materialInjuryEntries,
   summarizeTeamInjuries,
   type InjuryImpactTier,
 } from "@/lib/injuries";
@@ -164,7 +165,8 @@ export function InjuryReport({
 
           {matchupInjuries.map((t) => {
             const summary = summaries.find((s) => s.team === t.team);
-            const sorted = [...t.entries].sort(
+            const material = materialInjuryEntries(t.entries);
+            const sorted = [...material].sort(
               (a, b) => injuryImpact(sport, b).score - injuryImpact(sport, a).score,
             );
             const isOpen = !!open[t.team];
@@ -172,7 +174,7 @@ export function InjuryReport({
             return (
               <View key={t.team} style={{ gap: 6 }}>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}>
-                  {t.team} · {t.entries.length}
+                  {t.team} · {material.length}
                 </Text>
                 {summary && summary.groups.length > 0 ? (
                   <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
@@ -218,14 +220,14 @@ export function InjuryReport({
                     </View>
                   );
                 })}
-                {t.entries.length > 6 ? (
+                {material.length > 6 ? (
                   <Pressable
                     onPress={() => setOpen((prev) => ({ ...prev, [t.team]: !prev[t.team] }))}
                     hitSlop={6}
                     style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingTop: 2 }}
                   >
                     <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
-                      {isOpen ? "Show less" : `View all ${t.entries.length} injuries`}
+                      {isOpen ? "Show less" : `View all ${material.length} injuries`}
                     </Text>
                     <Feather name={isOpen ? "chevron-up" : "arrow-right"} size={12} color={colors.primary} />
                   </Pressable>
