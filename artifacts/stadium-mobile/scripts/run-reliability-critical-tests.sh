@@ -42,4 +42,15 @@ echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health ==
     test/reliabilityHealth.test.ts
 )
 
+echo "== Stage 3 server TD sim mapping / Monte Carlo =="
+(
+  cd "$API"
+  node --import ./test/register-hooks.mjs --test \
+    test/reliabilityPhaseASimPaths.test.ts \
+    test/stage3TdSimMapping.test.ts \
+    test/footballPropStatValue.test.ts \
+    test/anytimeTdModel.test.ts \
+    test/monteCarlo.test.ts
+)
+
 echo "Reliability critical tests PASSED."

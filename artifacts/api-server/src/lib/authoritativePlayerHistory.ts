@@ -238,13 +238,52 @@ export function peekAuthoritativePlayerHistory(
  * Propsim shape — identical fields to legacy fetchEspnPlayerHistory
  * (no date/opponentName/minutesTrend) so MC equations stay unchanged.
  */
+/**
+ * Merge same-eventId category rows (pass / rush / rec) so TD scorer markets
+ * see rush+rec columns on one game object. Never invent stats.
+ */
+export function mergeAuthGamesByEventId(
+  games: readonly AuthoritativeFlatGame[],
+): AuthoritativeFlatGame[] {
+  const byId = new Map<string, AuthoritativeFlatGame>();
+  const noId: AuthoritativeFlatGame[] = [];
+  for (const g of games) {
+    const id = String(g.eventId ?? "").trim();
+    if (!id) {
+      noId.push(g);
+      continue;
+    }
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, { ...g, stats: { ...g.stats } });
+      continue;
+    }
+    byId.set(id, {
+      ...prev,
+      date: prev.date ?? g.date,
+      opponentId: prev.opponentId ?? g.opponentId,
+      opponentName: prev.opponentName ?? g.opponentName,
+      isHome: prev.isHome ?? g.isHome,
+      periodTag: prev.periodTag ?? g.periodTag,
+      stats: { ...prev.stats, ...g.stats },
+    });
+  }
+  const merged = [...byId.values(), ...noId];
+  merged.sort((a, b) => {
+    const ad = a.date ? new Date(a.date).getTime() : 0;
+    const bd = b.date ? new Date(b.date).getTime() : 0;
+    return bd - ad;
+  });
+  return merged;
+}
+
 export function toPropSimHistoryShape(
   auth: AuthoritativePlayerHistory,
   opponentTeamId?: string,
 ): PlayerHistoryShape {
   // Prefer full-game rows; period-tagged categories stay available for period markets.
   const fullGames = auth.flat.filter((g) => (g.periodTag ?? "full") === "full");
-  const pool = fullGames.length ? fullGames : auth.flat;
+  const pool = mergeAuthGamesByEventId(fullGames.length ? fullGames : auth.flat);
   const recent = pool.slice(0, 10);
   const vsOpponent = opponentTeamId
     ? pool.filter((g) => g.opponentId === opponentTeamId).slice(0, 10)
