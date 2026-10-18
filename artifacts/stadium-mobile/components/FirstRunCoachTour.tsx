@@ -76,8 +76,8 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   return (
     <Modal visible={visible && index < 3} transparent animationType="fade" onRequestClose={finish}>
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(2,8,22,0.84)", padding: 24 }}>
-        {anchorFrame && placement ? (
-          <View pointerEvents="none" accessibilityElementsHidden style={{ position: "absolute", left: Math.max(0, anchorFrame.x - 4), top: anchorFrame.y - 4, width: anchorFrame.width + 8, height: anchorFrame.height + 8, borderColor: "#63a8ff", borderWidth: 3, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.16)" }} />
+        {anchorFrame ? (
+          <View pointerEvents="none" accessibilityElementsHidden style={{ position: "absolute", left: Math.max(0, anchorFrame.x - 4), top: anchorFrame.y - 4, width: anchorFrame.width + 8, height: anchorFrame.height + 8, borderColor: "#63a8ff", borderWidth: 4, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.24)" }} />
         ) : null}
         <View style={{ backgroundColor: "#101b31", borderColor: "#398bff", borderWidth: 1, borderRadius: 22, padding: 24, gap: 16, width: tooltipMaxWidth, ...(tooltipTop !== undefined ? { position: "absolute" as const, top: tooltipTop } : {}) }}>
           {anchorFrame && placement ? <Text style={{ color: "#63a8ff", fontSize: 13 }}>{placement.direction === "below" ? "↑" : "↓"} Highlighted control</Text> : null}
