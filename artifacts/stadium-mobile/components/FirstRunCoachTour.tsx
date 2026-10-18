@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { setTourMenuFocus } from "@/lib/tourMenuFocus";
 import { placeTourTooltip } from "@/lib/coachTourPlacement";
 import React, { useCallback, useEffect, useState, type RefObject } from "react";
 import { Modal, Pressable, Text, View, useWindowDimensions } from "react-native";
@@ -21,7 +21,6 @@ type TourProps = {
   sportAnchorRef?: RefObject<View | null>;
 };
 export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorRef, sportAnchorRef }: TourProps) {
-  const router = useRouter();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [anchorFrame, setAnchorFrame] = useState<TourFrame | null>(null);
   const [visible, setVisible] = useState(false);
@@ -62,9 +61,8 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
     const destination = index === 3 ? "/simulator" : index === 4 ? "/arbitrage" : null;
     if (!destination) return;
     finish();
-    // The tour modal must close before routing to avoid obscuring the page.
-    router.push(destination);
-  }, [finish, index, router]);
+    setTourMenuFocus(destination);
+  }, [finish, index]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={finish}>
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(2,8,22,0.84)", padding: 24 }}>
@@ -79,8 +77,8 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
           <Text style={{ color: "white", fontSize: 23, fontWeight: "700" }}>{FIRST_RUN_TOUR_STEPS[index].title}</Text>
           <Text style={{ color: "#d3def2", fontSize: 16, lineHeight: 24 }}>{FIRST_RUN_TOUR_STEPS[index].body}</Text>
           {(index === 3 || index === 4) && (
-            <Pressable accessibilityRole="button" accessibilityLabel={index === 3 ? "Open Game Simulator" : "Open Edge Lock"} onPress={openFeature} style={{ borderRadius: 12, borderWidth: 1, borderColor: "#63a8ff", paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" }}>
-              <Text style={{ color: "#8bc0ff", fontWeight: "700" }}>{index === 3 ? "Open Game Simulator" : "Open Edge Lock"}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={index === 3 ? "Show Simulator in menu" : "Show Edge Lock in menu"} onPress={openFeature} style={{ borderRadius: 12, borderWidth: 1, borderColor: "#63a8ff", paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" }}>
+              <Text style={{ color: "#8bc0ff", fontWeight: "700" }}>{index === 3 ? "Show Simulator in menu" : "Show Edge Lock in menu"}</Text>
             </Pressable>
           )}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
