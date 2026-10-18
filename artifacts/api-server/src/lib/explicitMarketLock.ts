@@ -159,10 +159,19 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     re: /\b(?:first|1st)\s+(?:td|touchdown)\b/i,
     markets: ["player_first_td"],
   },
+  // Explicit anytime / ATD BEFORE bare touchdowns — Stage 3 Coach funnel:
+  // "anytime touchdown" must not pull First TD or passing TDs into the pool.
+  {
+    id: "fb_anytime_td",
+    label: "anytime TD",
+    re: /\b(?:anytime\s+(?:td|touchdown)|atd)\b/i,
+    markets: ["player_anytime_td"],
+  },
   {
     id: "fb_touchdowns",
     label: "touchdowns",
-    re: /\b(?:anytime\s+(?:td|touchdown)|atd|touchdowns?|tds?)\b/i,
+    // Broader TD family only when the ask did NOT name anytime/ATD/first.
+    re: /\b(?:touchdowns?|tds?)\b/i,
     markets: [
       "player_anytime_td",
       "player_first_td",
