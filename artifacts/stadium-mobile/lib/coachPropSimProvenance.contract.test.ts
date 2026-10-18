@@ -1,9 +1,8 @@
 /**
- * Issue B — props sim provenance characterization + proposed contract todos.
+ * Props sim provenance contract — Option C enforced (P0).
  *
- * Active tests lock CURRENT behavior (history-model seating + misleading 10k label).
- * test.todo entries are the approved-contract regressions — enable after review
- * of docs/coach/props-sim-provenance-contract.md (no eligibility-policy change yet).
+ * Historical-only hits cannot seat (empty allowlist). Exact-market 10k requires
+ * trusted registry evidence. Display labels follow provenance source.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -14,13 +13,25 @@ import { fileURLToPath } from "node:url";
 import { gradeFootballPropFromHistory } from "./coachFootballPropsOnlyGrade.ts";
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
-import { simEdgeFromHit, COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
+import {
+  simEdgeFromHit,
+  COACH_SIM_MIN_CONFIDENCE,
+  COACH_SIM_MIN_GRADE,
+} from "./gameSimQualityGates.ts";
 import { scoreLineValue, scoreSimulation, scoreLineShopping } from "./pickScore.ts";
+import {
+  clearTrustedExactEvidenceForTests,
+  exactMarket10kProvenance,
+  historicalModelProvenance,
+  propProvenanceAllowsSeating,
+  SIM_FACTOR_LABEL_EXACT_10K,
+  SIM_FACTOR_LABEL_HISTORICAL,
+  VALIDATED_HISTORICAL_MODEL_ALLOWLIST,
+} from "./coachPropProbabilityProvenance.ts";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 
 function sedrickHistory() {
-  // Minimal 6-game log matching audit-hist-ncaaf-5030333 binary TD pattern (5/6).
   const games = [
     { rushingTouchdowns: "0", receivingTouchdowns: "0", passingTouchdowns: "0" },
     { rushingTouchdowns: "1", receivingTouchdowns: "0", passingTouchdowns: "0" },
@@ -51,51 +62,44 @@ const sedrickPick = {
   sport: "ncaaf",
   isProp: true,
   athleteId: "5030333",
+  eventId: "evt-ark-van",
   game: "Arkansas @ Vanderbilt",
   pick: "Sedrick Alexander Over 0.5 Anytime TD",
 };
 
+test.beforeEach(() => {
+  clearTrustedExactEvidenceForTests();
+});
+
 test("floors unchanged (#711)", () => {
   assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
   assert.equal(COACH_SIM_MIN_GRADE, "C+");
+  assert.equal(VALIDATED_HISTORICAL_MODEL_ALLOWLIST.length, 0);
 });
 
-test("CURRENT: history-model ATD hit is intentionally #711-eligible (no deep required)", () => {
+test("Option C: history-model ATD is NOT seating-eligible under empty allowlist", () => {
   const graded = gradeFootballPropFromHistory(sedrickPick as never, sedrickHistory() as never);
-  assert.equal(graded.nullReason, null);
-  assert.ok(graded.hitProbability != null && graded.hitProbability > 0.5);
-  assert.ok((graded.hitReliability ?? 0) >= 0.5);
+  assert.equal(
+    propProvenanceAllowsSeating(graded.probabilityProvenance, {
+      athleteId: sedrickPick.athleteId,
+      eventId: sedrickPick.eventId,
+      propMarketKey: sedrickPick.propMarketKey,
+      propSide: sedrickPick.propSide,
+      propLine: sedrickPick.propLine,
+    }),
+    false,
+  );
 
-  const hit = graded.hitProbability!;
-  const edgePct = simEdgeFromHit(hit, -120)!;
-  const score = buildFinalAiScore({
-    pick: sedrickPick as never,
-    rubricScores: {
-      matchup: null,
-      trend: null,
-      lineValue: scoreLineValue(edgePct),
-      injury: null,
-      lineShopping: scoreLineShopping(8.1),
-      simulation: scoreSimulation(hit),
-    } as never,
-    edgePct,
-    odds: -120,
-    propSimHit: hit,
-    propHolisticContext: {
-      sport: "ncaaf",
-      marketKey: "player_anytime_td",
-      propSide: "Over",
-      minutesTrend: null,
-      vsOpponentGames: 0,
-      rushDefense: null,
-      footballOppDefense: null,
-      footballOwnPack: null,
-      mlbPlatoon: null,
-      mlbGameEnv: null,
-    },
+  const hist = historicalModelProvenance({
+    hitProbability: 0.5515,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+    hitReliability: 0.6,
+    athleteId: "5030333",
+    eventId: "evt-ark-van",
+    side: "Over",
+    line: 0.5,
   });
-
-  // Stamp at the confidence floor with positive edge (Sedrick-class).
   const q = evaluateCoachQualification(
     {
       market: "Anytime TD",
@@ -107,19 +111,169 @@ test("CURRENT: history-model ATD hit is intentionally #711-eligible (no deep req
       confidencePct: 52,
       edgePct: 0.6,
       simHit: 0.5515,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
+      propProbabilityProvenance: hist,
     },
     { requestStyle: "props_only", isProp: true },
   );
-  assert.equal(q.status, "qualified");
-  assert.equal(q.reason, "ok");
-
-  // Holistic currently mislabels any simHit as 10k — characterization of the bug.
-  const simFactor = score.propHolistic?.factors.find((f) => f.key === "simulation");
-  assert.equal(simFactor?.label, "10k Simulation");
-  assert.ok(edgePct > 0);
+  assert.equal(q.status, "rejected");
+  assert.equal(q.reason, "insufficient_sim_provenance");
 });
 
-test("CURRENT: rejected stamps stay rejected; conf 51 fails floor", () => {
+test("Option C: exact-market 10k ATD qualifies; missing provenance rejects", () => {
+  const prov = exactMarket10kProvenance({
+    hitProbability: 0.58,
+    simulations: 10_000,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+    athleteId: "5030333",
+    eventId: "evt-ark-van",
+    side: "Over",
+    line: 0.5,
+  });
+  const ok = evaluateCoachQualification(
+    {
+      market: "Anytime TD",
+      sport: "ncaaf",
+      isProp: true,
+      odds: -120,
+      propsOnlyTicket: true,
+      grade: "B",
+      confidencePct: 52,
+      edgePct: 3.5,
+      simHit: 0.58,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
+      propProbabilityProvenance: prov,
+    },
+    { requestStyle: "props_only", isProp: true },
+  );
+  assert.equal(ok.status, "qualified");
+
+  const missing = evaluateCoachQualification(
+    {
+      market: "Anytime TD",
+      sport: "ncaaf",
+      isProp: true,
+      odds: -120,
+      propsOnlyTicket: true,
+      grade: "B",
+      confidencePct: 60,
+      edgePct: 5,
+      simHit: 0.6,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
+    },
+    { requestStyle: "props_only", isProp: true },
+  );
+  assert.equal(missing.status, "rejected");
+  assert.equal(missing.reason, "insufficient_sim_provenance");
+});
+
+test("Option C: holistic labels follow provenance — never fake 10k for history", () => {
+  const hist = historicalModelProvenance({
+    hitProbability: 0.58,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+  });
+  const score = buildFinalAiScore({
+    pick: sedrickPick as never,
+    rubricScores: {
+      matchup: null,
+      trend: null,
+      lineValue: scoreLineValue(4),
+      injury: null,
+      lineShopping: scoreLineShopping(8.1),
+      simulation: scoreSimulation(0.58),
+    } as never,
+    edgePct: 4,
+    odds: -120,
+    propSimHit: 0.58,
+    propProbabilityProvenance: hist,
+    propHolisticContext: {
+      sport: "ncaaf",
+      marketKey: "player_anytime_td",
+      propSide: "Over",
+      probabilitySource: hist.source,
+      minutesTrend: null,
+      vsOpponentGames: 0,
+      rushDefense: null,
+      footballOppDefense: null,
+      footballOwnPack: null,
+      mlbPlatoon: null,
+      mlbGameEnv: null,
+    },
+  });
+  const simFactor = score.propHolistic?.factors.find((f) => f.key === "simulation");
+  assert.notEqual(simFactor?.label, SIM_FACTOR_LABEL_EXACT_10K);
+  assert.notEqual(simFactor?.label, "10k Simulation");
+
+  const exact = exactMarket10kProvenance({
+    hitProbability: 0.58,
+    simulations: 10_000,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+    athleteId: "5030333",
+    eventId: "evt-ark-van",
+    side: "Over",
+    line: 0.5,
+  });
+  const score10k = buildFinalAiScore({
+    pick: sedrickPick as never,
+    rubricScores: {
+      matchup: null,
+      trend: null,
+      lineValue: scoreLineValue(4),
+      injury: null,
+      lineShopping: scoreLineShopping(8.1),
+      simulation: scoreSimulation(0.58),
+    } as never,
+    edgePct: 4,
+    odds: -120,
+    propSimHit: 0.58,
+    propProbabilityProvenance: exact,
+    propHolisticContext: {
+      sport: "ncaaf",
+      marketKey: "player_anytime_td",
+      propSide: "Over",
+      probabilitySource: "exact_market_10k",
+      minutesTrend: null,
+      vsOpponentGames: 0,
+      rushDefense: null,
+      footballOppDefense: null,
+      footballOwnPack: null,
+      mlbPlatoon: null,
+      mlbGameEnv: null,
+    },
+  });
+  assert.equal(
+    score10k.propHolistic?.factors.find((f) => f.key === "simulation")?.label,
+    SIM_FACTOR_LABEL_EXACT_10K,
+  );
+  assert.equal(SIM_FACTOR_LABEL_HISTORICAL, "Historical Model");
+});
+
+test("Option C: rejected stamps stay rejected; conf 51 fails after provenance clears", () => {
+  const prov = exactMarket10kProvenance({
+    hitProbability: 0.5515,
+    simulations: 10_000,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+    athleteId: "5030333",
+    eventId: "evt-ark-van",
+    side: "Over",
+    line: 0.5,
+  });
   const low = evaluateCoachQualification(
     {
       market: "Anytime TD",
@@ -131,6 +285,12 @@ test("CURRENT: rejected stamps stay rejected; conf 51 fails floor", () => {
       confidencePct: 51,
       edgePct: 0.6,
       simHit: 0.5515,
+      athleteId: "5030333",
+      eventId: "evt-ark-van",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
+      propProbabilityProvenance: prov,
     },
     { requestStyle: "props_only", isProp: true },
   );
@@ -157,14 +317,16 @@ test("CURRENT: rejected stamps stay rejected; conf 51 fails floor", () => {
   assert.equal(terminal.reason, "sim_invalid");
 });
 
-test("CURRENT: props-only path never overwrites history grades with deep", () => {
+test("Option C: props-only deep-sim path for unauthorized provenance (not history overwrite)", () => {
   const src = readFileSync(join(ROOT, "coachFootballPropsOnlyTicket.ts"), "utf8");
-  assert.match(src, /never overwrite local grades/i);
+  assert.match(src, /needsDeep/);
+  assert.match(src, /exactMarket10kProvenance/);
+  assert.match(src, /propProvenanceAllowsSeating/);
+  assert.match(src, /enforceSeatedPropProviderProvenance/);
   assert.match(src, /gradeFootballPropsOnlyFromHistory/);
-  assert.match(src, /stillNull/);
 });
 
-test("CURRENT: server propStatValue lacks ATD composite (deep stat_mapping_failed root)", () => {
+test("server propStatValue lacks ATD composite (deep stat_mapping_failed root)", () => {
   const server = readFileSync(
     join(ROOT, "../../api-server/src/lib/propStatValue.ts"),
     "utf8",
@@ -176,25 +338,6 @@ test("CURRENT: server propStatValue lacks ATD composite (deep stat_mapping_faile
   );
   const mobile = readFileSync(join(ROOT, "propStats.ts"), "utf8");
   assert.match(mobile, /player_anytime_td/);
+  // Edge used only to keep simEdge import live for characterization.
+  assert.ok(simEdgeFromHit(0.58, -120)! > 0);
 });
-
-// --- Proposed contract regressions (enable after Option A/B/C review) ---
-
-test.todo(
-  "PROPOSED: successful exact-market 10k stamps source deep_mc_10k and label 10k Simulation",
-);
-test.todo(
-  "PROPOSED: failed 10k with valid history stamps source history_model (not deep_mc_10k)",
-);
-test.todo(
-  "PROPOSED: failed 10k with no authoritative fallback stays ungraded / rejected",
-);
-test.todo(
-  "PROPOSED: missing stat mapping preserves nullReason stat_mapping_failed on provenance",
-);
-test.todo(
-  "PROPOSED: history_model uses Historical model label — never 10k Simulation",
-);
-test.todo(
-  "PROPOSED: rejected candidates cannot be promoted to qualified by fallback",
-);

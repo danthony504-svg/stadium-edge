@@ -46,6 +46,7 @@ import {
 } from "./coachPropsOnlyFailReason.ts";
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
 import { propsOnlySportLabelFromAsk } from "./boardScanPropDelivery.ts";
+import { enforceSeatedPropProviderProvenance } from "./propProviderProvenance.ts";
 import {
   filterPicksByAllowedSports,
   filterPoolByAllowedSports,
@@ -663,10 +664,11 @@ export async function buildFootballPropsOnlyTicket(
       : [],
   };
   // Fail closed when caller provides scope: unknown/other-league rows never sim.
+  // Empty scope → unscoped pool (generic mixed football); never TDZ on self-ref.
   const scopedPool =
     sportScope.allowedSports.length > 0
       ? filterPoolByAllowedSports(opts.pool, sportScope)
-      : scopedPool;
+      : opts.pool;
   const propPoolSize = scopedPool.length;
   const athleteLinked = countAthleteLinked(scopedPool);
   const sports = countPoolSports(scopedPool);
@@ -1042,10 +1044,12 @@ export async function buildFootballPropsOnlyTicket(
     allowRareMultiCount: opts.allowRareMultiCount,
   });
   // Final seat belt — ALT/backfill cannot override immutable sport scope.
-  const picks =
+  const scopedPicks =
     sportScope.allowedSports.length > 0
       ? filterPicksByAllowedSports(stagedRaw, sportScope, opts.espnGames)
       : stagedRaw;
+  // #773 provider provenance — props-only must not skip the board-scan belt.
+  const { picks } = enforceSeatedPropProviderProvenance(scopedPicks);
   const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
