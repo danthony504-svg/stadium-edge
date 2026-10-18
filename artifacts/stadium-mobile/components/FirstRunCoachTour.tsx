@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { placeTourTooltip } from "@/lib/coachTourPlacement";
 import React, { useCallback, useEffect, useState, type RefObject } from "react";
 import { Modal, Pressable, Text, View, useWindowDimensions } from "react-native";
 
@@ -46,9 +47,8 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
     }, 80);
     return () => { active = false; clearTimeout(id); };
   }, [visible, index, searchAnchorRef, coachAnchorRef, sportAnchorRef, screenHeight]);
-  const tooltipTop = anchorFrame
-    ? Math.min(Math.max(24, anchorFrame.y + anchorFrame.height + 16), Math.max(24, screenHeight - 285))
-    : undefined;
+  const placement = placeTourTooltip(anchorFrame, screenHeight);
+  const tooltipTop = placement?.top;
   const tooltipMaxWidth = Math.min(460, screenWidth - 48);
 
   const finish = useCallback(() => {
@@ -59,11 +59,11 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={finish}>
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(2,8,22,0.84)", padding: 24 }}>
-        {anchorFrame ? (
+        {anchorFrame && placement ? (
           <View pointerEvents="none" accessibilityElementsHidden style={{ position: "absolute", left: Math.max(0, anchorFrame.x - 4), top: anchorFrame.y - 4, width: anchorFrame.width + 8, height: anchorFrame.height + 8, borderColor: "#63a8ff", borderWidth: 3, borderRadius: 14, backgroundColor: "rgba(59,130,246,0.16)" }} />
         ) : null}
         <View style={{ backgroundColor: "#101b31", borderColor: "#398bff", borderWidth: 1, borderRadius: 22, padding: 24, gap: 16, width: tooltipMaxWidth, ...(tooltipTop !== undefined ? { position: "absolute" as const, top: tooltipTop } : {}) }}>
-          {anchorFrame ? <Text style={{ color: "#63a8ff", fontSize: 13 }}>↑ Highlighted control</Text> : null}
+          {anchorFrame && placement ? <Text style={{ color: "#63a8ff", fontSize: 13 }}>{placement.direction === "below" ? "↑" : "↓"} Highlighted control</Text> : null}
           <Text accessibilityRole="header" style={{ color: "#88a9df", fontSize: 13 }}>
             STADIUM EDGE TOUR · {index + 1} OF {FIRST_RUN_TOUR_STEPS.length}
           </Text>
