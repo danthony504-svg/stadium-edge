@@ -65,8 +65,9 @@ test("simMarketMappingIsValid rejects unsupported period×sport pairs", () => {
   assert.equal(simMarketMappingIsValid({ market: "F5 Total", sport: "nba" }), false);
 });
 
-test("marketSupportsSimulation rejects unknown game markets", () => {
-  assert.equal(marketSupportsSimulation("Both Teams To Score", { sport: "soccer" }), false);
+test("marketSupportsSimulation rejects unknown game markets and recognizes soccer special", () => {
+  assert.equal(marketSupportsSimulation("Unknown novelty market", { sport: "soccer" }), false);
+  assert.equal(marketSupportsSimulation("Both Teams To Score", { sport: "soccer" }), true);
 });
 
 test("assessSimMarketIntegrity rejects period→full-game fallback", () => {
