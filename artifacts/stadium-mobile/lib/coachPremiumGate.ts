@@ -259,3 +259,9 @@ export function redactPremiumBoardScanPicks<T extends { picks?: RedactablePick[]
 export function isFreeTwoLegCoachPreview(requestedLegs: number | null | undefined): boolean {
   return requestedLegs === 2;
 }
+
+/** Card visibility is shared by the CTA and PickCard layers. Premium deep links stay gated separately. */
+export function freeCoachCardPresentation(requestedLegs: number | null | undefined, premiumUnlocked: boolean) {
+  const preview = isFreeTwoLegCoachPreview(requestedLegs);
+  return { revealPick: premiumUnlocked || preview, showSubscribeToReveal: !premiumUnlocked && !preview, allowSlipActions: premiumUnlocked };
+}
