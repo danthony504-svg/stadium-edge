@@ -1,4 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
+import { postedMarketKeys } from "@/lib/postedMarketCategories";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -93,17 +94,7 @@ const VALUE_CAP = 8; // cards shown in the value rail
 // Build category rows from actual posted markets for the selected sport.
 // Never show MLB-only categories on NBA/NHL/NFL or imply a market exists before it loads.
 function categoriesForPostedMarkets(games: GameProps[]): { label: string; icon: ComponentProps<typeof Feather>["name"]; markets: string[] }[] {
-  const seen = new Set<string>();
-  const categories: { label: string; icon: ComponentProps<typeof Feather>["name"]; markets: string[] }[] = [];
-  for (const game of games) {
-    for (const prop of game.props) {
-      const market = prop.market;
-      if (!market || seen.has(market)) continue;
-      seen.add(market);
-      categories.push({ label: propMarketLabel(market), icon: "activity", markets: [market] });
-    }
-  }
-  return categories.sort((a, b) => a.label.localeCompare(b.label));
+  return postedMarketKeys(games).map((market) => ({ label: propMarketLabel(market), icon: "activity", markets: [market] }));
 }
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
