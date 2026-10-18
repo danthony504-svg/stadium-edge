@@ -1,3 +1,4 @@
+import { filterUngroundedCoachPropPool } from "@/lib/coachPreSimGrounding";
 /**
  * Greenfield parlay build — board scan only, hard wall-clock, no delivery limbo.
  *
@@ -513,9 +514,9 @@ export async function buildCoachParlay(opts: {
   let mlbPlatoon: Record<string, unknown> | undefined;
   let mlbGameEnv: Record<string, unknown> | undefined;
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
-  const activePropPool = hrBoardAsk
-    ? filterHrScorerPoolEntries(scopedPropPool)
-    : scopedPropPool;
+  const activePropPool = filterUngroundedCoachPropPool(
+    hrBoardAsk ? filterHrScorerPoolEntries(scopedPropPool) : scopedPropPool,
+  );
   const propPoolSize = activePropPool.length;
 
   const hasMlbProps = activePropPool.some(

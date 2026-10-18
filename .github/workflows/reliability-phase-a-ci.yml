@@ -63,6 +63,7 @@ on:
       - "artifacts/stadium-mobile/lib/simMarketSupport*"
       - "artifacts/stadium-mobile/lib/coachPerfDiagnostics*"
       - "artifacts/stadium-mobile/lib/coach/coachRequestDeadline*"
+      - "artifacts/stadium-mobile/lib/coachPreSimGrounding*"
       - "artifacts/stadium-mobile/lib/coachDeliveryGrounding*"
       - "artifacts/stadium-mobile/lib/coachTicketHold*"
       - "artifacts/stadium-mobile/lib/coachAskTeamScope*"
