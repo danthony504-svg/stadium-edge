@@ -41,6 +41,7 @@ import {
   COACH_PREMIUM_FEATURE_LABEL,
   redactPremiumPickFields,
   resolveCoachAskAccess,
+  isFreeTwoLegCoachPreview,
 } from "@/lib/coachPremiumGate";
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
@@ -385,11 +386,11 @@ export default function CoachScreen() {
             })
           : "";
       // Free users: store redacted picks in message state (not full identity).
-      const storedPicks = coachPremiumUnlocked
+      const storedPicks = coachPremiumUnlocked || isFreeTwoLegCoachPreview(opts.requestedLegs)
         ? picks
         : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
       const storedText =
-        !coachPremiumUnlocked && storedPicks.length > 0
+        !coachPremiumUnlocked && !isFreeTwoLegCoachPreview(opts.requestedLegs) && storedPicks.length > 0
           ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
           : sanitizeCoachUserNote([shortfall, opts.text].filter(Boolean).join("\n\n"));
       patchAssistant(assistantId, {
@@ -733,7 +734,7 @@ export default function CoachScreen() {
               // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
               pendingTicketPicksRef.current = [...picks];
               if (shouldPublishCoachTicketPicks("building")) {
-                const stored = coachPremiumUnlocked
+                const stored = coachPremiumUnlocked || isFreeTwoLegCoachPreview(requestedLegs)
                   ? [...picks]
                   : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
                 patchAssistant(assistantId, { picks: stored });
@@ -893,7 +894,7 @@ export default function CoachScreen() {
                   });
                 }
               }
-              const storedLate = coachPremiumUnlocked
+              const storedLate = coachPremiumUnlocked || isFreeTwoLegCoachPreview(requestedLegs)
                 ? picks
                 : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
               const lateFull = coachTerminalTicketIsComplete({
@@ -907,7 +908,7 @@ export default function CoachScreen() {
                 // Full late ticket: never keep timedOut budget-stop copy.
                 // Clear empty-budget / shortfall copy once a complete ticket lands.
                 text:
-                  !coachPremiumUnlocked && storedLate.length > 0
+                  !coachPremiumUnlocked && !isFreeTwoLegCoachPreview(requestedLegs) && storedLate.length > 0
                     ? `${storedLate.length} qualifying pick${storedLate.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
                     : lateFull
                       ? ""
@@ -1168,7 +1169,7 @@ export default function CoachScreen() {
                         lineHeight: 22,
                       }}
                     >
-                      {!coachPremiumUnlocked && item.picks && item.picks.length > 0
+                      {!coachPremiumUnlocked && !isFreeTwoLegCoachPreview(item.requestedLegs) && item.picks && item.picks.length > 0
                         ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
                         : item.text.trim()}
                     </Text>
@@ -1207,7 +1208,7 @@ export default function CoachScreen() {
                   </View>
                 ) : null}
                 {item.picks?.map((pick, idx) => {
-                  const displayPick = coachPremiumUnlocked
+                  const displayPick = coachPremiumUnlocked || isFreeTwoLegCoachPreview(item.requestedLegs)
                     ? pick
                     : (redactPremiumPickFields(pick as never) as ParsedPick);
                   return (

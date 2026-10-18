@@ -252,3 +252,10 @@ export function redactPremiumBoardScanPicks<T extends { picks?: RedactablePick[]
     : scan.picks;
   return { ...scan, picks };
 }
+
+/** Exactly two-leg pregame Coach tickets are a free preview for unsigned-in/free users.
+ * This is not an entitlement: questions, full AI breakdowns, and other leg counts remain locked.
+ */
+export function isFreeTwoLegCoachPreview(requestedLegs: number | null | undefined): boolean {
+  return requestedLegs === 2;
+}

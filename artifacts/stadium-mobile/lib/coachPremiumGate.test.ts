@@ -15,6 +15,7 @@ import {
   redactPremiumBoardScanPicks,
   redactPremiumPickFields,
   resolveCoachAskAccess,
+  isFreeTwoLegCoachPreview,
 } from "./coachPremiumGate.ts";
 
 const NOW = 1_700_000_000_000;
@@ -224,4 +225,9 @@ test("redaction keeps grades; strips identity, lines, odds, times", () => {
   });
   assert.equal(scan?.picks?.[0]?.game, PREMIUM_VALUE_MASK);
   assert.equal(scan?.picks?.[0]?.finalAiScore?.grade, "B+");
+});
+
+test("free preview is exactly two requested legs; no up/down coercion", () => {
+  assert.equal(isFreeTwoLegCoachPreview(2), true);
+  for (const value of [0, 1, 3, 5, 9, 15, null, undefined, NaN, 2.5]) assert.equal(isFreeTwoLegCoachPreview(value), false, String(value));
 });
