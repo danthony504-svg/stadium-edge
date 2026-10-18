@@ -479,6 +479,7 @@ export function stageFootballPropsOnlyLegs(
   // Start at 3 (historic props-only default); raise to ceiling when short.
   // Prefer 1× same market+side per game on multi-game boards; raise only to fill.
   let best: ParsedPick[] = [];
+  let bestAudit: PropsOnlyStageAudit | null = null;
   for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
     const msStart = thinSlate ? cap : 1;
     for (let msCap = msStart; msCap <= cap; msCap++) {
@@ -493,10 +494,19 @@ export function stageFootballPropsOnlyLegs(
       );
       // Retry constraints can change which valid seats survive. Never replace
       // the best already-qualified ticket with a shorter retry result.
-      if (staged.length > best.length) best = staged;
-      if (best.length >= target) return best;
+      if (staged.length > best.length) {
+        best = staged;
+        // Diagnostics must describe the delivered ticket, not the last
+        // (possibly shorter) staging attempt.
+        bestAudit = propsOnlyStageAudit;
+      }
+      if (best.length >= target) {
+        propsOnlyStageAudit = bestAudit;
+        return best;
+      }
     }
   }
+  propsOnlyStageAudit = bestAudit;
   return best;
 }
 
