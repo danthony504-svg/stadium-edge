@@ -155,7 +155,7 @@ test("injury/opportunity bump cannot create extreme TD without RZ support", () =
   assert.ok(withRz < 0.4);
 });
 
-test("gradeFootballPropFromHistory uses Anytime TD model (NFL + NCAAF)", () => {
+test("gradeFootballPropFromHistory: Option C rejects historical ATD (NFL + NCAAF)", () => {
   const hist = {
     recent: [
       { stats: { rushingTouchdowns: "0", receivingTouchdowns: "0" } },
@@ -177,15 +177,14 @@ test("gradeFootballPropFromHistory uses Anytime TD model (NFL + NCAAF)", () => {
       odds: 775,
     } as ParsedPick;
     const graded = gradeFootballPropFromHistory(pick, hist);
-    assert.ok(graded.hitProbability != null, sport);
-    assert.ok(graded.hitProbability! < 0.28, `${sport} hit=${graded.hitProbability}`);
+    // Empty allowlist: history cannot seat — needs exact_market_10k.
+    assert.equal(graded.hitProbability, null, sport);
+    assert.equal(graded.nullReason, "unapproved_historical_model", sport);
     assert.ok((graded.hitReliability ?? 0) < 0.55, sport);
-    // Calibrated toward +775 when thin.
-    assert.ok(graded.hitProbability! < 0.25, `${sport} calibrated=${graded.hitProbability}`);
   }
 });
 
-test("boardLegPoolRole: +775 thin TD cannot seat on normal Coach", () => {
+test("boardLegPoolRole: +775 thin TD cannot seat without exact-market provenance", () => {
   const pick = {
     isProp: true,
     sport: "nfl",
@@ -195,6 +194,8 @@ test("boardLegPoolRole: +775 thin TD cannot seat on normal Coach", () => {
     propSide: "Over",
     propLine: 0.5,
     odds: 775,
+    athleteId: "ath-ls",
+    eventId: "evt-ls",
     game: "AWAY @ HOME",
     pick: "Longshot WR Anytime TD",
     finalAiScore: {
@@ -226,13 +227,13 @@ test("boardLegPoolRole: +775 thin TD cannot seat on normal Coach", () => {
     null,
   );
 
-  // Strong reliability may pass the TD gate (qualify still applies).
+  // High reliability alone cannot bypass Option C without exact_market_10k.
   assert.equal(
     boardLegPoolRole(pick, pick.finalAiScore, {
       askText: "8 leg for tonight",
       hitReliability: 0.75,
     }),
-    "main",
+    null,
   );
 });
 
