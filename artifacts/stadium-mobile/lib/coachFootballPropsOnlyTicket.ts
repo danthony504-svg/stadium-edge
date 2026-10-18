@@ -809,6 +809,12 @@ export async function buildFootballPropsOnlyTicket(
     for (let i = 0; i < needsDeep.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
       if (opts.signal?.aborted) break;
       const batch = needsDeep.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
+      const batchAbort = new AbortController();
+      const parentSignal = opts.signal;
+      const abortBatch = () => batchAbort.abort();
+      let batchTimer: ReturnType<typeof setTimeout> | null = null;
+      parentSignal?.addEventListener("abort", abortBatch, { once: true });
+      if (parentSignal?.aborted) abortBatch();
       try {
         const serverRows = await Promise.race([
           fetchPropSimulations(
@@ -818,11 +824,18 @@ export async function buildFootballPropsOnlyTicket(
               tier: "deep",
               teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
             },
-            opts.signal,
+            batchAbort.signal,
           ),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+          new Promise<null>((resolve) => {
+            batchTimer = setTimeout(() => {
+              // A timed-out deep request must not continue spending server work
+              // while Coach advances to the next batch.
+              abortBatch();
+              resolve(null);
+            }, 8_000);
+          }),
         ]);
-        if (!serverRows) continue;
+        if (!serverRows || batchAbort.signal.aborted) continue;
         deepSimCompleted += serverRows.hits.size;
         for (const [k, v] of serverRows.hits) {
           deepSimMeta.set(k, v);
@@ -880,6 +893,9 @@ export async function buildFootballPropsOnlyTicket(
         softClipPropsOnlyHits(batch, propHits, scopedPool);
       } catch {
         /* keep existing provenance — do not invent hits */
+      } finally {
+        if (batchTimer !== null) clearTimeout(batchTimer);
+        parentSignal?.removeEventListener("abort", abortBatch);
       }
     }
     propSimMs = coachPerfElapsedMs(propSimStarted);
