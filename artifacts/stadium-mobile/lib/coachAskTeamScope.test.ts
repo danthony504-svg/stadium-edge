@@ -447,3 +447,13 @@ test("Troy shortfall note does not invite other games", () => {
   assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /won't fill/i);
   assert.equal(coachAskTeamShortfallNote(scope, 4, 4, 1), "");
 });
+
+
+test("city-only Atlanta NFL ask scopes Falcons; MLB/NBA stay distinct", () => {
+  const nfl = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.equal(nfl?.sport, "nfl");
+  assert.ok(nfl?.matchTokens.includes("falcons"));
+  assert.equal(coachAskTeamScope("5 leg Atlanta MLB")?.sport, "mlb");
+  assert.equal(coachAskTeamScope("5 leg Atlanta NBA")?.sport, "nba");
+  assert.equal(coachAskTeamScope("5 leg Atlanta"), null);
+});
