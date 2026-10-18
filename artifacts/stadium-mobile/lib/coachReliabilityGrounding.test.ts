@@ -182,3 +182,213 @@ test("valid parse + team matches neither => mismatch", () => {
     true,
   );
 });
+
+test("MLB Rays @ Guardians TB/CLE/TBR are grounded (greenfield false-positive fix)", () => {
+  for (const teamAbbr of ["TB", "CLE", "TBR"] as const) {
+    assert.equal(
+      pickHasPlayerGameGroundingMismatch({
+        game: "Rays @ Guardians",
+        teamAbbr,
+        player: "Junior Caminero",
+        isProp: true,
+        market: "Hits",
+        propMarketKey: "batter_hits",
+        sport: "mlb",
+      }),
+      false,
+      `expected ${teamAbbr} grounded on Rays @ Guardians`,
+    );
+  }
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Tampa Bay Rays @ Cleveland Guardians",
+      teamAbbr: "TBR",
+      player: "Jose Ramirez",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+});
+
+test("full 6/6 ticket still alerts when one leg is a real MLB mismatch", () => {
+  const picks = [
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "A",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "CLE",
+      player: "B",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "NYY",
+      player: "Aaron Judge",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "C",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "CLE",
+      player: "D",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+    {
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "E",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    },
+  ];
+  const g = evaluateReturnedPicksGrounding(picks);
+  assert.equal(g.hasMismatch, true);
+  assert.equal(g.mismatchCount, 1);
+  assert.equal(g.affectedGame, "Rays @ Guardians");
+});
+
+test("NFL Tampa Bay Buccaneers TB grounds; MLB sport does not treat Bucs as Rays", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Tampa Bay Buccaneers @ Atlanta Falcons",
+      teamAbbr: "TB",
+      player: "Baker Mayfield",
+      isProp: true,
+      market: "Pass Yds",
+      propMarketKey: "player_pass_yds",
+      sport: "nfl",
+    }),
+    false,
+  );
+  // Explicit MLB sport: TB nick map is Rays-only — Buccaneers label is a mismatch.
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Tampa Bay Buccaneers @ Atlanta Falcons",
+      teamAbbr: "TB",
+      player: "Junior Caminero",
+      isProp: true,
+      market: "Hits",
+      propMarketKey: "batter_hits",
+      sport: "mlb",
+    }),
+    true,
+  );
+  // Legitimate Rays (TBR) stay grounded on MLB labels — never bucs-token path.
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Rays @ Guardians",
+      teamAbbr: "TBR",
+      player: "Junior Caminero",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+});
+
+test("legitimate doubleheader labels both ground TB/CLE (startsAt is identity, not grounding)", () => {
+  for (const game of [
+    "Rays @ Guardians",
+    "Tampa Bay Rays @ Cleveland Guardians",
+  ] as const) {
+    for (const teamAbbr of ["TB", "TBR", "CLE"] as const) {
+      assert.equal(
+        pickHasPlayerGameGroundingMismatch({
+          game,
+          teamAbbr,
+          player: "DH Player",
+          isProp: true,
+          market: "Hits",
+          sport: "mlb",
+        }),
+        false,
+        `${teamAbbr} should ground on ${game}`,
+      );
+    }
+  }
+});
+
+test("wrong-game athlete is a verified mismatch; unknown identity is not", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Rays @ Guardians",
+      teamAbbr: "NYY",
+      player: "Aaron Judge",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    true,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Rays @ Guardians",
+      teamAbbr: "",
+      player: "Mystery",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Rays @ Guardians",
+      teamAbbr: null,
+      player: "Mystery",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+});
+
+test("formatting-only player name difference is not a grounding mismatch", () => {
+  // Gate keys off teamAbbr ↔ game sides, not display-name spelling.
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Rays @ Guardians",
+      teamAbbr: "TB",
+      player: "J. Caminero",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Tampa Bay Rays @ Cleveland Guardians",
+      teamAbbr: "TBR",
+      player: "Junior  Caminero",
+      isProp: true,
+      market: "Hits",
+      sport: "mlb",
+    }),
+    false,
+  );
+});
