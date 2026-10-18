@@ -370,6 +370,7 @@ async function checkPlayerProps(
   } catch {
     /* keep sentinel */
   }
+  // eventId-only is valid: props route resolves ESPN team ids authoritatively.
   const propsUrl = `${apiBase(env)}/api/sports/props?sport=nfl&eventId=${encodeURIComponent(eventId)}`;
   const { res, latencyMs, error } = await timedFetch(propsUrl, undefined, fetchFn, 45_000);
   if (!res) {

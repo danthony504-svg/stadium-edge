@@ -1163,6 +1163,8 @@ router.post("/chat", async (req, res): Promise<void> => {
                   await Promise.all(
                     idsToFetch.map(async (eventId) => {
                       try {
+                        // Team ids optional: /sports/props resolves ESPN home/away
+                        // authoritatively (propEventTeamIdentity) before the gate.
                         const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
                         if (!propsRes.ok) return;
                         const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number; alt?: boolean; startsAt?: string }> };
@@ -1321,6 +1323,8 @@ router.post("/chat", async (req, res): Promise<void> => {
               await Promise.all(
                 idsToFetch.map(async (eventId) => {
                   try {
+                    // Team ids optional: /sports/props resolves ESPN home/away
+                    // authoritatively (propEventTeamIdentity) before the gate.
                     const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
                     if (!propsRes.ok) return;
                     const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number; alt?: boolean; startsAt?: string }> };

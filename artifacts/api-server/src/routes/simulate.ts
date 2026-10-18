@@ -390,6 +390,7 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
 
   const baseUrl = apiBaseFromReq(req);
   try {
+    // /sports/props validates ESPN matchup ids via propEventTeamIdentity before gating.
     const propsUrl = `${baseUrl}/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`;
     const pr = await fetch(propsUrl);
     if (!pr.ok) {
