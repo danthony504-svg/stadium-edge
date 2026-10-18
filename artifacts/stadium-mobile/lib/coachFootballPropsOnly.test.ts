@@ -10,6 +10,7 @@ import {
   selectFootballPropsOnlyFromPicks,
   shouldBuildFootballPropsOnlyTicket,
   stageFootballPropsOnlyLegs,
+  takePropsOnlyStageAudit,
   propsOnlyPerGameCeiling,
 } from "./coachFootballPropsOnly.ts";
 import {
@@ -810,6 +811,8 @@ test("phone 7-leg thin slate: 1 game with 7 odds-cleared props stages all 7", ()
   const staged = stageFootballPropsOnlyLegs(scored, 7);
   assert.equal(staged.length, 7, "thin 1-game slate must fill 7 props-only legs");
   assert.ok(staged.every((p) => p.propsOnlyTicket === true));
+  const audit = takePropsOnlyStageAudit();
+  assert.equal(audit?.seated, staged.length, "stage audit must match delivered ticket");
 });
 
 test("multi-game board: do not stack the same market+side on one game first", () => {
