@@ -83,17 +83,120 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
   return askIsCollegeFootballOnly(text);
 }
 
+/** Neutral label when sport identity is mixed/unknown — never invent "football". */
+export const PROPS_ONLY_NEUTRAL_SPORT_LABEL = "eligible";
+
+/** Canonical sport id → user-facing props-only note label. */
+const PROPS_ONLY_SPORT_ID_LABELS: Record<string, string> = {
+  nfl: "NFL",
+  ncaaf: "college football",
+  nba: "NBA",
+  wnba: "WNBA",
+  ncaab: "college basketball",
+  mlb: "MLB",
+  nhl: "NHL",
+  soccer: "soccer",
+  tennis: "tennis",
+  ufc: "UFC",
+};
+
+export type PropsOnlySportLabelOpts = {
+  /** Immutable ask/board sports (preferred over ask text). */
+  allowedSports?: readonly string[] | null;
+  /** failDiag.sports counts — singleton preferred when decisive. */
+  failDiagSports?: Record<string, number> | null;
+};
+
+function normalizePropsOnlySportId(raw: string | null | undefined): string {
+  const s = String(raw ?? "")
+    .toLowerCase()
+    .trim();
+  if (!s) return "";
+  if (s === "cfb" || s === "college-football" || s.includes("americanfootball_ncaaf")) {
+    return "ncaaf";
+  }
+  if (s.includes("americanfootball_nfl")) return "nfl";
+  if (s === "cfb_basketball" || s === "cbb") return "ncaab";
+  return s;
+}
+
+function labelForPropsOnlySportId(id: string): string | null {
+  return PROPS_ONLY_SPORT_ID_LABELS[id] ?? null;
+}
+
+/**
+ * Prefer a single decisive sport from failDiag counts, else from allowedSports.
+ * Mixed / empty → null (caller falls back to ask text or neutral).
+ */
+export function propsOnlyAuthoritativeSportId(opts?: PropsOnlySportLabelOpts): string | null {
+  const counts = opts?.failDiagSports;
+  if (counts && typeof counts === "object") {
+    const positive = Object.entries(counts)
+      .map(([k, v]) => [normalizePropsOnlySportId(k), Number(v)] as const)
+      .filter(([k, v]) => !!k && Number.isFinite(v) && v > 0)
+      .sort((a, b) => b[1] - a[1]);
+    if (positive.length === 1) return positive[0]![0];
+    if (positive.length > 1) {
+      // Clear singleton winner (≥2× next) still wins; otherwise mixed.
+      if (positive[0]![1] >= positive[1]![1] * 2) return positive[0]![0];
+      return null;
+    }
+  }
+  const allowed = [
+    ...new Set(
+      (opts?.allowedSports ?? [])
+        .map((s) => normalizePropsOnlySportId(s))
+        .filter(Boolean),
+    ),
+  ];
+  if (allowed.length === 1) return allowed[0]!;
+  return null;
+}
+
 /**
  * Display sport label for props-only empty/short terminal notes.
  *
+ * Prefer authoritative allowedSports / failDiag.sports over ask-text guessing.
  * Must NOT use askAllowsNcaafPlayerProps — that flag means "allow CFB player
- * prop rows in the pool" under college/mixed-football framing, and must not
- * drive user-facing sport wording. Inferring "college football" from that
- * shared flag mislabels NFL shortfalls.
+ * prop rows in the pool" and must not drive user-facing sport wording.
+ * Unknown / mixed scopes use neutral "eligible" — never invent "football".
  */
-export function propsOnlySportLabelFromAsk(text?: string | null): string {
+export function propsOnlySportLabelFromAsk(
+  text?: string | null,
+  opts?: PropsOnlySportLabelOpts,
+): string {
+  const authoritative = propsOnlyAuthoritativeSportId(opts);
+  if (authoritative) {
+    return labelForPropsOnlySportId(authoritative) ?? PROPS_ONLY_NEUTRAL_SPORT_LABEL;
+  }
+  // Mixed authoritative scope (multiple leagues in belt or failDiag) → neutral.
+  const allowedCount = new Set(
+    (opts?.allowedSports ?? [])
+      .map((s) => normalizePropsOnlySportId(s))
+      .filter(Boolean),
+  ).size;
+  const diagKeys = opts?.failDiagSports
+    ? Object.entries(opts.failDiagSports).filter(
+        ([k, v]) => normalizePropsOnlySportId(k) && Number(v) > 0,
+      ).length
+    : 0;
+  if (allowedCount > 1 || diagKeys > 1) return PROPS_ONLY_NEUTRAL_SPORT_LABEL;
+
   const t = String(text ?? "").toLowerCase();
-  if (!t) return "football";
+  if (!t) return PROPS_ONLY_NEUTRAL_SPORT_LABEL;
+
+  // Named non-football leagues before football defaults.
+  if (/\bmlb\b|\bbaseball\b/.test(t)) return "MLB";
+  if (/\bwnba\b/.test(t)) return "WNBA";
+  if (/\bnba\b/.test(t)) return "NBA";
+  if (/\bncaab\b|\bcbb\b|\bcollege\s+basketball\b/.test(t)) {
+    return "college basketball";
+  }
+  if (/\bnhl\b|\bhockey\b/.test(t)) return "NHL";
+  if (/\bsoccer\b|\bfutbol\b|\bepl\b|\bmls\b|\buefa\b/.test(t)) return "soccer";
+  if (/\btennis\b|\batp\b|\bwta\b/.test(t)) return "tennis";
+  if (/\bufc\b|\bmma\b/.test(t)) return "UFC";
+
   if (askIsCollegeFootballOnly(t)) return "college football";
   // Explicit NFL without college/NCAAF tokens → NFL (not generic "football").
   if (
@@ -102,7 +205,16 @@ export function propsOnlySportLabelFromAsk(text?: string | null): string {
   ) {
     return "NFL";
   }
-  return "football";
+  // Bare "football" (no other league) — only then use football wording.
+  if (
+    /\bfootball\b/.test(t) &&
+    !/\bmlb\b|\bnba\b|\bwnba\b|\bnhl\b|\bsoccer\b|\btennis\b|\bufc\b|\bmma\b|\bncaab\b|\bcbb\b|\bbaseball\b|\bhockey\b/.test(
+      t,
+    )
+  ) {
+    return "football";
+  }
+  return PROPS_ONLY_NEUTRAL_SPORT_LABEL;
 }
 
 /**

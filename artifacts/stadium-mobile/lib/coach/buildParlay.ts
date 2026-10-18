@@ -882,7 +882,10 @@ export async function buildCoachParlay(opts: {
                 })
               : `Staged ${picks.length} matching real lines for the requested market.`;
         } else {
-          const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText);
+          const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText, {
+            allowedSports: askSportScope.allowedSports,
+            failDiagSports: propsFailDiag?.sports,
+          });
           const recoveryGraded = {
             preferred: built.propLegsScored,
             skill: recovered.propLegsScored,
@@ -967,7 +970,10 @@ export async function buildCoachParlay(opts: {
       propsOnly: true,
       picks,
     });
-    const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText);
+    const propsSportLabel = propsOnlySportLabelFromAsk(opts.askText, {
+      allowedSports: askSportScope.allowedSports,
+      failDiagSports: propsFailDiag?.sports,
+    });
     // Empty or short ticket: one terminal diagnosis from failDiag
     // (partial/recovery/final agree). Locked-market shortfall copy stays
     // authoritative for explicit market locks.

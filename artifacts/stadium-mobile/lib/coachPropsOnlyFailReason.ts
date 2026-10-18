@@ -5,6 +5,8 @@
  * WHY (pool / candidates / history / grade / odds gate) — not a bare quality bar.
  */
 
+import { PROPS_ONLY_NEUTRAL_SPORT_LABEL } from "./boardScanPropDelivery.ts";
+
 export type PropsOnlyFailCode =
   | "PROPS_ONLY_POOL_EMPTY"
   | "PROPS_ONLY_NO_CANDIDATES"
@@ -316,7 +318,9 @@ export function propsOnlyTerminalEmptyNote(
   opts?: PropsOnlyTerminalNoteOpts,
 ): string {
   const floor = opts?.confidenceFloor ?? COACH_SIM_MIN_CONFIDENCE;
-  const sport = (opts?.sportLabel ?? "football").trim() || "football";
+  const sport =
+    (opts?.sportLabel ?? PROPS_ONLY_NEUTRAL_SPORT_LABEL).trim() ||
+    PROPS_ONLY_NEUTRAL_SPORT_LABEL;
 
   if (isPropsOnlyConfidenceTerminal(diag)) {
     return propsOnlyFailNote(
@@ -364,7 +368,9 @@ export function propsOnlyTerminalShortNote(
 ): string {
   if (!isShortTicket(diag)) return "";
   const floor = opts?.confidenceFloor ?? COACH_SIM_MIN_CONFIDENCE;
-  const sport = (opts?.sportLabel ?? "football").trim() || "football";
+  const sport =
+    (opts?.sportLabel ?? PROPS_ONLY_NEUTRAL_SPORT_LABEL).trim() ||
+    PROPS_ONLY_NEUTRAL_SPORT_LABEL;
   const n = diag.staged;
   const target = diag.target;
   const foundLead = `I found ${n} qualified ${sport} player props for your ${target}-leg request.`;

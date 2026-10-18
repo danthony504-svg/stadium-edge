@@ -21,6 +21,8 @@ import {
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
   propsOnlySportLabelFromAsk,
+  propsOnlyAuthoritativeSportId,
+  PROPS_ONLY_NEUTRAL_SPORT_LABEL,
   fillReservedPeriodSlots,
   skillPropFamily,
   skillPropRank,
@@ -34,6 +36,10 @@ import {
 } from "./boardScanScope.ts";
 import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { coachShortfallNote } from "./coach/session.ts";
+import {
+  propsOnlyTerminalEmptyNote,
+  propsOnlyTerminalShortNote,
+} from "./coachPropsOnlyFailReason.ts";
 import {
   exactMarket10kProvenance,
   withExactMarket10kProvenance,
@@ -157,7 +163,189 @@ test("propsOnlySportLabelFromAsk: NFL asks are NFL, not college football", () =>
   assert.equal(propsOnlySportLabelFromAsk("5 leg ncaaf player props"), "college football");
   assert.equal(propsOnlySportLabelFromAsk("8 leg college"), "college football");
   assert.equal(propsOnlySportLabelFromAsk("5 leg football player props"), "football");
-  assert.equal(propsOnlySportLabelFromAsk("5 leg player props"), "football");
+  // Bare "player props" has no sport identity — never invent football.
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg player props"),
+    PROPS_ONLY_NEUTRAL_SPORT_LABEL,
+  );
+});
+
+test("propsOnlySportLabelFromAsk: every supported sport + neutral unknown/mixed", () => {
+  assert.equal(propsOnlySportLabelFromAsk("5 leg MLB player props"), "MLB");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg baseball player props"), "MLB");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg NBA player props"), "NBA");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg WNBA player props"), "WNBA");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg NCAAB player props"), "college basketball");
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg college basketball player props"),
+    "college basketball",
+  );
+  assert.equal(propsOnlySportLabelFromAsk("5 leg NHL player props"), "NHL");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg hockey player props"), "NHL");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg soccer player props"), "soccer");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg MLS player props"), "soccer");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg tennis player props"), "tennis");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg UFC fighter props"), "UFC");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg MMA props"), "UFC");
+  assert.equal(propsOnlySportLabelFromAsk(""), PROPS_ONLY_NEUTRAL_SPORT_LABEL);
+  assert.equal(propsOnlySportLabelFromAsk("5 leg props"), PROPS_ONLY_NEUTRAL_SPORT_LABEL);
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg NFL and MLB player props", {
+      allowedSports: ["nfl", "mlb"],
+    }),
+    PROPS_ONLY_NEUTRAL_SPORT_LABEL,
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("stale NFL ask", {
+      failDiagSports: { nfl: 10, mlb: 10 },
+    }),
+    PROPS_ONLY_NEUTRAL_SPORT_LABEL,
+  );
+});
+
+test("propsOnlySportLabelFromAsk: authoritative allowedSports / failDiag beat ask text", () => {
+  // Phone incident: NFL → Anytime TD → MLB consecutive; MLB pool must label MLB
+  // even if ask text still mentions football/NFL from prior turns.
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg NFL player props anytime TD", {
+      allowedSports: ["mlb"],
+      failDiagSports: { mlb: 40 },
+    }),
+    "MLB",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("build me 5 anytime touchdowns", {
+      allowedSports: ["mlb"],
+    }),
+    "MLB",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("football player props", {
+      failDiagSports: { mlb: 22 },
+    }),
+    "MLB",
+  );
+  // failDiag singleton wins over mixed ask text.
+  assert.equal(
+    propsOnlySportLabelFromAsk("NFL NBA props", {
+      failDiagSports: { nba: 30 },
+    }),
+    "NBA",
+  );
+  // allowedSports singleton when failDiag empty.
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["nhl"] }),
+    "NHL",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["soccer"] }),
+    "soccer",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["tennis"] }),
+    "tennis",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["ufc"] }),
+    "UFC",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["wnba"] }),
+    "WNBA",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["ncaab"] }),
+    "college basketball",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["ncaaf"] }),
+    "college football",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("player props", { allowedSports: ["nfl"] }),
+    "NFL",
+  );
+  // Clear failDiag winner (≥2× next) still authoritative.
+  assert.equal(
+    propsOnlyAuthoritativeSportId({
+      failDiagSports: { mlb: 40, nfl: 5 },
+    }),
+    "mlb",
+  );
+  assert.equal(
+    propsOnlySportLabelFromAsk("NFL props", {
+      failDiagSports: { mlb: 40, nfl: 5 },
+    }),
+    "MLB",
+  );
+});
+
+test("NFL → Anytime TD → MLB consecutive: shortfall note never says football", () => {
+  const mlbLabel = propsOnlySportLabelFromAsk("5 leg NFL anytime TD", {
+    allowedSports: ["mlb"],
+    failDiagSports: { mlb: 48 },
+  });
+  assert.equal(mlbLabel, "MLB");
+  const short = propsOnlyTerminalShortNote(
+    {
+      code: "PROPS_ONLY_STAGED_SHORT",
+      target: 5,
+      pool: 80,
+      athleteLinked: 60,
+      candidates: 40,
+      historyLoaded: 40,
+      graded: 20,
+      bestEvSides: 14,
+      oddsCleared: 14,
+      staged: 3,
+      uniqueGames: 3,
+      nullReasons: {},
+      sports: { mlb: 48 },
+      stageRejects: {
+        qualifyFail: { confidence_floor: 11 },
+        rareFail: 0,
+        anytimeFail: 0,
+        ladderDedupe: 0,
+        perGameCap: 0,
+        marketSideCap: 0,
+        rareFamilyCap: 0,
+      },
+    },
+    { sportLabel: mlbLabel, confidenceFloor: 52 },
+  );
+  assert.match(short, /I found 3 qualified MLB player props for your 5-leg request/);
+  assert.doesNotMatch(short, /football/i);
+  assert.doesNotMatch(short, /\bNFL\b/);
+  assert.match(short, /52% confidence floor/);
+
+  const empty = propsOnlyTerminalEmptyNote(
+    {
+      code: "PROPS_ONLY_CONFIDENCE_GATE",
+      target: 5,
+      pool: 80,
+      athleteLinked: 60,
+      candidates: 40,
+      historyLoaded: 40,
+      graded: 20,
+      bestEvSides: 14,
+      oddsCleared: 14,
+      staged: 0,
+      nullReasons: {},
+      sports: { mlb: 48 },
+      stageRejects: {
+        qualifyFail: { confidence_floor: 14 },
+        rareFail: 0,
+        anytimeFail: 0,
+        ladderDedupe: 0,
+        perGameCap: 0,
+        marketSideCap: 0,
+        rareFamilyCap: 0,
+      },
+    },
+    { sportLabel: mlbLabel, confidenceFloor: 52 },
+  );
+  assert.match(empty, /I found 14 MLB player props within the allowed odds range/);
+  assert.doesNotMatch(empty, /football/i);
 });
 
 test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {
