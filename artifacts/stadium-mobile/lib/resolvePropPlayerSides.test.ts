@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolvePropPlayerSides } from "./resolvePropPlayerSides.ts";
+import {
+  normalizeTeamAbbr,
+  resolvePropPlayerSides,
+} from "./resolvePropPlayerSides.ts";
 
 test("resolves from full player team name without game-log history", () => {
   const r = resolvePropPlayerSides({
@@ -50,4 +53,23 @@ test("ambiguous / missing identity stays undefined (never guesses)", () => {
   });
   assert.equal(r.teamName, undefined);
   assert.equal(r.oppName, undefined);
+});
+
+test("TBR alias normalizes to TB and resolves onto Rays", () => {
+  assert.equal(normalizeTeamAbbr("TBR"), "TB");
+  assert.equal(normalizeTeamAbbr("tbr"), "TB");
+  const nick = resolvePropPlayerSides({
+    awayName: "Rays",
+    homeName: "Guardians",
+    teamAbbr: "TBR",
+  });
+  assert.equal(nick.teamName, "Rays");
+  assert.equal(nick.oppName, "Guardians");
+  const full = resolvePropPlayerSides({
+    awayName: "Tampa Bay Rays",
+    homeName: "Cleveland Guardians",
+    teamAbbr: "TBR",
+  });
+  assert.equal(full.teamName, "Tampa Bay Rays");
+  assert.equal(full.oppName, "Cleveland Guardians");
 });

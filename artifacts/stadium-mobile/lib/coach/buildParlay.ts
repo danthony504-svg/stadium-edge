@@ -53,6 +53,7 @@ import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
+import { applyDeliveryGroundingGate } from "@/lib/coachDeliveryGrounding";
 import {
   BLOCKED_UNVALIDATED_MARKET_REASON,
   ncaafGameLineAskIsP0Blocked,
@@ -785,6 +786,15 @@ export async function buildCoachParlay(opts: {
     // or an explicitly excluded matchup.
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
     picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
+    // Delivery grounding — remove proven player/team/game mismatches; refill
+    // only from qualified leftovers. Unknown identity stays on the ticket.
+    // Props-only has no leftover pool → strip + honest shortfall (no refill).
+    const deliveryGrounding = applyDeliveryGroundingGate({
+      picks,
+      qualifiedCandidates: [],
+      target,
+    });
+    picks = deliveryGrounding.picks;
     const shortfall = resolveCoachParlayShortfallLead({
       askText: opts.askText ?? "",
       requestedLegs: target,
@@ -1132,6 +1142,17 @@ export async function buildCoachParlay(opts: {
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
   picks = filterPicksByAllowedSports(picks, askSportScope, inputs.espnGames);
+  // Delivery grounding — after belts, before shortfall + reliability report.
+  // ALT/backfill/recovery/top-up cannot bypass: this is the last seat check.
+  const deliveryGrounding = applyDeliveryGroundingGate({
+    picks,
+    qualifiedCandidates: [
+      ...(scan?.qualifiedCandidates ?? []),
+      ...(latest?.qualifiedCandidates ?? []),
+    ],
+    target,
+  });
+  picks = deliveryGrounding.picks;
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
