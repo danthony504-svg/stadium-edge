@@ -86,6 +86,7 @@ export function NavMenu() {
 
   const go = (route: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
+    if (tourFocus) tourFocus.onSkip();
     setOpen(false);
     setTourMenuFocus(null);
     const premiumId = premiumFeatureForRoute(route);
