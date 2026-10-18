@@ -46,7 +46,7 @@ function lacksPlayerTeamEvidence(p: ParsedPick): boolean {
   const prop = p.isProp === true ||
     !!String(p.propMarketKey ?? "").trim() ||
     !!String(p.athleteId ?? "").trim();
-  return prop && !String(p.teamAbbr ?? "").trim();
+  return prop && !!String(p.game ?? "").trim() && !!String(p.player ?? "").trim() && !String(p.teamAbbr ?? "").trim();
 }
 
 function unsafePlayerGameSeat(p: ParsedPick): boolean {
