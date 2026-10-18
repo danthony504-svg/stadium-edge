@@ -6,6 +6,7 @@ import { aggregatePropRowsWithAltTrim } from "../lib/propAltTrim.js";
 import {
   finalizePropIdentityDiag,
   resolvePropEventTeamIdentity,
+  stampIdentityFailDiag,
   type PropEventTeamIdentityDiag,
 } from "../lib/propEventTeamIdentity.js";
 
@@ -958,12 +959,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     });
     identityDiag = identity.diag;
     if (!identity.ok) {
-      identityDiag = {
-        ...identity.diag,
-        preGateCount: aggregatedRows.length,
-        postGateCount: 0,
-        rejectedUnassignedOrForeign: null,
-      };
+      identityDiag = stampIdentityFailDiag(
+        identity.diag,
+        aggregatedRows.length,
+      );
       req.log.warn(
         {
           sport,

@@ -135,6 +135,9 @@ async function warmSport(
     const q = new URLSearchParams({ sport, eventId: g.id });
     q.set("home", g.homeTeam);
     q.set("away", g.awayTeam);
+    // Pass startsAt so MLB DH / same-day identity resolve is not ambiguous
+    // and cannot null-poison the prop-event-team-identity cache.
+    if (g.startsAt) q.set("startsAt", g.startsAt);
     if (g.homeTeamId) q.set("homeTeamId", g.homeTeamId);
     if (g.awayTeamId) q.set("awayTeamId", g.awayTeamId);
     const r = await warmGet<unknown>(`/sports/props?${q.toString()}`);

@@ -246,6 +246,7 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
   const propGames = await Promise.all(
     propCands.map(async ({ sport, g }): Promise<PropGame> => {
       const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
+      if (g.commenceTime) q.set("startsAt", g.commenceTime);
       const label = `${g.awayTeam} @ ${g.homeTeam}`;
       const ids: CoachGameTeamIds | null = resolveCoachGameTeamIds(label, sport, teamIdMap);
       if (ids?.homeTeamId) q.set("homeTeamId", ids.homeTeamId);

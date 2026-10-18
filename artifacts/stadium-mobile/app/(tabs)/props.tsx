@@ -201,6 +201,7 @@ async function fetchAllProps(
             away: g.awayTeam,
             homeTeamId: ids?.homeTeamId,
             awayTeamId: ids?.awayTeamId,
+            startsAt: g.commenceTime,
           },
           signal,
         );

@@ -5,11 +5,16 @@ import { propBelongsToGameTeams } from "../src/lib/propGameTeamGate.ts";
 import {
   finalizePropIdentityDiag,
   matchEspnGameForOddsEvent,
+  normalizePropIdentityStartsAt,
+  propEventTeamIdentityCacheKey,
   reconcileCallerTeamIds,
+  resolvePropEventTeamIdentity,
   resolvePropEventTeamIdentityFromGames,
+  stampIdentityFailDiag,
   type PropEspnGameRow,
   type PropEventTeamIdentityDiag,
 } from "../src/lib/propEventTeamIdentity.ts";
+import { cacheGet } from "../src/lib/store.ts";
 
 const HOU_JAX: PropEspnGameRow = {
   id: "401772833",
@@ -411,4 +416,385 @@ test("HOU@JAX regression contract: resolved ids are ESPN 30/34 (719-prop path)",
     { home: r.homeTeamId, away: r.awayTeamId, ok: r.ok },
     { home: "30", away: "34", ok: true },
   );
+});
+
+// ---------------------------------------------------------------------------
+// PR-C: MLB event identity cache + startsAt (cold/warm, DH, poison recovery)
+// ---------------------------------------------------------------------------
+
+const MLB_TB_CLE_G1: PropEspnGameRow = {
+  id: "401930514",
+  sport: "mlb",
+  homeTeam: "Cleveland Guardians",
+  awayTeam: "Tampa Bay Rays",
+  homeTeamId: "5",
+  awayTeamId: "30",
+  homeAbbr: "CLE",
+  awayAbbr: "TB",
+  startsAt: "2026-10-18T17:10:00Z",
+};
+
+const MLB_TB_CLE_G2: PropEspnGameRow = {
+  id: "401930515",
+  sport: "mlb",
+  homeTeam: "Cleveland Guardians",
+  awayTeam: "Tampa Bay Rays",
+  homeTeamId: "5",
+  awayTeamId: "30",
+  homeAbbr: "CLE",
+  awayAbbr: "TB",
+  startsAt: "2026-10-18T23:10:00Z",
+};
+
+const MLB_SINGLE: PropEspnGameRow = {
+  id: "401930600",
+  sport: "mlb",
+  homeTeam: "Los Angeles Dodgers",
+  awayTeam: "San Diego Padres",
+  homeTeamId: "19",
+  awayTeamId: "25",
+  homeAbbr: "LAD",
+  awayAbbr: "SD",
+  startsAt: "2026-10-19T02:10:00Z",
+};
+
+test("normalizePropIdentityStartsAt buckets to ISO minute; missing → _", () => {
+  assert.equal(normalizePropIdentityStartsAt(null), "_");
+  assert.equal(normalizePropIdentityStartsAt(""), "_");
+  assert.equal(normalizePropIdentityStartsAt("not-a-date"), "_");
+  assert.equal(
+    normalizePropIdentityStartsAt("2026-10-18T23:10:44.123Z"),
+    "2026-10-18T23:10",
+  );
+  assert.equal(
+    normalizePropIdentityStartsAt("2026-10-18T23:10:00Z"),
+    normalizePropIdentityStartsAt("2026-10-18T23:10:59Z"),
+  );
+});
+
+test("v2 cache key includes sport, oddsEventId, and startsAt norm", () => {
+  const k = propEventTeamIdentityCacheKey(
+    "mlb",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "2026-10-18T23:10:00Z",
+  );
+  assert.equal(
+    k,
+    "prop-event-team-identity:v2:mlb:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:2026-10-18T23:10",
+  );
+  const missing = propEventTeamIdentityCacheKey(
+    "mlb",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    null,
+  );
+  assert.match(missing, /:_\s*$|:_\b/);
+  assert.ok(missing.endsWith(":_"));
+});
+
+test("MLB single game resolves without startsAt when unique", () => {
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "11111111111111111111111111111111",
+      homeTeam: "Los Angeles Dodgers",
+      awayTeam: "San Diego Padres",
+    },
+    [MLB_SINGLE, MLB_TB_CLE_G1],
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.espnEventId, "401930600");
+  assert.equal(r.homeTeamId, "19");
+  assert.equal(r.awayTeamId, "25");
+});
+
+test("M1: dual-game TB@CLE + commenceTime → ESPN 401930515", () => {
+  const hit = matchEspnGameForOddsEvent([MLB_TB_CLE_G1, MLB_TB_CLE_G2], {
+    sport: "mlb",
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    startsAt: "2026-10-18T23:15:00Z",
+  });
+  assert.ok(hit);
+  assert.equal(hit!.game.id, "401930515");
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "22222222222222222222222222222222",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T23:15:00Z",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.espnEventId, "401930515");
+  assert.equal(r.homeTeamId, "5");
+  assert.equal(r.awayTeamId, "30");
+});
+
+test("two events identical team names different startsAt → distinct ESPN ids", () => {
+  const a = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "33333333333333333333333333333333",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T17:10:00Z",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  const b = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "44444444444444444444444444444444",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T23:10:00Z",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  assert.equal(a.ok, true);
+  assert.equal(b.ok, true);
+  assert.equal(a.espnEventId, "401930514");
+  assert.equal(b.espnEventId, "401930515");
+  assert.notEqual(a.espnEventId, b.espnEventId);
+});
+
+test("missing startsAt on doubleheader → fail closed (no guess)", () => {
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "55555555555555555555555555555555",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.diag.status, "unresolved");
+  assert.equal(r.espnEventId, null);
+});
+
+test("M2: resolve without startsAt then with startsAt is not null-poisoned", async () => {
+  const oddsEventId = "66666666666666666666666666666666";
+  const games = [MLB_TB_CLE_G1, MLB_TB_CLE_G2];
+  const coldMiss = await resolvePropEventTeamIdentity({
+    sport: "mlb",
+    oddsEventId,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    // no startsAt — ambiguous DH
+    espnGames: games,
+  });
+  assert.equal(coldMiss.ok, false);
+
+  // Miss must NOT write a null cache entry under the "_" key.
+  const missKey = propEventTeamIdentityCacheKey("mlb", oddsEventId, null);
+  assert.equal(await cacheGet(missKey), undefined);
+
+  const recovered = await resolvePropEventTeamIdentity({
+    sport: "mlb",
+    oddsEventId,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    startsAt: "2026-10-18T23:10:00Z",
+    espnGames: games,
+  });
+  assert.equal(recovered.ok, true);
+  assert.equal(recovered.espnEventId, "401930515");
+});
+
+test("cold vs warm cache parity for MLB DH slot", async () => {
+  const oddsEventId = "77777777777777777777777777777777";
+  const args = {
+    sport: "mlb",
+    oddsEventId,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    startsAt: "2026-10-18T17:10:00Z",
+    espnGames: [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  };
+  const cold = await resolvePropEventTeamIdentity(args);
+  const warm = await resolvePropEventTeamIdentity(args);
+  assert.equal(cold.ok, true);
+  assert.equal(warm.ok, true);
+  assert.deepEqual(
+    {
+      home: cold.homeTeamId,
+      away: cold.awayTeamId,
+      espn: cold.espnEventId,
+    },
+    {
+      home: warm.homeTeamId,
+      away: warm.awayTeamId,
+      espn: warm.espnEventId,
+    },
+  );
+  assert.equal(cold.espnEventId, "401930514");
+  const key = propEventTeamIdentityCacheKey(
+    "mlb",
+    oddsEventId,
+    args.startsAt,
+  );
+  const cached = await cacheGet<{ espnEventId: string; startsAtNorm: string }>(
+    key,
+  );
+  assert.ok(cached);
+  assert.equal(cached!.espnEventId, "401930514");
+  assert.equal(cached!.startsAtNorm, "2026-10-18T17:10");
+});
+
+test("stale cached identity: schedule startsAt change uses separate key", async () => {
+  const oddsEventId = "88888888888888888888888888888888";
+  const games = [MLB_TB_CLE_G1, MLB_TB_CLE_G2];
+  const first = await resolvePropEventTeamIdentity({
+    sport: "mlb",
+    oddsEventId,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    startsAt: "2026-10-18T17:10:00Z",
+    espnGames: games,
+  });
+  assert.equal(first.espnEventId, "401930514");
+
+  // Provider moved commenceTime to game 2 — new key, no stale G1 association.
+  const updated = await resolvePropEventTeamIdentity({
+    sport: "mlb",
+    oddsEventId,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    startsAt: "2026-10-18T23:10:00Z",
+    espnGames: games,
+  });
+  assert.equal(updated.ok, true);
+  assert.equal(updated.espnEventId, "401930515");
+});
+
+test("wrong-game athlete rejected by propGameTeamGate after identity resolve", () => {
+  // Correct TB@CLE ids are 5/30; foreign NYY athlete (10) must fail.
+  assert.equal(propBelongsToGameTeams("10", "5", "30"), false);
+  assert.equal(propBelongsToGameTeams("5", "5", "30"), true);
+  assert.equal(propBelongsToGameTeams("30", "5", "30"), true);
+  assert.equal(propBelongsToGameTeams(null, "5", "30"), false);
+});
+
+test("Odds vs ESPN event ids stay separated on resolve", () => {
+  const oddsEventId = "99999999999999999999999999999999";
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId,
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T23:10:00Z",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.diag.oddsEventId, oddsEventId);
+  assert.equal(r.espnEventId, "401930515");
+  assert.notEqual(r.diag.oddsEventId, r.espnEventId);
+});
+
+test("NFL/NCAAF isolation unchanged with MLB DH fixtures present", () => {
+  const pool = [...GAMES, MLB_TB_CLE_G1, MLB_TB_CLE_G2, MLB_SINGLE];
+  const nfl = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "nfl",
+      oddsEventId: "57418b2cf5aca558b3c98eafac1e264a",
+      homeTeam: "Jacksonville Jaguars",
+      awayTeam: "Houston Texans",
+      startsAt: "2026-10-18T13:30:00Z",
+    },
+    pool,
+  );
+  assert.equal(nfl.ok, true);
+  assert.equal(nfl.espnEventId, "401772833");
+  assert.equal(nfl.homeTeamId, "30");
+
+  const cross = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "nfl",
+      oddsEventId: "abababababababababababababababab",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T23:10:00Z",
+    },
+    pool,
+  );
+  assert.equal(cross.ok, false);
+});
+
+test("M3: preGate>0 & identity fail → identity_unresolved (not no_provider_props)", () => {
+  const base: PropEventTeamIdentityDiag = {
+    status: "unresolved",
+    reason: "no_authoritative_espn_match",
+    sport: "mlb",
+    oddsEventId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    espnEventId: null,
+    homeTeam: "Cleveland Guardians",
+    awayTeam: "Tampa Bay Rays",
+    homeTeamId: null,
+    awayTeamId: null,
+    callerHomeTeamId: null,
+    callerAwayTeamId: null,
+    source: null,
+    preGateCount: null,
+    postGateCount: null,
+    rejectedUnassignedOrForeign: null,
+  };
+  const stamped = stampIdentityFailDiag(base, 272);
+  assert.equal(stamped.status, "identity_unresolved");
+  assert.equal(stamped.preGateCount, 272);
+  assert.equal(stamped.postGateCount, 0);
+
+  const finalized = finalizePropIdentityDiag(base, {
+    preGateCount: 272,
+    postGateCount: 0,
+  });
+  assert.equal(finalized.status, "identity_unresolved");
+  assert.notEqual(finalized.status, "no_provider_props");
+
+  // Identity ok but provider empty stays no_provider_props.
+  const okEmpty = finalizePropIdentityDiag(
+    { ...base, status: "resolved", reason: "matched_via_full_name" },
+    { preGateCount: 0, postGateCount: 0 },
+  );
+  assert.equal(okEmpty.status, "no_provider_props");
+});
+
+test("valid MLB props survive gate when identity is authoritative", () => {
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "mlb",
+      oddsEventId: "acacacacacacacacacacacacacacacac",
+      homeTeam: "Cleveland Guardians",
+      awayTeam: "Tampa Bay Rays",
+      startsAt: "2026-10-18T23:10:00Z",
+    },
+    [MLB_TB_CLE_G1, MLB_TB_CLE_G2],
+  );
+  assert.equal(r.ok, true);
+  const home = r.homeTeamId!;
+  const away = r.awayTeamId!;
+  // Simulate provider rows: home/away athletes + foreign.
+  const pre = [
+    { playerTeamId: home },
+    { playerTeamId: away },
+    { playerTeamId: home },
+    { playerTeamId: "10" }, // NYY foreign
+    { playerTeamId: null },
+  ];
+  const post = pre.filter((p) =>
+    propBelongsToGameTeams(p.playerTeamId, home, away),
+  );
+  assert.equal(pre.length, 5);
+  assert.equal(post.length, 3);
+  const diag = finalizePropIdentityDiag(r.diag, {
+    preGateCount: pre.length,
+    postGateCount: post.length,
+  });
+  assert.equal(diag.status, "resolved");
+  assert.equal(diag.postGateCount, 3);
+  assert.equal(diag.rejectedUnassignedOrForeign, 2);
 });

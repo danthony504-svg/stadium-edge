@@ -326,7 +326,13 @@ export default function PropDetailScreen() {
       const g = odds.find((o) => `${o.awayTeam} @ ${o.homeTeam}` === game);
       if (!g) return null;
       const res = await getProps(
-        { sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam },
+        {
+          sport,
+          eventId: g.id,
+          home: g.homeTeam,
+          away: g.awayTeam,
+          startsAt: g.commenceTime,
+        },
         signal,
       );
       const match = res.props.find(

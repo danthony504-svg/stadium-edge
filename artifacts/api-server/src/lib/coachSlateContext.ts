@@ -230,6 +230,8 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
       home: espn.homeTeam,
       away: espn.awayTeam,
     });
+    // Odds commenceTime disambiguates MLB doubleheaders in propEventTeamIdentity.
+    if (g.commenceTime) q.set("startsAt", g.commenceTime);
     // Pass ESPN ids when known; /sports/props re-validates via propEventTeamIdentity.
     if (espn.homeTeamId) q.set("homeTeamId", espn.homeTeamId);
     if (espn.awayTeamId) q.set("awayTeamId", espn.awayTeamId);
