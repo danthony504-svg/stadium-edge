@@ -59,6 +59,7 @@ import {
   finalizeCoachRequestTiming,
   markCoachPhase,
   markCoachPending,
+  raceWithTimeoutAndAbort,
   type CoachRequestTiming,
 } from "@/lib/coach/coachRequestDeadline";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
@@ -1183,23 +1184,17 @@ export async function buildCoachParlay(opts: {
     requestId: coachRelRequestId,
   });
 
-  const timed = await Promise.race([
-    scanPromise.then((scan) => ({ scan, timedOut: false as const })),
-    new Promise<{ scan: null; timedOut: true }>((resolve) => {
-      // Remaining time only — never a fresh full budget after load.
-      const waitMs = Math.max(
-        0,
-        coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
-      );
-      const t = setTimeout(() => resolve({ scan: null, timedOut: true }), waitMs);
-      const onAbort = () => {
-        clearTimeout(t);
-        resolve({ scan: null, timedOut: true });
-      };
-      opts.signal.addEventListener("abort", onAbort, { once: true });
-      scanArm.signal.addEventListener("abort", onAbort, { once: true });
-    }),
-  ]);
+  // Remaining time only — never a fresh full budget after load.
+  const scanWaitMs = Math.max(
+    0,
+    coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+  );
+  const timed = await raceWithTimeoutAndAbort({
+    promise: scanPromise.then((scan) => ({ scan, timedOut: false as const })),
+    timeoutMs: scanWaitMs,
+    signals: [opts.signal, scanArm.signal],
+    onTimeout: () => ({ scan: null, timedOut: true as const }),
+  });
   scanArm.dispose();
   markCoachPhase(timing, "scan", Date.now() - scanStarted);
 
@@ -1229,20 +1224,12 @@ export async function buildCoachParlay(opts: {
           ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
           : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25))),
       );
-      const grace = await Promise.race([
-        scanPromise.then((s) => ({ scan: s })),
-        new Promise<{ scan: null }>((resolve) => {
-          const t = setTimeout(() => resolve({ scan: null }), graceMs);
-          opts.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(t);
-              resolve({ scan: null });
-            },
-            { once: true },
-          );
-        }),
-      ]);
+      const grace = await raceWithTimeoutAndAbort({
+        promise: scanPromise.then((s) => ({ scan: s as FullBoardScanResult | null })),
+        timeoutMs: graceMs,
+        signals: [opts.signal],
+        onTimeout: () => ({ scan: null as FullBoardScanResult | null }),
+      });
       if (grace.scan) scan = grace.scan;
       else scan = latest ?? scan;
     } else {
@@ -1255,17 +1242,19 @@ export async function buildCoachParlay(opts: {
       2_500,
       coachRemainingBudgetMs(requestStartedAtMs, budgetMs) || 2_500,
     );
-    scan = await Promise.race([
-      scanPromise.catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), drainMs)),
-    ]);
+    scan = await raceWithTimeoutAndAbort({
+      promise: scanPromise.catch(() => null),
+      timeoutMs: drainMs,
+      signals: [opts.signal],
+      onTimeout: () => null,
+    });
     if (!scan) scan = latest;
   }
 
-  // Finalization starts — mark so late scan completions cannot re-open limbo.
+  // Terminalize before finalization so late scan/onPartial cannot overwrite.
+  deliveryTerminalized = true;
   markCoachPending(timing, "finalization");
   const finalizationStarted = Date.now();
-  if (timed.timedOut) deliveryTerminalized = true;
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
