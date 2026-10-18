@@ -603,7 +603,6 @@ function HomeSportFeed({
   // soonest first) so any featured player is guaranteed to also appear when we
   // deep-link into the Props search. ESPN games only supply team ids/abbrs (for
   // headshots + team labels), matched by nickname.
-  const [tourReplayKey, setTourReplayKey] = useState(0);
   const featuredEnabled = PROPS_SPORTS.includes(sport);
   const featGames = useMemo(() => games.slice(0, 4), [games]);
 
@@ -1886,6 +1885,8 @@ export default function HomeScreen() {
   }, []);
 
   const featuredEnabled = PROPS_SPORTS.includes(sport);
+
+  const [tourReplayKey, setTourReplayKey] = useState(0);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
