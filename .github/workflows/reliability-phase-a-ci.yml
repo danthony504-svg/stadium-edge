@@ -19,6 +19,7 @@ on:
       - "artifacts/stadium-mobile/components/PickCard.tsx"
       - "artifacts/stadium-mobile/app/_layout.tsx"
       - "artifacts/stadium-mobile/components/FirstRunCoachTour.tsx"
+      - "artifacts/stadium-mobile/components/NavMenu.tsx"
       - "artifacts/stadium-mobile/lib/coachTourPlacement*"
       - "artifacts/stadium-mobile/app/(tabs)/index.tsx"
       - "artifacts/api-server/src/lib/reliability*"

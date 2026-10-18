@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
+import { BlurView } from "expo-blur";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
@@ -160,6 +161,9 @@ export function NavMenu() {
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
         <View style={{ flex: 1 }}>
+          {tourFocus ? (
+            <BlurView pointerEvents="none" intensity={65} tint="dark" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+          ) : null}
           <Pressable accessibilityLabel="Close navigation menu" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={close} />
           <View
             style={{
