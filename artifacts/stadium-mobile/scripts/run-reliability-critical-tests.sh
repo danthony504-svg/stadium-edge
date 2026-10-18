@@ -72,7 +72,8 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachFootballPropsOnly.test.ts \
     lib/coach/session.test.ts \
     lib/coach/scanCleanupContract.test.ts \
-    lib/coachAskTeamScope.test.ts
+    lib/coachAskTeamScope.test.ts \
+    lib/postedMarketCategories.test.ts
 )
 
 echo "Reliability critical tests PASSED."
