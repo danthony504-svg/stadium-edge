@@ -45,4 +45,12 @@ if ! rg -a -q "$EXPO_PUBLIC_GIT_COMMIT" "$BUNDLE"; then
 fi
 echo "$HASH" > dist/LAUNCH_HASH.txt
 echo "$EXPO_PUBLIC_GIT_COMMIT" > dist/BAKED_SHA.txt
-echo "Export ready. Publish with: eas update --channel preview --platform ios --skip-bundler --input-dir dist"
+echo "Export ready."
+echo ""
+echo "IMPORTANT: Hermes .hbc bytes are non-deterministic across clean exports of the"
+echo "same source SHA. openssl launch_hash will change if you re-export. After this"
+echo "hash is authorized, freeze dist/ (e.g. copy to .ota-publish-input-*/) and"
+echo "publish ONLY that frozen directory with --skip-bundler — never re-bundle."
+echo ""
+echo "Verify frozen input: bash scripts/verify-frozen-ota-publish-input.sh <dir> --expect-sha \$EXPO_PUBLIC_GIT_COMMIT --expect-hash $HASH"
+echo "Publish: eas update --channel preview --platform ios --skip-bundler --input-dir <frozen-dir>"
