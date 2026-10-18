@@ -1,0 +1,53 @@
+name: Publish Coach preview OTA (Build 78 runtime)
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type PREVIEW_ONLY to publish to preview (never production)"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: coach-preview-ota
+  cancel-in-progress: false
+jobs:
+  preview:
+    if: ${{ github.event.inputs.confirm == 'PREVIEW_ONLY' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate runtime and prevent production publishing
+        run: |
+          node -e 'const a=require("./app.json").expo;if(a.runtimeVersion!=="1.1.0")process.exit(1); console.log("PREVIEW ONLY — runtime 1.1.0")'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install pinned dependencies
+        working-directory: ${{ github.workspace }}
+        run: pnpm install --frozen-lockfile
+      - name: Critical Coach and crash tests
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
+      - name: Verify iOS JS bundle
+        env: &buildenv
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+        run: pnpm exec expo export --platform ios --output-dir /tmp/coach-preview-export
+      - name: Publish only to PREVIEW branch
+        env:
+          <<: *buildenv
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN missing"; exit 1; }
+          pnpm exec eas update --branch preview --platform ios --message "Coach QA preview ${{ github.sha }}" --non-interactive
