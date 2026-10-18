@@ -37,7 +37,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
       - name: Verify iOS JS bundle
-        env: &buildenv
+        env:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
@@ -46,7 +46,11 @@ jobs:
         run: pnpm exec expo export --platform ios --output-dir /tmp/coach-preview-export
       - name: Publish only to PREVIEW branch
         env:
-          <<: *buildenv
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN missing"; exit 1; }
