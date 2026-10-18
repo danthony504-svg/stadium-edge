@@ -90,20 +90,21 @@ const REC_CAP = 6; // cards shown in the rail
 const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
 const VALUE_CAP = 8; // cards shown in the value rail
 
-const PROP_CATEGORIES: {
-  label: string;
-  icon: ComponentProps<typeof Feather>["name"];
-  markets: string[];
-}[] = [
-  { label: "Hits", icon: "edit-3", markets: ["batter_hits"] },
-  { label: "Total Bases", icon: "shield", markets: ["batter_total_bases"] },
-  { label: "Home Runs", icon: "circle", markets: ["batter_home_runs"] },
-  { label: "Runs", icon: "activity", markets: ["batter_runs"] },
-  { label: "RBIs", icon: "target", markets: ["batter_rbis"] },
-  { label: "Stolen Bases", icon: "hexagon", markets: ["batter_stolen_bases"] },
-  { label: "Strikeouts (Pitchers)", icon: "disc", markets: ["pitcher_strikeouts"] },
-  { label: "Pitcher Outs", icon: "pie-chart", markets: ["pitcher_outs"] },
-];
+// Build category rows from actual posted markets for the selected sport.
+// Never show MLB-only categories on NBA/NHL/NFL or imply a market exists before it loads.
+function categoriesForPostedMarkets(games: GameProps[]): { label: string; icon: ComponentProps<typeof Feather>["name"]; markets: string[] }[] {
+  const seen = new Set<string>();
+  const categories: { label: string; icon: ComponentProps<typeof Feather>["name"]; markets: string[] }[] = [];
+  for (const game of games) {
+    for (const prop of game.props) {
+      const market = prop.market;
+      if (!market || seen.has(market)) continue;
+      seen.add(market);
+      categories.push({ label: propMarketLabel(market), icon: "activity", markets: [market] });
+    }
+  }
+  return categories.sort((a, b) => a.label.localeCompare(b.label));
+}
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
@@ -1073,6 +1074,8 @@ function PropsScreen() {
     return out;
   }, [propsQ.data, isBrowseSport]);
 
+  const postedCategories = useMemo(() => categoriesForPostedMarkets(propsQ.data?.games ?? []), [propsQ.data]);
+
   const openCategory = (markets: string[]) => {
     if (isBrowseSport) return;
     for (const g of propsQ.data?.games ?? []) {
@@ -1474,7 +1477,7 @@ function PropsScreen() {
               Popular Prop Categories
             </Text>
             <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
-              {PROP_CATEGORIES.map((cat, i) => (
+              {postedCategories.map((cat, i) => (
                 <Pressable
                   key={cat.label}
                   onPress={() => openCategory(cat.markets)}
