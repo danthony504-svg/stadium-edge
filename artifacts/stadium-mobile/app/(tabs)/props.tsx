@@ -389,6 +389,7 @@ function PropsScreen() {
     params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
   );
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  const [showFilters, setShowFilters] = useState(false);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // When the player sheet sends the user to the full-breakdown route we HIDE it
@@ -1210,7 +1211,10 @@ function PropsScreen() {
               ) : null}
             </View>
             <Pressable
-              onPress={() => {}}
+              onPress={() => setShowFilters((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Toggle player prop filters"
+              accessibilityState={{ expanded: showFilters }}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
@@ -1231,6 +1235,12 @@ function PropsScreen() {
           </View>
         </AppHeader>
 
+        {showFilters ? (
+          <View style={{ marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
+            <Text style={{ color: colors.mutedForeground, marginBottom: 6 }}>Choose the sport above to filter posted player props. Search by player to narrow results.</Text>
+            <Pressable accessibilityRole="button" onPress={() => { setQuery(""); setShowFilters(false); }}><Text style={{ color: colors.primary }}>Clear search and close filters</Text></Pressable>
+          </View>
+        ) : null}
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
             hidden while searching. */}
