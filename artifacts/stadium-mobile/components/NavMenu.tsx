@@ -56,6 +56,7 @@ export function NavMenu() {
   const [open, setOpen] = useState(false);
   const [tourFocus, setTourFocus] = useState<TourMenuFocus | null>(null);
   const menuScrollRef = useRef<ScrollView>(null);
+  const afterMenuDismiss = useRef<(() => void) | null>(null);
   const tourRowOffsets = useRef<Record<string, number>>({});
   useEffect(() => subscribeTourMenuFocus((focus) => {
     setTourFocus(focus);
@@ -159,7 +160,13 @@ export function NavMenu() {
         ) : null}
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+      <Modal visible={open} transparent animationType="none" onRequestClose={close}
+        onDismiss={() => {
+          const next = afterMenuDismiss.current;
+          afterMenuDismiss.current = null;
+          next?.();
+        }}
+      >
         <View style={{ flex: 1 }}>
           {tourFocus ? (
             <BlurView pointerEvents="none" intensity={65} tint="dark" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
@@ -429,7 +436,15 @@ export function NavMenu() {
                   <Text style={{ color: "#aabdd9" }}>Skip</Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-                  <Pressable accessibilityRole="button" onPress={tourFocus.onBack} style={{ padding: 8 }}>
+                  <Pressable accessibilityRole="button" onPress={() => {
+                    if (tourFocus.step === 4) {
+                      // The first tour modal cannot appear over the menu modal on
+                      // iOS; resume step 3 only once the menu has disappeared.
+                      afterMenuDismiss.current = tourFocus.onBack;
+                      setTourMenuFocus(null);
+                      setOpen(false);
+                    } else tourFocus.onBack();
+                  }} style={{ padding: 8 }}>
                     <Text style={{ color: "#ffffff" }}>Back</Text>
                   </Pressable>
                   <Pressable accessibilityRole="button" onPress={tourFocus.onNext} style={{ backgroundColor: "#347feb", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 }}>
