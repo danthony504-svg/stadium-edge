@@ -303,10 +303,11 @@ function BaseballMiniPanel() {
 }
 
 /** Premium parlay CTA card — opens Coach for a new AI parlay. */
-function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
+function BuildBestParlayHero({ onPress, tourRef }: { onPress: () => void; tourRef?: React.RefObject<View | null> }) {
   const colors = useColors();
   return (
     <Pressable
+      ref={tourRef}
       onPress={onPress}
       style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 4 }}
     >
@@ -381,6 +382,7 @@ type HomeSportFeedProps = {
   isWideLayout: boolean;
   hotCardWidth: number;
   quickCardWidth: number;
+  coachTourRef?: React.RefObject<View | null>;
 };
 
 function HomeSportFeed({
@@ -394,6 +396,7 @@ function HomeSportFeed({
   isWideLayout,
   hotCardWidth,
   quickCardWidth,
+  coachTourRef,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
@@ -1028,7 +1031,7 @@ function HomeSportFeed({
       >
 
         {/* Static hero — open Coach only; user chooses the ask (no auto-send). */}
-        <BuildBestParlayHero onPress={() => goCoach()} />
+        <BuildBestParlayHero tourRef={coachTourRef} onPress={() => goCoach()} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -1887,10 +1890,13 @@ export default function HomeScreen() {
   const featuredEnabled = PROPS_SPORTS.includes(sport);
 
   const [tourReplayKey, setTourReplayKey] = useState(0);
+  const searchTourRef = useRef<View>(null);
+  const sportTourRef = useRef<View>(null);
+  const coachTourRef = useRef<View>(null);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <FirstRunCoachTour replayKey={tourReplayKey} />
+      <FirstRunCoachTour replayKey={tourReplayKey} searchAnchorRef={searchTourRef} coachAnchorRef={coachTourRef} sportAnchorRef={sportTourRef} />
       {/* Fixed header — logo, search, and sport pills are pinned to the top of
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
@@ -1906,6 +1912,7 @@ export default function HomeScreen() {
         </Pressable>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
+          ref={searchTourRef}
           onPress={() =>
             router.push({
               pathname: "/props",
@@ -1945,6 +1952,7 @@ export default function HomeScreen() {
             return (
               <Pressable
                 key={s.id}
+                ref={s.id === HOME_SPORTS[0].id ? sportTourRef : undefined}
                 onPress={() => selectSport(s.id)}
                 style={{
                   flexDirection: "row",
@@ -2022,6 +2030,7 @@ export default function HomeScreen() {
             isWideLayout={isWideLayout}
             hotCardWidth={hotCardWidth}
             quickCardWidth={quickCardWidth}
+            coachTourRef={coachTourRef}
           />
         </ErrorBoundary>
       )}
