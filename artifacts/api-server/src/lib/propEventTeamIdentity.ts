@@ -32,6 +32,10 @@ import {
   ESPN_SPORT_PATHS,
   cachedJson,
 } from "./sports.js";
+import { cacheGet, cacheSet } from "./store.js";
+
+/** Positive identity hits only — never cache null/miss (poison). */
+const PROP_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Closed exact aliases (normalized form → canonical), scoped by sport family.
@@ -53,6 +57,7 @@ const EXACT_TEAM_ALIASES_BY_SPORT: Record<string, Record<string, string>> = {
 export type PropEventTeamIdentityStatus =
   | "resolved"
   | "unresolved"
+  | "identity_unresolved"
   | "caller_conflict"
   | "no_provider_props"
   | "team_filtered";
@@ -133,6 +138,33 @@ function sportFamily(sport: string): string {
   if (n === "ncaaf" || n === "cfb" || n.includes("americanfootball_ncaaf")) return "ncaaf";
   if (n.startsWith("soccer") || n.includes("soccer_")) return "soccer";
   return n;
+}
+
+/**
+ * Normalize commence/start time for the identity cache key.
+ * Minute ISO bucket absorbs second-level provider jitter; missing/invalid → "_".
+ */
+export function normalizePropIdentityStartsAt(
+  startsAt?: string | null,
+): string {
+  const raw = String(startsAt ?? "").trim();
+  if (!raw) return "_";
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return "_";
+  return new Date(ms).toISOString().slice(0, 16);
+}
+
+/** v2 key includes startsAt so DH / same-day slots cannot share a poison entry. */
+export function propEventTeamIdentityCacheKey(
+  sport: string,
+  oddsEventId: string,
+  startsAt?: string | null,
+): string {
+  const s = String(sport ?? "")
+    .toLowerCase()
+    .trim();
+  const id = String(oddsEventId ?? "").trim();
+  return `prop-event-team-identity:v2:${s}:${id}:${normalizePropIdentityStartsAt(startsAt)}`;
 }
 
 /** Exact full-name or exact-abbr match with required home/away orientation. */
@@ -449,73 +481,41 @@ export async function loadEspnGamesForPropIdentity(
   return mapScoreboardToRows(data.events ?? [], sport);
 }
 
-/**
- * Resolve ESPN team ids for a validated Odds event. Caches the authoritative
- * matchup ids per sport+oddsEventId (5 min) to avoid rescoring the slate.
- */
-export async function resolvePropEventTeamIdentity(
+type CachedPropIdentityMatch = {
+  homeTeamId: string;
+  awayTeamId: string;
+  espnEventId: string;
+  homeTeam: string;
+  awayTeam: string;
+  /** Normalized commence time that keyed this entry (must match request). */
+  startsAtNorm: string;
+};
+
+function resultFromCachedMatch(
   args: ResolvePropEventTeamIdentityArgs,
-): Promise<ResolvePropEventTeamIdentityResult> {
-  const sport = String(args.sport ?? "")
-    .toLowerCase()
-    .trim();
-  const oddsEventId = String(args.oddsEventId ?? "").trim();
-  const homeTeam = String(args.homeTeam ?? "").trim();
-  const awayTeam = String(args.awayTeam ?? "").trim();
-
-  if (!sport || !oddsEventId || !homeTeam || !awayTeam) {
-    return resolvePropEventTeamIdentityFromGames(args, []);
-  }
-
-  if (args.espnGames) {
-    return resolvePropEventTeamIdentityFromGames(args, args.espnGames);
-  }
-
-  type CachedMatch = {
-    homeTeamId: string;
-    awayTeamId: string;
-    espnEventId: string;
-    homeTeam: string;
-    awayTeam: string;
-  };
-
-  // Cache only the ESPN match (not caller reconciliation).
-  const cached = await cachedJson<CachedMatch | null>(
-    `prop-event-team-identity:v1:${sport}:${oddsEventId}`,
-    5 * 60 * 1000,
-    async () => {
-      const games = await loadEspnGamesForPropIdentity(sport);
-      const hit = matchEspnGameForOddsEvent(games, {
-        sport,
-        homeTeam,
-        awayTeam,
-        startsAt: args.startsAt,
-      });
-      if (!hit?.game.homeTeamId || !hit.game.awayTeamId) return null;
-      return {
-        homeTeamId: String(hit.game.homeTeamId),
-        awayTeamId: String(hit.game.awayTeamId),
-        espnEventId: hit.game.id,
-        homeTeam,
-        awayTeam,
-      };
-    },
-  );
-
-  if (!cached) {
+  sport: string,
+  homeTeam: string,
+  awayTeam: string,
+  cached: CachedPropIdentityMatch,
+  startsAtNorm: string,
+): ResolvePropEventTeamIdentityResult {
+  // Defend against cache poison if Odds home/away or commence time drifted.
+  if (cached.startsAtNorm !== startsAtNorm) {
     return {
       ok: false,
       homeTeamId: null,
       awayTeamId: null,
-      espnEventId: null,
-      diag: baseDiag(args, "unresolved", "no_authoritative_espn_match"),
+      espnEventId: cached.espnEventId,
+      diag: baseDiag(args, "unresolved", "cached_identity_startsAt_mismatch", {
+        espnEventId: cached.espnEventId,
+      }),
     };
   }
-
-  // Defend against cache poison if Odds home/away for this eventId changed.
   if (
-    canonicalTeamToken(cached.homeTeam, sport) !== canonicalTeamToken(homeTeam, sport) ||
-    canonicalTeamToken(cached.awayTeam, sport) !== canonicalTeamToken(awayTeam, sport)
+    canonicalTeamToken(cached.homeTeam, sport) !==
+      canonicalTeamToken(homeTeam, sport) ||
+    canonicalTeamToken(cached.awayTeam, sport) !==
+      canonicalTeamToken(awayTeam, sport)
   ) {
     return {
       ok: false,
@@ -563,6 +563,112 @@ export async function resolvePropEventTeamIdentity(
   };
 }
 
+/**
+ * Resolve ESPN team ids for a validated Odds event.
+ *
+ * Cache contract (v2):
+ * - Key includes sport + oddsEventId + normalized startsAt (DH / same-day safe).
+ * - Positive hits only — never cache null/miss (a no-startsAt miss must not
+ *   poison a later resolve that has commenceTime).
+ * - Caller reconciliation is not cached; re-checked on every hit.
+ */
+export async function resolvePropEventTeamIdentity(
+  args: ResolvePropEventTeamIdentityArgs,
+): Promise<ResolvePropEventTeamIdentityResult> {
+  const sport = String(args.sport ?? "")
+    .toLowerCase()
+    .trim();
+  const oddsEventId = String(args.oddsEventId ?? "").trim();
+  const homeTeam = String(args.homeTeam ?? "").trim();
+  const awayTeam = String(args.awayTeam ?? "").trim();
+
+  if (!sport || !oddsEventId || !homeTeam || !awayTeam) {
+    return resolvePropEventTeamIdentityFromGames(args, []);
+  }
+
+  const startsAtNorm = normalizePropIdentityStartsAt(args.startsAt);
+  const cacheKey = propEventTeamIdentityCacheKey(
+    sport,
+    oddsEventId,
+    args.startsAt,
+  );
+
+  const warm = await cacheGet<CachedPropIdentityMatch>(cacheKey);
+  if (warm) {
+    return resultFromCachedMatch(
+      args,
+      sport,
+      homeTeam,
+      awayTeam,
+      warm,
+      startsAtNorm,
+    );
+  }
+
+  const games =
+    args.espnGames ?? (await loadEspnGamesForPropIdentity(sport));
+  const hit = matchEspnGameForOddsEvent(games, {
+    sport,
+    homeTeam,
+    awayTeam,
+    startsAt: args.startsAt,
+  });
+
+  // Miss / ambiguous: fail closed WITHOUT writing cache (null-poison fix).
+  if (!hit?.game.homeTeamId || !hit.game.awayTeamId) {
+    return {
+      ok: false,
+      homeTeamId: null,
+      awayTeamId: null,
+      espnEventId: null,
+      diag: baseDiag(args, "unresolved", "no_authoritative_espn_match"),
+    };
+  }
+
+  const fresh: CachedPropIdentityMatch = {
+    homeTeamId: String(hit.game.homeTeamId),
+    awayTeamId: String(hit.game.awayTeamId),
+    espnEventId: hit.game.id,
+    homeTeam,
+    awayTeam,
+    startsAtNorm,
+  };
+  await cacheSet(cacheKey, fresh, PROP_IDENTITY_CACHE_TTL_MS);
+
+  return resultFromCachedMatch(
+    args,
+    sport,
+    homeTeam,
+    awayTeam,
+    fresh,
+    startsAtNorm,
+  );
+}
+
+/**
+ * When identity resolve fails but the provider already returned prop rows,
+ * stamp `identity_unresolved` so diagnostics never look like "no props".
+ */
+export function stampIdentityFailDiag(
+  diag: PropEventTeamIdentityDiag,
+  preGateCount: number,
+): PropEventTeamIdentityDiag {
+  const identityFailed =
+    diag.status === "unresolved" ||
+    diag.status === "identity_unresolved" ||
+    diag.status === "caller_conflict";
+  return {
+    ...diag,
+    status:
+      identityFailed && preGateCount > 0
+        ? "identity_unresolved"
+        : diag.status,
+    preGateCount,
+    postGateCount: 0,
+    rejectedUnassignedOrForeign: null,
+  };
+}
+
 export function finalizePropIdentityDiag(
   diag: PropEventTeamIdentityDiag,
   counts: {
@@ -573,7 +679,36 @@ export function finalizePropIdentityDiag(
   const rejected = Math.max(0, counts.preGateCount - counts.postGateCount);
   let status = diag.status;
   let reason = diag.reason;
-  if (diag.status === "resolved" || diag.status === "no_provider_props" || diag.status === "team_filtered") {
+
+  // Identity already refused — keep/promote identity_unresolved; do not
+  // relabel as no_provider_props or team_filtered.
+  if (
+    diag.status === "unresolved" ||
+    diag.status === "identity_unresolved" ||
+    diag.status === "caller_conflict"
+  ) {
+    if (
+      (diag.status === "unresolved" || diag.status === "identity_unresolved") &&
+      counts.preGateCount > 0
+    ) {
+      status = "identity_unresolved";
+    }
+    return {
+      ...diag,
+      status,
+      reason,
+      preGateCount: counts.preGateCount,
+      postGateCount: counts.postGateCount,
+      rejectedUnassignedOrForeign:
+        status === "identity_unresolved" ? null : rejected,
+    };
+  }
+
+  if (
+    diag.status === "resolved" ||
+    diag.status === "no_provider_props" ||
+    diag.status === "team_filtered"
+  ) {
     if (counts.preGateCount === 0) {
       status = "no_provider_props";
       reason = "resolved_teams_but_no_provider_props";
