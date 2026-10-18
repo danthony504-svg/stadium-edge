@@ -59,10 +59,11 @@ import {
   coachShortfallNote,
   createCoachSession,
   latchCoachSession,
-  resetCoachAbsoluteClock,
   resolveCoachOutcome,
   upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
+import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
+import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
 import {
   clearPendingTicketPicks,
   drainPendingTicketPicks,
@@ -141,6 +142,9 @@ export default function CoachScreen() {
     !picks.some((p) => !!p.isProp);
   /** Ask text for the open session — terminal flush uses it for football prop-mix caps. */
   const sessionAskTextRef = useRef("");
+  /** Shared greenfield request id for build + delivery-commit / cancel telemetry. */
+  const reliabilityRequestIdRef = useRef<string | null>(null);
+  const reliabilityStartedAtRef = useRef(0);
   /** Pick count committed at last terminal latch — used for late budget upgrades. */
   const terminalShownPickCountRef = useRef(0);
   /** Active assistant bubble for the open session — used to flush held picks on stop. */
@@ -307,6 +311,38 @@ export default function CoachScreen() {
       terminalShownPickCountRef.current = picks.length;
       if (picks.length > 0 && outcome !== "failed") {
         rememberParlayBuild(picks);
+      }
+      // Observe-only: success only after a complete qualified ticket is latched.
+      // Cancel/stop never counts as fulfilled. Underfill/timeout stay on buildParlay.
+      const relId = reliabilityRequestIdRef.current;
+      if (relId && opts.requestedLegs >= 3) {
+        const ask = sessionAskTextRef.current;
+        const durationMs =
+          reliabilityStartedAtRef.current > 0
+            ? Date.now() - reliabilityStartedAtRef.current
+            : null;
+        if (opts.failed) {
+          reportCoachScanReliability({
+            requestId: relId,
+            sportCategory: classifySportCategoryFromAsk(ask),
+            requestedLegCount: opts.requestedLegs,
+            returnedLegCount: picks.length,
+            durationMs,
+            picks,
+            cancelled: true,
+            deliveryCommitted: false,
+          });
+        } else if (outcome === "shown" && picks.length >= opts.requestedLegs) {
+          reportCoachScanReliability({
+            requestId: relId,
+            sportCategory: classifySportCategoryFromAsk(ask),
+            requestedLegCount: opts.requestedLegs,
+            returnedLegCount: picks.length,
+            durationMs,
+            picks,
+            deliveryCommitted: true,
+          });
+        }
       }
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
@@ -622,8 +658,14 @@ export default function CoachScreen() {
         }
 
         if (parlayBuild) {
-          // Prop-board prefetch can take a while — do not burn the scoring budget
-          // during load (that latched "2 game totals" before props ran).
+          // Monotonic total-request deadline from beginCoachSession — load counts
+          // against the same window. Do NOT reset the clock after prefetch.
+          const reliabilityRequestId = `greenfield-${Date.now()}`;
+          reliabilityRequestIdRef.current = reliabilityRequestId;
+          reliabilityStartedAtRef.current = sessionRef.current.startedAtMs;
+          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+
+          // Failsafe equals total budget (same deadline) — not absolute+15s.
           let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
             loadTimer = null;
             if (sendGenRef.current !== sendGen) return;
@@ -640,6 +682,8 @@ export default function CoachScreen() {
             askText: text,
             priorUserTexts,
             signal: abort.signal,
+            requestStartedAtMs: sessionRef.current.startedAtMs,
+            reliabilityRequestId,
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;
               patchAssistant(assistantId, { buildStatus: status });
@@ -648,13 +692,6 @@ export default function CoachScreen() {
               if (sendGenRef.current !== sendGen) return;
               // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
               pendingTicketPicksRef.current = [...picks];
-              // Belts: if scoring started without onReadyToScan, still arm the wall clock.
-              if (
-                sessionRef.current.outcome === "open" &&
-                !sessionRef.current.absoluteTimer
-              ) {
-                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-              }
               if (shouldPublishCoachTicketPicks("building")) {
                 const stored = coachPremiumUnlocked
                   ? [...picks]
@@ -668,14 +705,20 @@ export default function CoachScreen() {
                 clearTimeout(loadTimer);
                 loadTimer = null;
               }
-              resetCoachAbsoluteClock(sessionRef.current);
-              armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+              // Keep the original startedAtMs — remaining time is what scan gets.
+              if (
+                sessionRef.current.outcome === "open" &&
+                !sessionRef.current.absoluteTimer
+              ) {
+                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+              }
             },
           });
           if (loadTimer) {
             clearTimeout(loadTimer);
             loadTimer = null;
           }
+          // Stale session: sendGen advanced — do not commit or report fulfillment.
           if (sendGenRef.current !== sendGen) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
@@ -709,6 +752,32 @@ export default function CoachScreen() {
               });
               upgradeCoachSessionOutcome(sessionRef.current, outcome);
               terminalShownPickCountRef.current = picks.length;
+              // Late full ticket is a delivery commit for the same requestId.
+              if (
+                outcome === "shown" &&
+                requestedLegs >= 3 &&
+                picks.length >= requestedLegs
+              ) {
+                const relId =
+                  result.reliabilityRequestId || reliabilityRequestIdRef.current;
+                if (relId) {
+                  reportCoachScanReliability({
+                    requestId: relId,
+                    sportCategory: classifySportCategoryFromAsk(ask),
+                    requestedLegCount: requestedLegs,
+                    returnedLegCount: picks.length,
+                    durationMs:
+                      reliabilityStartedAtRef.current > 0
+                        ? Date.now() - reliabilityStartedAtRef.current
+                        : null,
+                    picks,
+                    deliveryCommitted: true,
+                    loadMs: result.timing?.loadMs,
+                    scanMs: result.timing?.scanMs,
+                    totalMs: result.timing?.totalMs,
+                  });
+                }
+              }
               const storedLate = coachPremiumUnlocked
                 ? picks
                 : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);

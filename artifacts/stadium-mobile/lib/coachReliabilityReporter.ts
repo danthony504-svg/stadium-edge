@@ -22,6 +22,13 @@ const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
 const REPORT_TIMEOUT_MS = 4_000;
 const MAX_IN_FLIGHT = 2;
 let inFlight = 0;
+/** Full successes POST once per requestId (delivery-commit path). */
+const fulfilledPostedRequestIds = new Set<string>();
+
+/** Test-only — clear once-per-request fulfilled gate. */
+export function resetCoachReliabilityFulfilledDedupeForTests(): void {
+  fulfilledPostedRequestIds.clear();
+}
 
 export type CoachReliabilityReportInput = {
   requestId?: string | null;
@@ -35,6 +42,22 @@ export type CoachReliabilityReportInput = {
   affectedGame?: string | null;
   timedOut?: boolean;
   scanMissing?: boolean;
+  /**
+   * True only after a complete, qualified ticket is latched for UI delivery.
+   * Required to count `parlay_fulfilled` — assembly alone is not success.
+   */
+  deliveryCommitted?: boolean;
+  /** User stop / abort — never counts as delivery success. */
+  cancelled?: boolean;
+  /** Phase timing (observe-only; no selection change). */
+  loadMs?: number | null;
+  scanMs?: number | null;
+  finalizationMs?: number | null;
+  totalMs?: number | null;
+  lastCompletedPhase?: string | null;
+  pendingOperation?: string | null;
+  timeoutReason?: string | null;
+  rootCauseGrade?: "verified" | "inferred" | "generic" | null;
   /** Returned ticket picks — used for grounding vs legitimate-underfill. */
   picks?: readonly CoachReliabilityGroundingPick[] | null;
   /** Explicit event type when not derived from scanFailureCode. */
@@ -49,6 +72,20 @@ export type CoachReliabilityReportInput = {
    */
   correlationId?: string | null;
 };
+
+function timingFields(input: CoachReliabilityReportInput): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (input.loadMs != null) out.loadMs = input.loadMs;
+  if (input.scanMs != null) out.scanMs = input.scanMs;
+  if (input.finalizationMs != null) out.finalizationMs = input.finalizationMs;
+  if (input.totalMs != null) out.totalMs = input.totalMs;
+  else if (input.durationMs != null) out.totalMs = input.durationMs;
+  if (input.lastCompletedPhase) out.lastCompletedPhase = input.lastCompletedPhase;
+  if (input.pendingOperation) out.pendingOperation = input.pendingOperation;
+  if (input.timeoutReason) out.timeoutReason = input.timeoutReason;
+  if (input.rootCauseGrade) out.rootCauseGrade = input.rootCauseGrade;
+  return out;
+}
 
 function eventTypeCandidateFromBody(
   body: Record<string, unknown> | null,
@@ -124,6 +161,21 @@ export function reportCoachScanReliability(
       return;
     }
 
+    // Full success: one POST per requestId (budget path + finishSession must not double-count).
+    if (body.eventType === "parlay_fulfilled" && requestId) {
+      if (fulfilledPostedRequestIds.has(requestId)) {
+        logCoachRelDiagPostResult({
+          correlationId,
+          requestId,
+          httpStatus: null,
+          success: false,
+          error: "fulfilled_deduped",
+        });
+        return;
+      }
+      fulfilledPostedRequestIds.add(requestId);
+    }
+
     inFlight += 1;
     void (async () => {
       try {
@@ -183,28 +235,67 @@ export function buildCoachReliabilityBody(
       ? String(input.correlationId).trim().slice(0, 80)
       : null;
   const corr = correlationId ? { correlationId } : {};
+  const timing = timingFields(input);
 
-  if (input.scanMissing || input.timedOut) {
+  const fullQualifiedTicket =
+    requested != null &&
+    returned != null &&
+    returned > 0 &&
+    returned >= requested;
+
+  // User cancel / stop — never parlay_fulfilled, even with a full buffer.
+  if (input.cancelled) {
     return {
-      scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
-      scanFailureDetail: input.scanMissing
-        ? "board scan missing"
-        : "delivery budget / freeze",
+      eventType: "coach_exception",
+      failureReason: "exception",
       sportCategory: input.sportCategory ?? "unspecified",
+      questionKind: "parlay_build",
       requestedLegCount: requested,
       returnedLegCount: returned ?? 0,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
-      rootCause: input.rootCause ?? null,
+      rootCause: input.rootCause ?? "user_cancelled",
+      rootCauseGrade: "verified",
+      ...timing,
+      ...corr,
+      ...(input.testFixture ? { testFixture: true } : {}),
+    };
+  }
+
+  // Timeout / missing scan — only when a full ticket was not already assembled.
+  // Freeze detail must include evidence-supported phase (not opaque ~180s label).
+  if ((input.scanMissing || input.timedOut) && !fullQualifiedTicket) {
+    const detail = input.scanMissing
+      ? "board scan missing"
+      : input.timeoutReason
+        ? `deadline:${input.timeoutReason}`
+        : "delivery budget / freeze";
+    return {
+      scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
+      scanFailureDetail: detail,
+      eventType: input.timedOut ? "coach_scan_freeze" : undefined,
+      failureReason: input.timedOut ? "scan_freeze" : undefined,
+      sportCategory: input.sportCategory ?? "unspecified",
+      requestedLegCount: requested,
+      returnedLegCount: returned ?? 0,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
+      realOddsAvailable: input.realOddsAvailable ?? null,
+      requestId: input.requestId ?? null,
+      affectedGame,
+      rootCause:
+        input.rootCause ??
+        (input.timeoutReason ? String(input.timeoutReason) : null),
+      rootCauseGrade: input.rootCauseGrade ?? (input.timeoutReason ? "verified" : "generic"),
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
 
   // Player/team/game mismatch on any returned selection → grounding (Telegram).
-  // Must win over thin-slate / scan underfill classification.
+  // Must win over fulfillment / thin-slate / scan underfill classification.
   if (grounding.hasMismatch) {
     return {
       eventType: "coach_grounding_failure",
@@ -213,15 +304,41 @@ export function buildCoachReliabilityBody(
       questionKind: "parlay_build",
       requestedLegCount: requested,
       returnedLegCount: returned ?? 0,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       qualificationFiltersEliminated: false,
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? "player_game_grounding_mismatch",
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
+  }
+
+  // Complete qualified ticket committed for delivery — sole success path.
+  if (fullQualifiedTicket && input.deliveryCommitted) {
+    return {
+      eventType: "parlay_fulfilled",
+      failureReason: "none",
+      sportCategory: input.sportCategory ?? "unspecified",
+      questionKind: "parlay_build",
+      requestedLegCount: requested,
+      returnedLegCount: returned,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
+      realOddsAvailable: input.realOddsAvailable ?? null,
+      requestId: input.requestId ?? null,
+      affectedGame,
+      rootCause: input.rootCause ?? null,
+      ...timing,
+      ...corr,
+      ...(input.testFixture ? { testFixture: true } : {}),
+    };
+  }
+
+  // Assembled full ticket without UI commit — not success (and not freeze).
+  if (fullQualifiedTicket && !input.deliveryCommitted) {
+    return null;
   }
 
   if (input.scanFailureCode) {
@@ -233,11 +350,12 @@ export function buildCoachReliabilityBody(
       sportCategory: input.sportCategory ?? "unspecified",
       requestedLegCount: requested,
       returnedLegCount: returned ?? 0,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? input.scanFailureDetail ?? null,
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
@@ -257,12 +375,13 @@ export function buildCoachReliabilityBody(
       questionKind: "parlay_build",
       requestedLegCount: requested,
       returnedLegCount: returned,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       qualificationFiltersEliminated: true,
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? "thin_slate_or_quality_bar",
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
@@ -284,13 +403,14 @@ export function buildCoachReliabilityBody(
       questionKind: "parlay_build",
       requestedLegCount: requested,
       returnedLegCount: 0,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: blocked
         ? (input.rootCause ?? "unvalidated_ncaaf_game_line_simulation")
         : (input.rootCause ?? "zero_results"),
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
@@ -304,11 +424,12 @@ export function buildCoachReliabilityBody(
       questionKind: "parlay_build",
       requestedLegCount: requested,
       returnedLegCount: returned,
-      durationMs: input.durationMs ?? null,
+      durationMs: input.durationMs ?? input.totalMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? null,
+      ...timing,
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
