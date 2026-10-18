@@ -1886,14 +1886,24 @@ export default function HomeScreen() {
 
   const featuredEnabled = PROPS_SPORTS.includes(sport);
 
+  const [tourReplayKey, setTourReplayKey] = useState(0);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <FirstRunCoachTour />
+      <FirstRunCoachTour replayKey={tourReplayKey} />
       {/* Fixed header — logo, search, and sport pills are pinned to the top of
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <AppHeader bottomGap={0}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Replay Stadium Edge walkthrough"
+          onPress={() => setTourReplayKey((v) => v + 1)}
+          style={{ alignSelf: "flex-end", paddingHorizontal: 16, paddingVertical: 8 }}
+        >
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: FONT.medium }}>Replay tour</Text>
+        </Pressable>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
