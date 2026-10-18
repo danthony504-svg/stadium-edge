@@ -2,6 +2,7 @@ name: Reliability Phase A CI
 
 # Critical crash-protection tests — required before production OTA (see publish workflows).
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "artifacts/stadium-mobile/lib/crashReporter*"
