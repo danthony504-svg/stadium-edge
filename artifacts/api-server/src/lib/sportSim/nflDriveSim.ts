@@ -31,9 +31,23 @@ export function nflDriveRatesSaturated(ppd: number): boolean {
   return tdRate >= NFL_DRIVE_TD_RATE_CAP && fgRate >= NFL_DRIVE_FG_RATE_CAP;
 }
 
-function driveOutcome(ppd: number): number {
+/** NCAAF-only: map projected points per GAME to a per-drive scoring distribution.
+ * 2:1 TD/FG event ratio implies mean = 7*td + 3*fg = 8.5*td per drive.
+ * This removes nfl-drive's >11-PPG hard saturation in realistic 10–55 PPG.
+ * This is a calibration candidate, NOT permission to clear NCAAF Coach P0.
+ */
+export function ncaafDriveScoringRates(teamPointsPerGame: number, drives: number): { tdRate: number; fgRate: number } {
+  const points = Math.max(0, Number.isFinite(teamPointsPerGame) ? teamPointsPerGame : 0);
+  const count = Math.max(1, Number.isFinite(drives) ? drives : 1);
+  const tdRaw = points / (count * 8.5);
+  const fgRaw = tdRaw * 0.5;
+  const scale = tdRaw + fgRaw > 0.95 ? 0.95 / (tdRaw + fgRaw) : 1;
+  return { tdRate: tdRaw * scale, fgRate: fgRaw * scale };
+}
+
+function driveOutcome(ppd: number, candidateRates?: { tdRate: number; fgRate: number }): number {
   const r = Math.random();
-  const { tdRate, fgRate } = nflDriveScoringRates(ppd);
+  const { tdRate, fgRate } = candidateRates ?? nflDriveScoringRates(ppd);
   if (r < tdRate) return 7;
   if (r < tdRate + fgRate) return 3;
   return 0;
@@ -47,6 +61,9 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
 
   const homeDrives = Math.round(10 + (homeOff + awayOff) / 55);
   const awayDrives = Math.round(10 + (homeOff + awayOff) / 55);
+  const college = ctx.sport === "ncaaf";
+  const homeCollegeRates = college ? ncaafDriveScoringRates(homeOff, homeDrives) : undefined;
+  const awayCollegeRates = college ? ncaafDriveScoringRates(awayOff, awayDrives) : undefined;
   const homeScores: number[] = [];
   const awayScores: number[] = [];
 
@@ -54,12 +71,12 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
     let h = 0;
     let a = 0;
     for (let d = 0; d < homeDrives; d++) {
-      h += driveOutcome(homeOff);
+      h += driveOutcome(homeOff, homeCollegeRates);
       // Clock management — trailing team passes more (slightly higher variance).
       if (d > homeDrives * 0.7 && h < a) h += Math.random() < 0.08 ? 7 : 0;
     }
     for (let d = 0; d < awayDrives; d++) {
-      a += driveOutcome(awayOff);
+      a += driveOutcome(awayOff, awayCollegeRates);
       if (d > awayDrives * 0.7 && a < h) a += Math.random() < 0.08 ? 7 : 0;
     }
     homeScores.push(h);
