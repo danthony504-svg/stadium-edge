@@ -225,6 +225,81 @@ test("NCAAF request ignores NFL scoreboard rows", () => {
   assert.equal(r.diag.status, "unresolved");
 });
 
+/**
+ * Stage 1 clarification: "NFL←NCAAF cross-sport unresolved" means intentional
+ * fail-closed isolation — NOT a leakage path. sport=nfl + NCAAF Odds team names
+ * cannot bind to the NFL scoreboard, so identity.status=unresolved and props
+ * stay empty. NCAAF events/athletes cannot enter an NFL /sports/props board.
+ */
+test("sport=nfl + NCAAF Odds teams → unresolved (isolation, not leakage)", () => {
+  const ncaafOnly: PropEspnGameRow = {
+    id: "401860903",
+    sport: "ncaaf",
+    homeTeam: "Oregon State Beavers",
+    awayTeam: "Washington State Cougars",
+    homeTeamId: "204",
+    awayTeamId: "265",
+    homeAbbr: "ORST",
+    awayAbbr: "WSU",
+    startsAt: "2026-10-18T19:00:00Z",
+  };
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "nfl",
+      oddsEventId: "473d8828a17151640834e090d9eb46e4",
+      homeTeam: "Oregon State Beavers",
+      awayTeam: "Washington State Cougars",
+      startsAt: "2026-10-18T19:00:00Z",
+    },
+    [HOU_JAX, ncaafOnly],
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.diag.status, "unresolved");
+  assert.equal(r.homeTeamId, null);
+  assert.equal(r.awayTeamId, null);
+});
+
+/**
+ * ESPN reuses numeric team ids across sports (30 = JAX NFL, 30 = USC NCAAF).
+ * Mixed scoreboard pools must still bind by sport + exact team names.
+ */
+test("ESPN id 30 collision: NFL Jaguars resolve ignores NCAAF USC row", () => {
+  const uscNcaaf: PropEspnGameRow = {
+    id: "401860999",
+    sport: "ncaaf",
+    homeTeam: "USC Trojans",
+    awayTeam: "UCLA Bruins",
+    homeTeamId: "30", // same numeric id as NFL Jacksonville
+    awayTeamId: "26",
+    homeAbbr: "USC",
+    awayAbbr: "UCLA",
+    startsAt: "2026-10-18T13:30:00Z",
+  };
+  const r = resolvePropEventTeamIdentityFromGames(
+    {
+      sport: "nfl",
+      oddsEventId: "57418b2cf5aca558b3c98eafac1e264a",
+      homeTeam: "Jacksonville Jaguars",
+      awayTeam: "Houston Texans",
+      startsAt: "2026-10-18T13:30:00Z",
+    },
+    [uscNcaaf, HOU_JAX],
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.espnEventId, "401772833"); // NFL fixture, not USC event
+  assert.equal(r.homeTeamId, "30");
+  assert.equal(r.awayTeamId, "34");
+  assert.equal(r.diag.homeTeam, "Jacksonville Jaguars");
+});
+
+test("foreign NCAAF team id cannot survive NFL matchup gate", () => {
+  // After Stage 1 resolve, gate is still the player-level belt.
+  assert.equal(propBelongsToGameTeams("204", "30", "34"), false); // ORST
+  assert.equal(propBelongsToGameTeams("265", "30", "34"), false); // WSU
+  assert.equal(propBelongsToGameTeams("30", "30", "34"), true); // JAX only
+  assert.equal(propBelongsToGameTeams("34", "30", "34"), true); // HOU only
+});
+
 test("second NFL event resolves independently", () => {
   const r = resolvePropEventTeamIdentityFromGames(
     {

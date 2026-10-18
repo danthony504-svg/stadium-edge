@@ -5,6 +5,13 @@
  * home/away orientation only. No fuzzy includes / nickname guessing.
  * Caller-supplied ids are accepted only when they match the resolved event.
  *
+ * Sport isolation: NFL and NCAAF are separate families. An NCAAF Odds event /
+ * ESPN scoreboard row must never resolve under sport=nfl (and vice versa) —
+ * that surfaces as status `unresolved`, not a cross-sport bind. ESPN team ids
+ * are NOT globally unique across sports (e.g. id "30" is JAX in NFL and USC
+ * in college-football); callers must keep ESPN_SPORT_PATHS[sport] when loading
+ * rosters so propBelongsToGameTeams compares ids inside one sport namespace.
+ *
  * propBelongsToGameTeams stays the final player-level gate — this module only
  * supplies validated matchup team ids (or refuses to).
  */
