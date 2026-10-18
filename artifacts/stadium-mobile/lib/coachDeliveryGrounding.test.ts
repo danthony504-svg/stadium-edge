@@ -43,9 +43,8 @@ test("incident-derived: proven mismatch and unknown player team both excluded", 
     }),
   ];
   const kept = filterPicksForPlayerGameGrounding(picks);
-  assert.equal(kept.length, 2);
+  assert.equal(kept.length, 1);
   assert.equal(kept[0]!.player, "Junior Caminero");
-  assert.equal(kept[1]!.player, "Unknown Player");
 });
 
 test("incident-derived: replace only with grounded qualified candidates; honest shortfall", () => {
