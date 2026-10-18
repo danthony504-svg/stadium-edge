@@ -33,6 +33,14 @@ export type ParsedPick = {
   propIsAlt?: boolean;
   player?: string;
   athleteId?: string | null;
+  /** ESPN team id for the player's own side (from props roster stamp). */
+  playerTeamId?: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
+  /** Odds API event id — required for seated-prop provenance. */
+  eventId?: string | null;
+  /** Best-price sportsbook for THIS side only. */
+  sportsbook?: string | null;
   propMarketKey?: string;
   propLine?: number | null;
   propSide?: string;
@@ -72,6 +80,12 @@ export type RealPropEntry = {
   startsAt?: string;
   player: string;
   athleteId?: string | null;
+  /** ESPN team id for the player's own side. */
+  playerTeamId?: string | null;
+  /** Odds API event id for this matchup. */
+  eventId?: string | null;
+  overBook?: string | null;
+  underBook?: string | null;
   market: string;
   line: number | null;
   over: number | null;
@@ -100,6 +114,10 @@ export type PropPoolEntry = {
   playerTeamId?: string | null;
   homeTeamId?: string | null;
   awayTeamId?: string | null;
+  /** Odds API event id — required for seated-prop provenance. */
+  eventId?: string | null;
+  /** Best-price sportsbook for THIS side only. */
+  sportsbook?: string | null;
   marketKey?: string;
   alt?: boolean;
   edge?: number | null;
@@ -352,6 +370,11 @@ export function redactPremiumPickForClient(pick: ParsedPick): ParsedPick {
     homeAbbr: null,
     player: undefined,
     athleteId: null,
+    playerTeamId: null,
+    homeTeamId: null,
+    awayTeamId: null,
+    eventId: null,
+    sportsbook: null,
     // Clear market keys that can re-identify a prop selection.
     propMarketKey: undefined,
     propLine: null,
@@ -422,6 +445,10 @@ function redactBuiltContext(built: BuiltChatContext | null | undefined): BuiltCh
         startsAt: undefined,
         player: PREMIUM_PICK_MASK,
         athleteId: null,
+        playerTeamId: null,
+        eventId: null,
+        overBook: null,
+        underBook: null,
         market: p?.market ?? "",
         line: null,
         over: null,
@@ -453,6 +480,11 @@ function redactBuiltContext(built: BuiltChatContext | null | undefined): BuiltCh
       headshot: null,
       teamAbbr: null,
       athleteId: null,
+      playerTeamId: null,
+      homeTeamId: null,
+      awayTeamId: null,
+      eventId: null,
+      sportsbook: null,
       side: p?.side ?? "Over",
     })),
     gameMeta: gameMeta.map((g) => ({
