@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { setTourMenuFocus } from "@/lib/tourMenuFocus";
 import { placeTourTooltip } from "@/lib/coachTourPlacement";
-import React, { useCallback, useEffect, useState, type RefObject } from "react";
+import React, { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Modal, Pressable, Text, View, useWindowDimensions } from "react-native";
 
 const TOUR_KEY = "stadium-edge:first-run-tour:v1";
@@ -25,6 +25,7 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   const [anchorFrame, setAnchorFrame] = useState<TourFrame | null>(null);
   const [visible, setVisible] = useState(false);
   const [index, setIndex] = useState(0);
+  const menuPresentedRef = useRef(false);
   useEffect(() => {
     let active = true;
     void AsyncStorage.getItem(TOUR_KEY)
@@ -53,6 +54,7 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   const tooltipMaxWidth = Math.min(460, screenWidth - 48);
 
   const finish = useCallback(() => {
+    menuPresentedRef.current = false;
     setTourMenuFocus(null);
     setVisible(false);
     setIndex(0);
@@ -62,19 +64,43 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
   // highlighted row and the tour controls remain visible at once.
   useEffect(() => {
     if (!visible || index < 3) {
+      menuPresentedRef.current = false;
       setTourMenuFocus(null);
       return;
     }
+    // Step 3 -> 4 is handed off by the first native modal's onDismiss.
+    // Presenting two React Native modals at once causes iOS to stall or
+    // briefly show a blank/ghost overlay during the transition.
+    if (index === 3 && !menuPresentedRef.current) return;
     setTourMenuFocus({
       route: index === 3 ? "/simulator" : "/arbitrage",
       step: index === 3 ? 4 : 5,
-      onNext: () => index === 3 ? setIndex(4) : finish(),
+      onNext: index === 3 ? () => setIndex(4) : finish,
       onBack: () => setIndex(index === 3 ? 2 : 3),
       onSkip: finish,
     });
   }, [visible, index, finish]);
   return (
-    <Modal visible={visible && index < 3} transparent animationType="fade" onRequestClose={finish}>
+    <Modal
+      visible={visible && index < 3}
+      transparent
+      animationType="none"
+      onRequestClose={finish}
+      onDismiss={() => {
+        // Wait for the first native modal to be gone before presenting the
+        // navigation modal; avoids the iOS native presentation race.
+        if (visible && index === 3) {
+          menuPresentedRef.current = true;
+          setTourMenuFocus({
+            route: "/simulator",
+            step: 4,
+            onNext: () => setIndex(4),
+            onBack: () => setIndex(2),
+            onSkip: finish,
+          });
+        }
+      }}
+    >
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
         {anchorFrame ? (
           // Four dark panes create a genuinely transparent spotlight instead of
