@@ -628,6 +628,25 @@ export function coachAskTeamScope(
 ): CoachAskTeamScope | null {
   const t = stripTeamExclusionClauses(String(text ?? ""));
   if (!t.trim()) return null;
+  // Resolve city-only team requests by an explicit league. A city shared by
+  // multiple franchises in that league must remain unresolved.
+  const leagueHints = sportsHintFromText(t);
+  if (leagueHints.size === 1) {
+    const sport = [...leagueHints][0]!;
+    const matched = new Map<string, { nick: string; entry: NickEntry }>();
+    for (const [nick, entry] of Object.entries(NICK_TO_SPORT)) {
+      if (entry.sport !== sport) continue;
+      // Require the full city token, never arbitrary substrings of team names.
+      const cities = entry.tokens.slice(1).filter((token) => token.includes(" ") || token.length >= 5);
+      if (!cities.some((city) => nickPattern(city).test(t))) continue;
+      const identity = [entry.sport, [...entry.tokens].sort().join("|")].join(":");
+      if (!matched.has(identity)) matched.set(identity, { nick, entry });
+    }
+    if (matched.size === 1) {
+      const found = [...matched.values()][0]!;
+      return scopeFromEntry(found.nick, found.entry);
+    }
+  }
   for (const nick of nickKeysLongestFirst()) {
     if (!nickPattern(nick).test(t)) continue;
     // Bare ambiguous nicknames never auto-scope (giants / cardinals / …).

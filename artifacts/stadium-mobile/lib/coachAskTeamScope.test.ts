@@ -447,3 +447,57 @@ test("Troy shortfall note does not invite other games", () => {
   assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /won't fill/i);
   assert.equal(coachAskTeamShortfallNote(scope, 4, 4, 1), "");
 });
+
+
+test("city-only Atlanta NFL ask scopes Falcons; MLB/NBA stay distinct", () => {
+  const nfl = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.equal(nfl?.sport, "nfl");
+  assert.ok(nfl?.matchTokens.includes("falcons"));
+  assert.equal(coachAskTeamScope("5 leg Atlanta MLB")?.sport, "mlb");
+  assert.equal(coachAskTeamScope("5 leg Atlanta NBA")?.sport, "nba");
+  // Existing generic city fallback resolves Atlanta to NFL; explicit league is deterministic.
+  assert.equal(coachAskTeamScope("5 leg Atlanta")?.sport, "nfl");
+});
+
+test("Atlanta NFL constraints survive board and final ticket filtering", () => {
+  const scope = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.ok(scope);
+  const games = [
+    { sport: "nfl", awayTeam: "Chicago Bears", homeTeam: "Atlanta Falcons" },
+    { sport: "nfl", awayTeam: "Buffalo Bills", homeTeam: "Las Vegas Raiders" },
+    { sport: "mlb", awayTeam: "Atlanta Braves", homeTeam: "Cleveland Guardians" },
+  ];
+  const filtered = filterOddsGamesForAskTeam(games, scope);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]?.homeTeam, "Atlanta Falcons");
+  const picks = filterPicksForAskTeam([
+    { sport: "nfl", game: "Chicago Bears @ Atlanta Falcons" },
+    { sport: "nfl", game: "Buffalo Bills @ Las Vegas Raiders" },
+    { sport: "nfl", game: "Arizona Cardinals @ Los Angeles Rams" },
+    { sport: "mlb", game: "Atlanta Braves @ Cleveland Guardians" },
+  ], scope);
+  assert.equal(picks.length, 1);
+  assert.match(String(picks[0]?.game), /Falcons/);
+  assert.equal(filterPicksForAskTeam([
+    { sport: "nfl", game: "Buffalo Bills @ Las Vegas Raiders" },
+  ], scope).length, 0, "no Atlanta matchup must return zero, not five unrelated picks");
+});
+
+test("league-scoped city names apply to NFL/NHL/MLB teams, not just Atlanta", () => {
+  const cases = [
+    ["5 leg Chicago NFL", "nfl", "bears"],
+    ["5 leg Buffalo NFL", "nfl", "bills"],
+    ["5 leg Denver NFL", "nfl", "broncos"],
+    ["5 leg Seattle NFL", "nfl", "seahawks"],
+    ["5 leg Anaheim NHL", "nhl", "ducks"],
+    ["5 leg Philadelphia NFL", "nfl", "eagles"],
+  ] as const;
+  for (const [ask, sport, token] of cases) {
+    const scope = coachAskTeamScope(ask);
+    assert.equal(scope?.sport, sport, ask);
+    assert.ok(scope?.matchTokens.includes(token), ask);
+  }
+  const atlanta = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.equal(atlanta?.sport, "nfl");
+  assert.ok(atlanta?.matchTokens.includes("falcons"));
+});
