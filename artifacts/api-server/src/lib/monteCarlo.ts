@@ -15,6 +15,7 @@ import {
   isAnytimeTdMarket,
   poissonLambdaForAnytimeTd,
 } from "./anytimeTdModel.js";
+import { isMultiTdOverLine } from "./propStatValue.js";
 
 export const QUICK_SIMULATIONS = 1_000;
 export const DEEP_SIMULATIONS = 10_000;
@@ -178,10 +179,10 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
   if (rawVals.length < 3) return null;
 
-  // Anytime TD: exact mobile shrink p=(hits+0.72)/(n+4) from binary scoring
-  // events — never re-inflate via form mean (5/5 must stay ~63.6%, not ~84%).
-  // Opportunity/injury may adjust p within TD caps, then λ=−ln(1−p).
-  if (isAnytimeTdMarket(ctx.market)) {
+  // Anytime TD yes/no (line ≤ 0.5): binary scoring frequency → λ=−ln(1−p).
+  // Multi-TD Overs (line ≥ 1.5) must NOT reuse P(score≥1) as P(score≥2) —
+  // fall through to count-based form mean of scoring TD totals.
+  if (isAnytimeTdMarket(ctx.market) && !isMultiTdOverLine(ctx.line)) {
     const shrunk = anytimeTdShrunkScoreRate(rawVals);
     if (shrunk == null) return null;
     let p = shrunk;

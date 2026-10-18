@@ -2109,7 +2109,13 @@ export type PropSimulationResult = {
     Under: Record<string, number>;
   };
   /** Present when hitProbability is null — explains why MC could not grade. */
-  nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
+  nullReason?:
+    | "missing_athlete_id"
+    | "no_history"
+    | "insufficient_sample"
+    | "stat_mapping_failed"
+    | "missing_scoring_order"
+    | null;
 };
 
 /** Phase 2.3 — authoritative history returned with prop-sim for Coach enrich reuse. */

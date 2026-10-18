@@ -42,4 +42,25 @@ echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health ==
     test/reliabilityHealth.test.ts
 )
 
+echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
+(
+  cd "$API"
+  node --import ./test/register-hooks.mjs --test \
+    test/reliabilityPhaseASimPaths.test.ts \
+    test/stage3TdSimMapping.test.ts \
+    test/footballPropStatValue.test.ts \
+    test/anytimeTdModel.test.ts \
+    test/monteCarlo.test.ts
+)
+(
+  cd "$MOBILE"
+  export CRASH_REPORTING_DISABLED=1
+  export NODE_ENV=test
+  node --import ./test/register-hooks.mjs --test \
+    lib/anytimeTdPropModel.test.ts \
+    lib/coachPropProbabilityProvenance.test.ts \
+    lib/coachPropSimProvenance.contract.test.ts \
+    lib/boardFootballMixSim.test.ts
+)
+
 echo "Reliability critical tests PASSED."
