@@ -3,6 +3,11 @@ import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
 import { propBelongsToGameTeams } from "../lib/propGameTeamGate.js";
 import { aggregatePropRowsWithAltTrim } from "../lib/propAltTrim.js";
+import {
+  finalizePropIdentityDiag,
+  resolvePropEventTeamIdentity,
+  type PropEventTeamIdentityDiag,
+} from "../lib/propEventTeamIdentity.js";
 
 const router: IRouter = Router();
 
@@ -372,8 +377,12 @@ async function fetchWorldCupRosterMap(team: WcTeamRef): Promise<Map<string, WcRo
 router.get("/sports/props", async (req, res): Promise<void> => {
   const sport = String(req.query["sport"] || "").toLowerCase();
   const eventId = String(req.query["eventId"] || "");
-  const homeTeamId = String(req.query["homeTeamId"] || "");
-  const awayTeamId = String(req.query["awayTeamId"] || "");
+  // Caller-supplied ESPN ids are advisory until validated against the
+  // authoritative Odds↔ESPN matchup resolve (see resolvePropEventTeamIdentity).
+  const callerHomeTeamId = String(req.query["homeTeamId"] || "").trim();
+  const callerAwayTeamId = String(req.query["awayTeamId"] || "").trim();
+  let homeTeamId = "";
+  let awayTeamId = "";
   // Full team names (e.g. "Oklahoma City Thunder") — used to resolve the REAL
   // Odds API event id when the client's eventId came from a FALLBACK odds source
   // (ESPN scoreboard / Bovada). Those fallbacks fire when the primary Odds API
@@ -387,6 +396,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   const fullBoard = ["1", "true", "yes"].includes(
     String(req.query["fullBoard"] ?? "").toLowerCase(),
   );
+  let identityDiag: PropEventTeamIdentityDiag | null = null;
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
@@ -498,22 +508,69 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         "unresolved ESPN event id; trying PrizePicks fallback",
       );
       if (homeName && awayName) {
+        const earlyIdentity = await resolvePropEventTeamIdentity({
+          sport,
+          oddsEventId: eventId,
+          homeTeam: homeName,
+          awayTeam: awayName,
+          startsAt: startsAt || null,
+          callerHomeTeamId,
+          callerAwayTeamId,
+        }).catch(() => null);
+        if (earlyIdentity?.ok) {
+          homeTeamId = earlyIdentity.homeTeamId ?? "";
+          awayTeamId = earlyIdentity.awayTeamId ?? "";
+          identityDiag = earlyIdentity.diag;
+        } else if (earlyIdentity) {
+          identityDiag = earlyIdentity.diag;
+        }
         const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
           homeTeamId: homeTeamId || null,
           awayTeamId: awayTeamId || null,
-        }).catch(() => []);
+        }).catch(
+          () => [] as Awaited<ReturnType<typeof fetchPrizePicksPropsForGame>>,
+        );
         if (pp.length > 0) {
+          const gated = pp.filter((p) =>
+            propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId),
+          );
+          identityDiag = finalizePropIdentityDiag(
+            identityDiag ?? {
+              status: homeTeamId && awayTeamId ? "resolved" : "unresolved",
+              reason: "prizepicks_fallback",
+              sport,
+              oddsEventId: eventId,
+              espnEventId: null,
+              homeTeam: homeName,
+              awayTeam: awayName,
+              homeTeamId: homeTeamId || null,
+              awayTeamId: awayTeamId || null,
+              callerHomeTeamId: callerHomeTeamId || null,
+              callerAwayTeamId: callerAwayTeamId || null,
+              source: homeTeamId ? "espn_scoreboard" : null,
+              preGateCount: null,
+              postGateCount: null,
+              rejectedUnassignedOrForeign: null,
+            },
+            { preGateCount: pp.length, postGateCount: gated.length },
+          );
           res.json({
             home: homeName,
             away: awayName,
             bookmaker: "PrizePicks",
-            props: pp,
+            props: gated,
             source: "PrizePicks",
+            identity: identityDiag,
           });
           return;
         }
       }
-      res.json({ home: null, away: null, props: [] });
+      res.json({
+        home: null,
+        away: null,
+        props: [],
+        identity: identityDiag,
+      });
       return;
     }
 
@@ -785,6 +842,54 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       r.underSpread = sideSpread((sb) => sb.under);
     }
 
+    // Authoritative ESPN matchup ids from the validated Odds event + scoreboard.
+    // Caller query ids are accepted only when they match this resolve.
+    const oddsHome = String(data.home_team ?? homeName ?? "").trim();
+    const oddsAway = String(data.away_team ?? awayName ?? "").trim();
+    const identity = await resolvePropEventTeamIdentity({
+      sport,
+      oddsEventId: effectiveEventId,
+      homeTeam: oddsHome,
+      awayTeam: oddsAway,
+      startsAt: startsAt || null,
+      callerHomeTeamId,
+      callerAwayTeamId,
+    });
+    identityDiag = identity.diag;
+    if (!identity.ok) {
+      identityDiag = {
+        ...identity.diag,
+        preGateCount: aggregatedRows.length,
+        postGateCount: 0,
+        rejectedUnassignedOrForeign: null,
+      };
+      req.log.warn(
+        {
+          sport,
+          eventId: effectiveEventId,
+          status: identityDiag.status,
+          reason: identityDiag.reason,
+          preGateCount: aggregatedRows.length,
+          callerHomeTeamId: callerHomeTeamId || null,
+          callerAwayTeamId: callerAwayTeamId || null,
+        },
+        "props team identity resolve failed; returning empty props",
+      );
+      res.json({
+        home: data.home_team ?? null,
+        away: data.away_team ?? null,
+        bookmaker:
+          Array.from(
+            new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean)),
+          ).join(", ") || null,
+        props: [],
+        identity: identityDiag,
+      });
+      return;
+    }
+    homeTeamId = identity.homeTeamId ?? "";
+    awayTeamId = identity.awayTeamId ?? "";
+
     // Enrich with player headshot + ESPN athleteId + their team id from
     // each team's roster. athleteId/playerTeamId let the client fetch each
     // player's real game log for prop-analytics in the parlay builder.
@@ -853,34 +958,49 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }
     }
 
-    const props = aggregatedRows
-      .map((p) => {
-        const r = rosterMap?.get(normalizeName(p.player));
-        const w = wcMap?.get(nameTokenKey(p.player));
-        return {
-          ...p,
-          headshot: w?.headshot ?? r?.headshot ?? null,
-          athleteId: w?.athleteId ?? r?.athleteId ?? null,
-          playerTeamId: w?.teamId ?? r?.teamId ?? null,
-          teamLogo: w?.teamLogo ?? null,
-        };
-      })
-      // Mirror PrizePicks: when ESPN home/away ids are known, drop orphans and
-      // foreign-team players so clients never stamp this event's matchup onto them.
-      .filter((p) => propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId));
+    const enriched = aggregatedRows.map((p) => {
+      const r = rosterMap?.get(normalizeName(p.player));
+      const w = wcMap?.get(nameTokenKey(p.player));
+      return {
+        ...p,
+        headshot: w?.headshot ?? r?.headshot ?? null,
+        athleteId: w?.athleteId ?? r?.athleteId ?? null,
+        playerTeamId: w?.teamId ?? r?.teamId ?? null,
+        teamLogo: w?.teamLogo ?? null,
+      };
+    });
+    // Mirror PrizePicks: when ESPN home/away ids are known, drop orphans and
+    // foreign-team players so clients never stamp this event's matchup onto them.
+    const props = enriched.filter((p) =>
+      propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId),
+    );
+    identityDiag = finalizePropIdentityDiag(identityDiag ?? identity.diag, {
+      preGateCount: enriched.length,
+      postGateCount: props.length,
+    });
 
     if (props.length === 0 && homeName && awayName) {
       const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
         homeTeamId: homeTeamId || null,
         awayTeamId: awayTeamId || null,
-      }).catch(() => []);
+      }).catch(
+        () => [] as Awaited<ReturnType<typeof fetchPrizePicksPropsForGame>>,
+      );
       if (pp.length > 0) {
+        const gated = pp.filter((p) =>
+          propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId),
+        );
+        identityDiag = finalizePropIdentityDiag(identityDiag, {
+          preGateCount: pp.length,
+          postGateCount: gated.length,
+        });
         res.json({
           home: homeName,
           away: awayName,
           bookmaker: "PrizePicks",
-          props: pp,
+          props: gated,
           source: "PrizePicks",
+          identity: identityDiag,
         });
         return;
       }
@@ -891,22 +1011,65 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       away: data.away_team ?? null,
       bookmaker: Array.from(new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean))).join(", ") || null,
       props,
+      identity: identityDiag,
     });
   } catch (err) {
     req.log.error({ err, sport, homeName, awayName }, "Failed to fetch player props; trying PrizePicks fallback");
     if (homeName && awayName) {
       try {
+        if (!homeTeamId || !awayTeamId) {
+          const fallbackIdentity = await resolvePropEventTeamIdentity({
+            sport,
+            oddsEventId: eventId,
+            homeTeam: homeName,
+            awayTeam: awayName,
+            startsAt: startsAt || null,
+            callerHomeTeamId,
+            callerAwayTeamId,
+          }).catch(() => null);
+          if (fallbackIdentity?.ok) {
+            homeTeamId = fallbackIdentity.homeTeamId ?? "";
+            awayTeamId = fallbackIdentity.awayTeamId ?? "";
+            identityDiag = fallbackIdentity.diag;
+          } else if (fallbackIdentity) {
+            identityDiag = fallbackIdentity.diag;
+          }
+        }
         const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
           homeTeamId: homeTeamId || null,
           awayTeamId: awayTeamId || null,
         });
         if (pp.length > 0) {
+          const gated = pp.filter((p) =>
+            propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId),
+          );
+          identityDiag = finalizePropIdentityDiag(
+            identityDiag ?? {
+              status: homeTeamId && awayTeamId ? "resolved" : "unresolved",
+              reason: "prizepicks_error_fallback",
+              sport,
+              oddsEventId: eventId,
+              espnEventId: null,
+              homeTeam: homeName,
+              awayTeam: awayName,
+              homeTeamId: homeTeamId || null,
+              awayTeamId: awayTeamId || null,
+              callerHomeTeamId: callerHomeTeamId || null,
+              callerAwayTeamId: callerAwayTeamId || null,
+              source: homeTeamId ? "espn_scoreboard" : null,
+              preGateCount: null,
+              postGateCount: null,
+              rejectedUnassignedOrForeign: null,
+            },
+            { preGateCount: pp.length, postGateCount: gated.length },
+          );
           res.json({
             home: homeName,
             away: awayName,
             bookmaker: "PrizePicks",
-            props: pp,
+            props: gated,
             source: "PrizePicks",
+            identity: identityDiag,
           });
           return;
         }
@@ -916,7 +1079,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     }
     res
       .status(502)
-      .json({ error: err instanceof Error ? err.message : "Upstream error" });
+      .json({
+        error: err instanceof Error ? err.message : "Upstream error",
+        identity: identityDiag,
+      });
   }
 });
 

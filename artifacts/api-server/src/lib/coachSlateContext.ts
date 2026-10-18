@@ -210,6 +210,7 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
       home: espn.homeTeam,
       away: espn.awayTeam,
     });
+    // Pass ESPN ids when known; /sports/props re-validates via propEventTeamIdentity.
     if (espn.homeTeamId) q.set("homeTeamId", espn.homeTeamId);
     if (espn.awayTeamId) q.set("awayTeamId", espn.awayTeamId);
     const r = await slateLoopbackGet<PropsResponse>(`/sports/props?${q.toString()}`);

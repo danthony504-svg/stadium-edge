@@ -1015,8 +1015,9 @@ export type GetPropsArgs = {
 
 // Per-event player props. Pass home/away names so the server can resolve the
 // real Odds API event id when eventId came from a fallback odds source, and
-// team ids so it can attach real ESPN headshots. startsAt disambiguates same-
-// team rematches (e.g. MLB doubleheaders) when resolving the Odds API event id.
+// team ids when known (server re-validates via propEventTeamIdentity; wrong or
+// swapped ids fail closed). startsAt disambiguates same-team rematches
+// (e.g. MLB doubleheaders) when resolving the Odds API event id.
 export async function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
   if (!args?.sport || !args?.eventId) {
     return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
