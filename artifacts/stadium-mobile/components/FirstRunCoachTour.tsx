@@ -65,16 +65,38 @@ export function FirstRunCoachTour({ replayKey = 0, searchAnchorRef, coachAnchorR
       setTourMenuFocus(null);
       return;
     }
+    // Step 3 -> 4 is handed off by the first native modal's onDismiss.
+    // Presenting two React Native modals at once causes iOS to stall or
+    // briefly show a blank/ghost overlay during the transition.
+    if (index === 3) return;
     setTourMenuFocus({
-      route: index === 3 ? "/simulator" : "/arbitrage",
-      step: index === 3 ? 4 : 5,
-      onNext: () => index === 3 ? setIndex(4) : finish(),
-      onBack: () => setIndex(index === 3 ? 2 : 3),
+      route: "/arbitrage",
+      step: 5,
+      onNext: finish,
+      onBack: () => setIndex(3),
       onSkip: finish,
     });
   }, [visible, index, finish]);
   return (
-    <Modal visible={visible && index < 3} transparent animationType="fade" onRequestClose={finish}>
+    <Modal
+      visible={visible && index < 3}
+      transparent
+      animationType="none"
+      onRequestClose={finish}
+      onDismiss={() => {
+        // Wait for the first native modal to be gone before presenting the
+        // navigation modal; avoids the iOS native presentation race.
+        if (visible && index === 3) {
+          setTourMenuFocus({
+            route: "/simulator",
+            step: 4,
+            onNext: () => setIndex(4),
+            onBack: () => setIndex(2),
+            onSkip: finish,
+          });
+        }
+      }}
+    >
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
         {anchorFrame ? (
           // Four dark panes create a genuinely transparent spotlight instead of
