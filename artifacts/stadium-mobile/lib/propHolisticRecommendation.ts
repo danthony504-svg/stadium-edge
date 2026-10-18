@@ -26,6 +26,12 @@ import {
   isRareMultiCountOver,
   rareMultiCountSportsbookValueScore,
 } from "./rareMultiCountCoachGate.ts";
+import {
+  propProvenanceAllowsSeating,
+  simulationFactorLabelForSource,
+  type PropProbabilityProvenance,
+  type PropProbabilitySource,
+} from "./coachPropProbabilityProvenance.ts";
 
 export type PropHolisticFactorKey =
   | "recentForm"
@@ -149,12 +155,8 @@ export type PropHolisticContext = {
   rubricScores?: PickSubScores;
   edgePct?: number | null;
   simHit?: number | null;
-  /**
-   * Exact Monte Carlo draw count for `simHit`. Only `10000` may label the
-   * factor "10k Simulation". Local history grades and unknown sources must
-   * not claim a completed 10k exact-market simulation (Stage 2 device FAIL).
-   */
-  monteCarloDraws?: number | null;
+  /** Option C — drives simulation factor label; never imply 10k without this. */
+  probabilitySource?: PropProbabilitySource | null;
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -410,11 +412,6 @@ function scoreMatchupHistory(
   return { score: null };
 }
 
-/** Honest simulation-factor label — never claim 10k without draw proof. */
-export function propSimulationFactorLabel(monteCarloDraws?: number | null): string {
-  return monteCarloDraws === 10_000 ? "10k Simulation" : "Hit probability";
-}
-
 export function combinePropHolisticFactors(factors: PropHolisticFactor[]): number | null {
   let wSum = 0;
   let acc = 0;
@@ -543,14 +540,27 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       applicable: true,
       present: sportsbook != null,
     },
-    {
-      key: "simulation",
-      label: propSimulationFactorLabel(ctx.monteCarloDraws),
-      score: scoreSimulation(ctx.simHit),
-      display: ctx.simHit != null ? `${Math.round(ctx.simHit * 100)}% hit` : undefined,
-      applicable: true,
-      present: ctx.simHit != null,
-    },
+    (() => {
+      const label = simulationFactorLabelForSource(ctx.probabilitySource ?? null);
+      const authorized =
+        !!label &&
+        ctx.simHit != null &&
+        Number.isFinite(ctx.simHit) &&
+        (ctx.probabilitySource === "exact_market_10k" ||
+          ctx.probabilitySource === "validated_historical_model");
+      return {
+        key: "simulation" as const,
+        label: label ?? "Simulation",
+        score: authorized ? scoreSimulation(ctx.simHit) : null,
+        display:
+          authorized && ctx.simHit != null
+            ? `${Math.round(ctx.simHit * 100)}% hit`
+            : undefined,
+        applicable: true,
+        // No success label / present score for insufficient evidence.
+        present: authorized,
+      };
+    })(),
   ];
 
   const applicable = factors.filter((f) => f.applicable);
@@ -628,6 +638,23 @@ export function propQualifiesForTicketFill(
   },
 ): boolean {
   if (!pick.isProp) return false;
+  // Option C — ticket fill never seats unauthorized sim provenance.
+  const provenance =
+    (pick as { propProbabilityProvenance?: PropProbabilityProvenance | null })
+      .propProbabilityProvenance ??
+    pick.finalAiScore?.propProbabilityProvenance ??
+    null;
+  if (
+    !propProvenanceAllowsSeating(provenance, {
+      athleteId: pick.athleteId,
+      eventId: pick.eventId,
+      propMarketKey: pick.propMarketKey ?? pick.market,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
+    })
+  ) {
+    return false;
+  }
   if (!pickHasSimGrade(pick, opts.simHit)) return false;
   if ((opts.edgePct ?? 0) <= 0) return false;
   if ((holistic.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
@@ -698,6 +725,8 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     pick.scores?.edgePct ??
     (edgeFromText != null && Number.isFinite(edgeFromText) ? edgeFromText : null);
   const simHit = pick.finalAiScore?.simHit ?? null;
+  const probabilitySource =
+    pick.finalAiScore?.propProbabilityProvenance?.source ?? null;
   if (!rubric && simHit == null && edgePct == null) return existing ?? null;
   const synthesized = buildPropHolisticScore({
     sport: pick.sport,
@@ -715,6 +744,7 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     },
     edgePct,
     simHit,
+    probabilitySource,
   });
   if (!existing) return synthesized;
   return mergePropHolisticScores(existing, synthesized);
@@ -727,6 +757,8 @@ export function minimalPropHolisticForPick(pick: ParsedPick): PropHolisticScore 
   const rubric = pick.finalAiScore?.rubric?.scores ?? pick.scores?.scores;
   const edgePct = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
   const simHit = pick.finalAiScore?.simHit ?? null;
+  const probabilitySource =
+    pick.finalAiScore?.propProbabilityProvenance?.source ?? null;
   if (!rubric && simHit == null && edgePct == null) return null;
   return buildPropHolisticScore({
     sport: pick.sport,
@@ -744,6 +776,7 @@ export function minimalPropHolisticForPick(pick: ParsedPick): PropHolisticScore 
     },
     edgePct,
     simHit,
+    probabilitySource,
   });
 }
 
@@ -777,7 +810,10 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
     },
     factor("simulation") ?? {
       key: "simulation",
-      label: propSimulationFactorLabel(null),
+      label:
+        simulationFactorLabelForSource(
+          pick.finalAiScore?.propProbabilityProvenance?.source ?? null,
+        ) ?? "Simulation",
       score: null,
       applicable: true,
       present: false,

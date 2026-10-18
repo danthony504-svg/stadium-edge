@@ -293,6 +293,11 @@ function stageFootballPropsOnlyLegsWithCap(
       leg.confidencePct ?? p.finalAiScore?.confidencePct ?? null;
     const edgePct = leg.edgePct ?? p.finalAiScore?.edgePct ?? null;
     const simHit = leg.simHit ?? p.finalAiScore?.simHit ?? null;
+    const propProbabilityProvenance =
+      (p as { propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null })
+        .propProbabilityProvenance ??
+      p.finalAiScore?.propProbabilityProvenance ??
+      null;
     const qualified = withCoachQualification(
       {
         ...p,
@@ -304,6 +309,7 @@ function stageFootballPropsOnlyLegsWithCap(
         simHit,
         odds: p.odds,
         finalAiScore: p.finalAiScore,
+        propProbabilityProvenance,
       },
       { requestStyle: "props_only", isProp: true },
     );

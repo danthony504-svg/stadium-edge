@@ -81,7 +81,7 @@ import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import { reconcileCoachTerminalNote } from "@/lib/coachPropsOnlyFailReason";
-import { propsSportLabelForAsk } from "@/lib/boardScanPropDelivery";
+import { propsOnlySportLabelFromAsk } from "@/lib/boardScanPropDelivery";
 import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { useRouter } from "expo-router";
@@ -735,7 +735,7 @@ export default function CoachScreen() {
                 sessionRef.current.outcome === "shortfall" ||
                 sessionRef.current.outcome === "failed")
             ) {
-              const sportLabel = propsSportLabelForAsk(ask);
+              const sportLabel = propsOnlySportLabelFromAsk(ask);
               const reconciled = reconcileCoachTerminalNote({
                 priorText: "",
                 nextText: result.note,

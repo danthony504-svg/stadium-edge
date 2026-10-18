@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { COACH_SIM_MIN_CONFIDENCE } from "./gameSimQualityGates.ts";
 import {
+  askAllowsNcaafPlayerProps,
+  propsOnlySportLabelFromAsk,
+} from "./boardScanPropDelivery.ts";
+import {
   buildPropsOnlyFailDiag,
   derivePropsOnlyFailCode,
   formatPropsOnlyFailTrace,
@@ -468,4 +472,121 @@ test("7 qualified candidates → no shortfall note", () => {
     confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
   });
   assert.equal(note, "");
+});
+
+test("NFL vs NCAAF: partial / empty / full ticket sport labels stay separated", () => {
+  assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
+  const nflAsk = "5 leg NFL player props";
+  const ncaafAsk = "5 leg college football player props";
+  // NFL-only must not opt into NCAAF props; label is independent of that flag.
+  assert.equal(askAllowsNcaafPlayerProps(nflAsk), false);
+  assert.equal(askAllowsNcaafPlayerProps(ncaafAsk), true);
+  assert.equal(propsOnlySportLabelFromAsk(nflAsk), "NFL");
+  assert.equal(propsOnlySportLabelFromAsk(ncaafAsk), "college football");
+
+  // Partial shortfall (live bug shape: 4/5 NFL).
+  const nflShort = shortDiag({
+    target: 5,
+    staged: 4,
+    oddsCleared: 14,
+    uniqueGames: 4,
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 10 },
+    }),
+  });
+  assert.equal(nflShort.code, "PROPS_ONLY_STAGED_SHORT");
+  const nflShortNote = propsOnlyTerminalShortNote(nflShort, {
+    sportLabel: propsOnlySportLabelFromAsk(nflAsk),
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(nflShortNote, /I found 4 qualified NFL player props for your 5-leg request/);
+  assert.doesNotMatch(nflShortNote, /college football/i);
+  assert.match(nflShortNote, /52% confidence floor/);
+
+  const ncaafShort = shortDiag({
+    target: 5,
+    staged: 4,
+    oddsCleared: 14,
+    uniqueGames: 4,
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 10 },
+    }),
+  });
+  const ncaafShortNote = propsOnlyTerminalShortNote(ncaafShort, {
+    sportLabel: propsOnlySportLabelFromAsk(ncaafAsk),
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(
+    ncaafShortNote,
+    /I found 4 qualified college football player props for your 5-leg request/,
+  );
+  assert.doesNotMatch(ncaafShortNote, /\bNFL\b/);
+
+  // Empty ticket confidence gate.
+  const empty = buildPropsOnlyFailDiag({
+    target: 5,
+    pool: 100,
+    athleteLinked: 80,
+    candidates: 40,
+    historyLoaded: 40,
+    graded: 20,
+    bestEvSides: 14,
+    oddsCleared: 14,
+    staged: 0,
+    nullReasons: {},
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 14 },
+    }),
+  });
+  assert.equal(empty.code, "PROPS_ONLY_CONFIDENCE_GATE");
+  const nflEmpty = propsOnlyTerminalEmptyNote(empty, {
+    sportLabel: propsOnlySportLabelFromAsk(nflAsk),
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  const ncaafEmpty = propsOnlyTerminalEmptyNote(empty, {
+    sportLabel: propsOnlySportLabelFromAsk(ncaafAsk),
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(nflEmpty, /I found 14 NFL player props within the allowed odds range/);
+  assert.doesNotMatch(nflEmpty, /college football/i);
+  assert.match(
+    ncaafEmpty,
+    /I found 14 college football player props within the allowed odds range/,
+  );
+  assert.doesNotMatch(ncaafEmpty, /\bNFL\b/);
+
+  // Full ticket → no shortfall note for either sport label.
+  const full = shortDiag({
+    target: 5,
+    staged: 5,
+    oddsCleared: 14,
+    uniqueGames: 5,
+    stageRejects: emptyStageRejects(),
+  });
+  assert.notEqual(full.code, "PROPS_ONLY_STAGED_SHORT");
+  assert.equal(
+    propsOnlyTerminalShortNote(full, {
+      sportLabel: propsOnlySportLabelFromAsk(nflAsk),
+      confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+    }),
+    "",
+  );
+  assert.equal(
+    propsOnlyTerminalShortNote(full, {
+      sportLabel: propsOnlySportLabelFromAsk(ncaafAsk),
+      confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+    }),
+    "",
+  );
+
+  // Reconcile must keep NFL label (not rewrite to college).
+  const reconciled = reconcileCoachTerminalNote({
+    priorText: "stale college football shortfall",
+    nextText: nflShortNote,
+    nextFailDiag: nflShort,
+    sportLabel: propsOnlySportLabelFromAsk(nflAsk),
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(reconciled, /qualified NFL player props/);
+  assert.doesNotMatch(reconciled, /college football/i);
 });

@@ -58,6 +58,70 @@ test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () 
   assert.equal(nonPropCap, 3);
 });
 
+test("P0-blocked NCAAF game-line asks exit before loadScanInputs / slate sims", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"),
+    "utf8",
+  );
+  assert.match(src, /ncaafGameLineAskIsP0Blocked/);
+  assert.match(src, /p0BlockedNcaafGameLineAskNote/);
+  const gateAt = src.indexOf("ncaafGameLineAskIsP0Blocked");
+  const loadAt = src.indexOf("await loadScanInputs");
+  assert.ok(gateAt > 0 && loadAt > gateAt, "P0 gate must precede loadScanInputs");
+});
+
+test("replay: 6 leg NCAAF P0 gate + note is ask-only and sub-second", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const { parseCoachAskMarketConstraint } = await import(
+    "../coachAskMarketFilter.ts"
+  );
+  const { hardLockedSportsFromAsk } = await import("../coachAskSportScope.ts");
+  const {
+    ncaafGameLineAskIsP0Blocked,
+    p0BlockedNcaafGameLineAskNote,
+    NCAAF_GAME_LINE_SIM_VALIDATED,
+  } = await import("../coachP0UnvalidatedTotals.ts");
+  const { sanitizeCoachUserNote } = await import("../sanitizeCoachUserNote.ts");
+  const { resolveBuildLegTarget } = await import("./parseAsk.ts");
+
+  assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
+
+  const ask = "6 leg NCAAF";
+  const t0 = performance.now();
+  const target = resolveBuildLegTarget(ask) ?? 6;
+  const market = parseCoachAskMarketConstraint(ask);
+  const gameLinesOnly = market.gameLinesOnly && !market.propsOnly;
+  const lockedSports = hardLockedSportsFromAsk(ask);
+  const blocked = ncaafGameLineAskIsP0Blocked({ gameLinesOnly, lockedSports });
+  const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
+  const ms = performance.now() - t0;
+
+  assert.equal(target, 6);
+  assert.equal(gameLinesOnly, true);
+  assert.deepEqual(lockedSports, ["ncaaf"]);
+  assert.equal(blocked, true);
+  assert.equal(
+    note,
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
+  assert.doesNotMatch(note, /quality bar/i);
+  assert.ok(ms < 500, `ask-only P0 path must be <500ms (got ${ms.toFixed(1)}ms)`);
+
+  const propsAsk = parseCoachAskMarketConstraint(
+    "7 leg college football player props",
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: propsAsk.gameLinesOnly && !propsAsk.propsOnly,
+      lockedSports: hardLockedSportsFromAsk("7 leg college football player props"),
+    }),
+    false,
+  );
+});
+
 test("props-only empty quality bar recovers via football skill board (yards/rec/sacks)", async () => {
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
@@ -70,7 +134,9 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   assert.match(src, /filterPoolForFootballSkillRecovery/);
   assert.match(src, /filterPoolByFootballRecoverySports/);
   assert.match(src, /recoverySportScope/);
-  assert.match(src, /allowedSports:\s*inputs\.sports/);
+  assert.match(src, /resolveImmutableAskSportScope/);
+  assert.match(src, /filterPoolByAllowedSports/);
+  assert.match(src, /allowedSports:\s*askSportScope\.allowedSports/);
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
   // Terminal empty/short copy must follow preferPropsOnlyFailDiag / failDiag —

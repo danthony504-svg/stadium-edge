@@ -16,6 +16,7 @@ import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
+import { resolvePropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(
@@ -83,29 +84,37 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
 }
 
 /**
- * True when the user explicitly asked for CFB player props / skill markets.
- * Bare "8 leg college" / "8 leg Collage" stays on team spreads / totals /
- * period lines — college books rarely post player yards boards.
+ * Display sport label for props-only empty/short terminal notes.
  *
- * Explicit market-family locks (completions, rush attempts, longest rush, …)
- * count as opt-in even when the college game-lines default would otherwise
- * apply — named market intent beats the automatic board-mode default.
+ * Must NOT use askAllowsNcaafPlayerProps — that flag means "allow CFB player
+ * prop rows in the pool" under college/mixed-football framing, and must not
+ * drive user-facing sport wording. Inferring "college football" from that
+ * shared flag mislabels NFL shortfalls.
  */
-/**
- * Shortfall / empty Coach copy sport wording for football props-only asks.
- *
- * Must NOT reuse `askAllowsNcaafPlayerProps` — that gate is true for any
- * "player props" ask (including NFL) and incorrectly prints "college football"
- * on NFL tickets (Stage 2 device acceptance screenshot failure).
- */
-export function propsSportLabelForAsk(text?: string | null): string {
+export function propsOnlySportLabelFromAsk(text?: string | null): string {
   const t = String(text ?? "").toLowerCase();
-  if (!t.trim()) return "football";
+  if (!t) return "football";
   if (askIsCollegeFootballOnly(t)) return "college football";
-  if (/\bnfl\b/.test(t)) return "NFL";
+  // Explicit NFL without college/NCAAF tokens → NFL (not generic "football").
+  if (
+    /\bnfl\b/.test(t) &&
+    !/\bncaaf\b|\bcfb\b|\bcollege\b|\bcollage\b/.test(t)
+  ) {
+    return "NFL";
+  }
   return "football";
 }
 
+/**
+ * True when the ask is framed to include CFB player props / skill markets.
+ *
+ * Requires college or mixed-football framing — never authorizes NCAAF from bare
+ * "player props" / "touchdowns" alone, and never from explicit NFL-only asks.
+ * Bare "8 leg college" stays on team spreads / totals / period lines.
+ *
+ * Sport *scope* (NFL-only vs NCAAF-only vs both) is resolveImmutableAskSportScope
+ * — do not use this flag as the immutable league belt.
+ */
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
     .toLowerCase()
@@ -117,6 +126,22 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
   if (/\bsides?\s+only\b/.test(t)) return false;
+
+  const hasNfl = /\bnfl\b/.test(t);
+  const hasCollege =
+    /\bncaaf\b|\bcfb\b|\bcollege\s+football\b|\bcollage\s+football\b/.test(t) ||
+    (/\b(?:college|collage)\b/.test(t) &&
+      !/\b(?:college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t));
+  // Explicit NFL without college tokens must never opt into NCAAF props.
+  if (hasNfl && !hasCollege) return false;
+  // Need college framing OR generic "football" (mixed board) — not bare props.
+  const collegeOrMixedFootball =
+    askIsCollegeFootballOnly(t) ||
+    hasCollege ||
+    (/\bfootball\b/.test(t) && !hasNfl);
+  if (!collegeOrMixedFootball) return false;
+
   if (/\bplayer\s+props?\b/.test(t)) return true;
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
@@ -141,7 +166,13 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   return false;
 }
 
-/** Drop NCAAF player-prop rows when the ask prefers college team markets. */
+/**
+ * Drop NCAAF player-prop rows when the ask prefers college team markets
+ * (bare college without player-prop opt-in).
+ *
+ * Not a symmetric NFL↔NCAAF sport belt — use filterPoolByAllowedSports /
+ * resolveImmutableAskSportScope for immutable league scope.
+ */
 export function filterNcaafPlayerPropsUnlessAsked<
   T extends { sport?: string | null; isProp?: boolean },
 >(rows: T[], askText?: string | null): T[] {
@@ -626,6 +657,17 @@ export function fillReservedPropSlots<T extends PropFillPick>(
             .qualificationStatus,
           simHit: leg.simHit ?? leg.pick.finalAiScore?.simHit,
           finalAiScore: leg.pick.finalAiScore,
+          propProbabilityProvenance: resolvePropProbabilityProvenance({
+            propProbabilityProvenance: (leg.pick as {
+              propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+            }).propProbabilityProvenance,
+            finalAiScore: leg.pick.finalAiScore,
+          }),
+          athleteId: (leg.pick as { athleteId?: string | null }).athleteId,
+          eventId: (leg.pick as { eventId?: string | null }).eventId,
+          propMarketKey: leg.pick.propMarketKey,
+          propSide: (leg.pick as { propSide?: string | null }).propSide,
+          propLine: leg.pick.propLine,
         },
         { requestStyle: "normal", isProp: true },
       );

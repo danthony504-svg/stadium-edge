@@ -1,8 +1,8 @@
 /**
- * Stage 2 device-acceptance regressions (iPhone screenshot failures).
+ * Stage 2 device-acceptance → P0 provenance enforcement regressions.
  *
- * Locks the contracts that failed on preview OTA 01a14ce1 / tip 4718cfb7
- * against live API 0f600211. Does not implement Stage 3 Option C.
+ * Locks the three screenshot failures and proves historical-only ATD cannot
+ * seat once Option C + #773 shared qualification is enforced.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -10,7 +10,7 @@ import test from "node:test";
 import {
   askAllowsNcaafPlayerProps,
   askIsCollegeFootballOnly,
-  propsSportLabelForAsk,
+  propsOnlySportLabelFromAsk,
 } from "./boardScanPropDelivery.ts";
 import {
   propsOnlyTerminalShortNote,
@@ -26,16 +26,29 @@ import {
   enforceSeatedPropProviderProvenance,
   UNVERIFIED_RELEASE_EVIDENCE_PROPS,
 } from "./propProviderProvenance.ts";
-import {
-  buildPropHolisticScore,
-  propSimulationFactorLabel,
-} from "./propHolisticRecommendation.ts";
+import { buildPropHolisticScore } from "./propHolisticRecommendation.ts";
 import { scoreSimulation } from "./pickScore.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,
   COACH_SIM_MIN_GRADE,
 } from "./gameSimQualityGates.ts";
-import { impliedProb } from "./format.ts";
+import {
+  clearTrustedExactEvidenceForTests,
+  exactMarket10kProvenance,
+  historicalModelProvenance,
+  propProvenanceAllowsSeating,
+  SIM_FACTOR_LABEL_EXACT_10K,
+  VALIDATED_HISTORICAL_MODEL_ALLOWLIST,
+} from "./coachPropProbabilityProvenance.ts";
+import {
+  evaluateCoachQualification,
+  withCoachQualification,
+} from "./coach/qualifyCoachCandidate.ts";
+import {
+  explicitFootballPropsSportScope,
+  filterPoolByAllowedSports,
+  resolveImmutableAskSportScope,
+} from "./coachAskSportScope.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function baseDiag(over: Partial<PropsOnlyFailDiag> = {}): PropsOnlyFailDiag {
@@ -55,42 +68,68 @@ function baseDiag(over: Partial<PropsOnlyFailDiag> = {}): PropsOnlyFailDiag {
   };
 }
 
-test("Stage2: NFL player props ask allows CFB-props gate but sportLabel must be NFL", () => {
+test.beforeEach(() => {
+  clearTrustedExactEvidenceForTests();
+});
+
+test("P0: NFL player props shortfall label is NFL, not college football", () => {
   const ask = "5 leg NFL player props";
-  // Root cause of screenshot #1: allows-gate is true for any "player props".
-  assert.equal(askAllowsNcaafPlayerProps(ask), true);
   assert.equal(askIsCollegeFootballOnly(ask), false);
-  assert.equal(propsSportLabelForAsk(ask), "NFL");
+  // Option C: NFL-only asks do not authorize NCAAF via the CFB props gate.
+  assert.equal(askAllowsNcaafPlayerProps(ask), false);
+  assert.equal(propsOnlySportLabelFromAsk(ask), "NFL");
+  assert.equal(explicitFootballPropsSportScope(ask), "nfl");
+  assert.deepEqual(
+    resolveImmutableAskSportScope({ askText: ask, boardSports: ["nfl", "ncaaf"] }),
+    ["nfl"],
+  );
   const note = propsOnlyTerminalShortNote(baseDiag({ staged: 3, target: 5 }), {
-    sportLabel: propsSportLabelForAsk(ask),
+    sportLabel: propsOnlySportLabelFromAsk(ask),
     confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
   });
   assert.match(note, /3 qualified NFL player props/i);
   assert.doesNotMatch(note, /college football/i);
 });
 
-test("Stage2: college football player props sportLabel stays college football", () => {
+test("P0: college football player props sportLabel + NCAAF-only scope", () => {
   const ask = "7 leg college football player props";
   assert.equal(askAllowsNcaafPlayerProps(ask), true);
   assert.equal(askIsCollegeFootballOnly(ask), true);
-  assert.equal(propsSportLabelForAsk(ask), "college football");
+  assert.equal(propsOnlySportLabelFromAsk(ask), "college football");
+  assert.deepEqual(
+    resolveImmutableAskSportScope({ askText: ask, boardSports: ["nfl", "ncaaf"] }),
+    ["ncaaf"],
+  );
 });
 
-test("Stage2: Anderson-style 9.3 display maps to ~92% hit, not proof of 10k MC", () => {
-  // UI "10k Simulation 9.3 (92% hit)" inverts scoreSimulation.
+test("P0: NFL scope strips NCAAF pool rows (Anderson-class seat isolation)", () => {
+  const scope = { allowedSports: ["nfl"] as const };
+  const mixed = [
+    { player: "Will Anderson Jr.", sport: "nfl", marketKey: "player_sacks" },
+    { player: "Anthony Colandrea", sport: "ncaaf", marketKey: "player_anytime_td" },
+  ];
+  const out = filterPoolByAllowedSports(mixed, scope);
+  assert.deepEqual(
+    out.map((r) => r.player),
+    ["Will Anderson Jr."],
+  );
+});
+
+test("P0: Anderson history-backed 92% never labeled verified 10K", () => {
   assert.equal(scoreSimulation(0.92), 9.3);
-  assert.equal(Math.round(0.92 * 100), 92);
-  // Local perfect sample caps at 0.98 → 9.8 / 98%, not 9.3.
-  assert.equal(scoreSimulation(0.98), 9.8);
-  // Deep ~0.79 would display 8.1 / 79% — also not the screenshot.
-  assert.equal(scoreSimulation(0.79), 8.1);
-});
-
-test("Stage2: simulation factor must not claim 10k without monteCarloDraws===10000", () => {
-  assert.equal(propSimulationFactorLabel(null), "Hit probability");
-  assert.equal(propSimulationFactorLabel(undefined), "Hit probability");
-  assert.equal(propSimulationFactorLabel(1000), "Hit probability");
-  assert.equal(propSimulationFactorLabel(10_000), "10k Simulation");
+  const hist = historicalModelProvenance({
+    hitProbability: 0.92,
+    sport: "nfl",
+    marketKey: "player_sacks",
+    athleteId: "4685724",
+    eventId: "57418b2c-anderson",
+    side: "Over",
+    line: 0.5,
+  });
+  // Empty allowlist → historical cannot seat or claim 10K.
+  assert.equal(VALIDATED_HISTORICAL_MODEL_ALLOWLIST.length, 0);
+  assert.equal(propProvenanceAllowsSeating(hist), false);
+  assert.equal(hist.source, "insufficient_evidence");
 
   const localOnly = buildPropHolisticScore({
     sport: "nfl",
@@ -108,39 +147,14 @@ test("Stage2: simulation factor must not claim 10k without monteCarloDraws===100
     },
     edgePct: 31.1,
     simHit: 0.92,
-    // no monteCarloDraws — props-only local history path
+    probabilitySource: hist.source,
   });
   const simFactor = localOnly.factors.find((f) => f.key === "simulation");
-  assert.equal(simFactor?.label, "Hit probability");
-  assert.equal(simFactor?.display, "92% hit");
-  assert.notEqual(simFactor?.label, "10k Simulation");
-
-  const exact10k = buildPropHolisticScore({
-    sport: "nfl",
-    marketKey: "player_sacks",
-    propSide: "Over",
-    propLine: 0.5,
-    odds: -156,
-    rubricScores: {
-      trend: 7,
-      matchup: null,
-      lineValue: 8,
-      injury: null,
-      lineShopping: null,
-      simulation: scoreSimulation(0.92),
-    },
-    edgePct: 31.1,
-    simHit: 0.92,
-    monteCarloDraws: 10_000,
-  });
-  assert.equal(
-    exact10k.factors.find((f) => f.key === "simulation")?.label,
-    "10k Simulation",
-  );
+  assert.notEqual(simFactor?.label, SIM_FACTOR_LABEL_EXACT_10K);
+  assert.equal(simFactor?.present, false);
 });
 
-test("Stage2: null-line NCAAF ATD normalizes to 0.5 and passes #773-lite provenance", () => {
-  // Colandrea seat: event 5d147fef… / athlete 5044387 / +145 FanDuel.
+test("P0: Colandrea historical-only ATD rejected for seating", () => {
   const raw = {
     isProp: true,
     player: "Anthony Colandrea",
@@ -160,18 +174,11 @@ test("Stage2: null-line NCAAF ATD normalizes to 0.5 and passes #773-lite provena
   assert.equal(propsOnlyEffectiveLine(raw), 0.5);
   const norm = normalizePropsOnlyPick(raw);
   assert.equal(norm.propLine, 0.5);
-  assert.equal(norm.propSide, "Over");
 
-  // Raw null line fails provenance; normalized 0.5 passes — historical ATD path.
+  // Null-line normalize can satisfy #773 field presence — must NOT authorize sim seat.
   assert.equal(checkPropProviderProvenance(raw).ok, false);
-  assert.ok(checkPropProviderProvenance(raw).missing.includes("propLine"));
   assert.equal(checkPropProviderProvenance(norm).ok, true);
 
-  const seated = enforceSeatedPropProviderProvenance([norm]);
-  assert.equal(seated.picks.length, 1);
-  assert.equal(seated.stripped.length, 0);
-
-  // Historical binary series grades without deep MC (props-only never overwrites).
   const graded = gradeFootballPropFromHistory(norm, {
     recent: [
       { stats: { rushingTouchdowns: "1", receivingTouchdowns: "0", passingTouchdowns: "0" } },
@@ -182,19 +189,209 @@ test("Stage2: null-line NCAAF ATD normalizes to 0.5 and passes #773-lite provena
       { stats: { rushingTouchdowns: "1", receivingTouchdowns: "0", passingTouchdowns: "0" } },
     ],
   });
-  assert.ok(graded.hitProbability != null && graded.hitProbability > 0);
-  assert.equal(graded.nullReason, null);
-  // No Option C / monteCarloDraws on tip — seating uses historical hit only.
-  const implied = impliedProb(145);
-  const edgeApprox = Math.round((graded.hitProbability! - implied) * 1000) / 10;
-  assert.ok(Number.isFinite(edgeApprox));
+  assert.ok(graded.probabilityProvenance);
+  assert.equal(
+    propProvenanceAllowsSeating(graded.probabilityProvenance, {
+      athleteId: norm.athleteId,
+      eventId: norm.eventId,
+      propMarketKey: norm.propMarketKey,
+      propSide: norm.propSide,
+      propLine: norm.propLine,
+    }),
+    false,
+    "historical ATD must not seat under empty allowlist",
+  );
+
+  // Screenshot path: confidence/grade/edge look strong, but provenance is historical-only.
+  const hist = historicalModelProvenance({
+    hitProbability: 0.694,
+    sport: "ncaaf",
+    marketKey: "player_anytime_td",
+    hitReliability: 0.6,
+    athleteId: "5044387",
+    eventId: "5d147fefd2182aa2f5573ac03700a775",
+    side: "Over",
+    line: 0.5,
+  });
+  assert.equal(hist.source, "insufficient_evidence");
+  const q = evaluateCoachQualification(
+    {
+      ...norm,
+      propsOnlyTicket: true,
+      grade: "A",
+      confidencePct: 64,
+      edgePct: 28.6,
+      simHit: 0.694,
+      propProbabilityProvenance: hist,
+    },
+    { requestStyle: "props_only", isProp: true },
+  );
+  assert.equal(q.status, "rejected");
+  assert.equal(q.reason, "insufficient_sim_provenance");
+
+  const stamped = withCoachQualification(
+    {
+      ...norm,
+      propsOnlyTicket: true,
+      grade: "A",
+      confidencePct: 64,
+      edgePct: 28.6,
+      simHit: 0.694,
+      propProbabilityProvenance: hist,
+    } as never,
+    { isProp: true },
+  );
+  assert.equal(stamped.qualificationStatus, "rejected");
 });
 
-test("Stage2: keep 52/C+ floors and empty historical allowlist unchanged", () => {
+test("P0: valid exact-market 10k eligible when quality floors pass", () => {
+  const provenance = exactMarket10kProvenance({
+    hitProbability: 0.62,
+    simulations: 10_000,
+    sport: "nfl",
+    marketKey: "player_sacks",
+    athleteId: "4685724",
+    eventId: "57418b2c-anderson",
+    side: "Over",
+    line: 0.5,
+  });
+  const q = evaluateCoachQualification(
+    {
+      isProp: true,
+      sport: "nfl",
+      market: "Player Sacks",
+      propMarketKey: "player_sacks",
+      propSide: "Over",
+      propLine: 0.5,
+      odds: -110,
+      propsOnlyTicket: true,
+      grade: "B",
+      confidencePct: 58,
+      edgePct: 8,
+      simHit: 0.62,
+      athleteId: "4685724",
+      eventId: "57418b2c-anderson",
+      propProbabilityProvenance: provenance,
+    },
+    { requestStyle: "props_only", isProp: true },
+  );
+  assert.equal(q.status, "qualified");
+  assert.equal(q.reason, "ok");
+
+  const holistic = buildPropHolisticScore({
+    sport: "nfl",
+    marketKey: "player_sacks",
+    propSide: "Over",
+    propLine: 0.5,
+    odds: -110,
+    rubricScores: {
+      trend: 7,
+      matchup: 7,
+      lineValue: 7,
+      injury: null,
+      lineShopping: null,
+      simulation: scoreSimulation(0.62),
+    },
+    edgePct: 8,
+    simHit: 0.62,
+    probabilitySource: "exact_market_10k",
+  });
+  assert.equal(
+    holistic.factors.find((f) => f.key === "simulation")?.label,
+    SIM_FACTOR_LABEL_EXACT_10K,
+  );
+});
+
+test("P0: wrong athlete/event/side/line evidence rejected", () => {
+  const provenance = exactMarket10kProvenance({
+    hitProbability: 0.7,
+    simulations: 10_000,
+    sport: "nfl",
+    marketKey: "player_sacks",
+    athleteId: "4685724",
+    eventId: "evt-hou-jax",
+    side: "Over",
+    line: 0.5,
+  });
+  assert.equal(
+    propProvenanceAllowsSeating(provenance, {
+      athleteId: "9999999",
+      eventId: "evt-hou-jax",
+      propMarketKey: "player_sacks",
+      propSide: "Over",
+      propLine: 0.5,
+    }),
+    false,
+  );
+  assert.equal(
+    propProvenanceAllowsSeating(provenance, {
+      athleteId: "4685724",
+      eventId: "evt-other",
+      propMarketKey: "player_sacks",
+      propSide: "Over",
+      propLine: 0.5,
+    }),
+    false,
+  );
+  assert.equal(
+    propProvenanceAllowsSeating(provenance, {
+      athleteId: "4685724",
+      eventId: "evt-hou-jax",
+      propMarketKey: "player_sacks",
+      propSide: "Under",
+      propLine: 0.5,
+    }),
+    false,
+  );
+  assert.equal(
+    propProvenanceAllowsSeating(provenance, {
+      athleteId: "4685724",
+      eventId: "evt-hou-jax",
+      propMarketKey: "player_sacks",
+      propSide: "Over",
+      propLine: 1.5,
+    }),
+    false,
+  );
+});
+
+test("P0: forged exact_market_10k object without registry cannot seat", () => {
+  const forged = {
+    source: "exact_market_10k" as const,
+    hitProbability: 0.92,
+    simulations: 10_000,
+    nullReason: null,
+    hitReliability: 1,
+    sport: "nfl",
+    marketKey: "player_sacks",
+    athleteId: "4685724",
+    eventId: "evt-hou-jax",
+    side: "Over" as const,
+    line: 0.5,
+    evidenceId: "forged-token",
+  };
+  assert.equal(propProvenanceAllowsSeating(forged), false);
+});
+
+test("P0: keep 52/C+ floors, empty historical allowlist, #773 strip incomplete", () => {
   assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
   assert.equal(COACH_SIM_MIN_GRADE, "C+");
+  assert.equal(VALIDATED_HISTORICAL_MODEL_ALLOWLIST.length, 0);
   assert.equal(UNVERIFIED_RELEASE_EVIDENCE_PROPS.length, 2);
-  assert.ok(
-    UNVERIFIED_RELEASE_EVIDENCE_PROPS.every((r) => r.status === "UNVERIFIED"),
-  );
+
+  const incomplete = {
+    isProp: true,
+    player: "X",
+    pick: "X Over 0.5",
+    market: "Sacks",
+    propMarketKey: "player_sacks",
+    propSide: "Over",
+    propLine: 0.5,
+    odds: -110,
+    athleteId: "1",
+    // missing eventId + sportsbook
+  } as unknown as ParsedPick;
+  const { picks, stripped } = enforceSeatedPropProviderProvenance([incomplete]);
+  assert.equal(picks.length, 0);
+  assert.equal(stripped.length, 1);
 });

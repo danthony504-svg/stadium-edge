@@ -6,6 +6,11 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
+import {
+  exactMarket10kProvenance,
+  propProvenanceAllowsSeating,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
   filterOddsGamesExcludingTeams,
@@ -180,10 +185,22 @@ function poolRowForPropPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEn
 function propPickHasSimHit(
   pick: ParsedPick,
   pool: PropPoolEntry[],
-  hits: Map<string, { hitProbability: number | null }>,
+  hits: Map<
+    string,
+    {
+      hitProbability: number | null;
+      probabilityProvenance?: PropProbabilityProvenance | null;
+    }
+  >,
 ): boolean {
-  const raw = hits.get(propSimKeyForPick(pick, poolRowForPropPick(pick, pool)) ?? "")?.hitProbability ?? null;
-  return propHasSimGrade(pick, raw);
+  const row = hits.get(propSimKeyForPick(pick, poolRowForPropPick(pick, pool)) ?? "");
+  const raw = row?.hitProbability ?? null;
+  if (!propHasSimGrade(pick, raw)) return false;
+  // Option C: when provenance is attached, only authorized sources may score/seat.
+  if (row?.probabilityProvenance != null) {
+    return propProvenanceAllowsSeating(row.probabilityProvenance);
+  }
+  return true;
 }
 
 function aliasPropSimHitsForBatch(
@@ -426,7 +443,67 @@ async function simPropBatch(
       ),
     ]);
     for (const [k, v] of simResult.hits) {
-      out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
+      const batchPick = batch.find(
+        (p) =>
+          propSimKeyForPick(p, poolRowForPropPick(p, pool)) === k ||
+          propSimKey(p.player, p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
+      );
+      const poolRow = batchPick ? poolRowForPropPick(batchPick, pool) : undefined;
+      const side =
+        (v.side as "Over" | "Under" | undefined) ??
+        (batchPick?.propSide === "Under" ? "Under" : batchPick?.propSide === "Over" ? "Over" : null);
+      const athleteId = batchPick?.athleteId ?? poolRow?.athleteId ?? null;
+      const eventId = batchPick?.eventId ?? poolRow?.eventId ?? null;
+      const marketKey = v.market ?? batchPick?.propMarketKey ?? batchPick?.market;
+      const sport = batchPick?.sport ?? (v as { sport?: string | null }).sport ?? null;
+      const line = v.line ?? batchPick?.propLine ?? null;
+      const probabilityProvenance = exactMarket10kProvenance({
+        hitProbability: v.hitProbability,
+        simulations: v.simulations,
+        sport,
+        marketKey,
+        nullReason: v.nullReason ?? null,
+        athleteId,
+        eventId,
+        side,
+        line,
+      });
+      // Same deep draw's alternate lines — register trusted evidence per line
+      // (no extra API/MC). Enables provenance-aware ALT "10K" captions.
+      const bySide = v.lineHitRatesBySide;
+      if (
+        bySide &&
+        athleteId &&
+        eventId &&
+        marketKey &&
+        (v.simulations ?? 0) >= 10_000
+      ) {
+        for (const altSide of ["Over", "Under"] as const) {
+          const rates = bySide[altSide];
+          if (!rates) continue;
+          for (const [lineStr, hit] of Object.entries(rates)) {
+            const altLine = Number(lineStr);
+            if (!Number.isFinite(altLine) || hit == null || !Number.isFinite(hit)) continue;
+            if (altSide === side && altLine === line) continue;
+            exactMarket10kProvenance({
+              hitProbability: hit,
+              simulations: v.simulations,
+              sport,
+              marketKey,
+              athleteId,
+              eventId,
+              side: altSide,
+              line: altLine,
+            });
+          }
+        }
+      }
+      out.set(k, {
+        hitProbability: probabilityProvenance.hitProbability,
+        nullReason: probabilityProvenance.nullReason,
+        simulations: v.simulations,
+        probabilityProvenance,
+      });
     }
     sharedHistories = simResult.playerHistories ?? {};
   } catch {
@@ -574,6 +651,23 @@ function appendPropScoredLegs(
     const simHit = pick.finalAiScore?.simHit ?? null;
     let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
     if (!leg) continue;
+    // Option C — unauthorized / missing provenance never enters the scored pool.
+    const scoredProv =
+      (pick as { propProbabilityProvenance?: PropProbabilityProvenance | null })
+        .propProbabilityProvenance ??
+      pick.finalAiScore?.propProbabilityProvenance ??
+      null;
+    if (
+      !propProvenanceAllowsSeating(scoredProv, {
+        athleteId: pick.athleteId,
+        eventId: pick.eventId,
+        propMarketKey: pick.propMarketKey ?? pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      })
+    ) {
+      continue;
+    }
     // Carry rare-count reliability from enrich (null for ordinary markets).
     const simKey = propSimKeyForPick(pick, poolRowForPropPick(pick, opts.pool));
     const hitMeta = simKey ? propHits.get(simKey) : null;

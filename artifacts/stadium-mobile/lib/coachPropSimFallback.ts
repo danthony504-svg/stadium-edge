@@ -28,12 +28,24 @@ import {
   isAnytimeTdPropMarket,
 } from "./anytimeTdPropModel.ts";
 import { gameValueForMarket } from "./propStats.ts";
+import {
+  alignProvenanceToHit,
+  historicalModelProvenance,
+  preferPropProvenance,
+  propProvenanceAllowsSeating,
+  seatingHitFromProvenance,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 export type PropSimHit = {
   hitProbability: number | null;
   nullReason?: string | null;
   /** 0..1 rare-count reliability when computed from logs. */
   hitReliability?: number | null;
+  /** Deep MC draw count when from server; 0 for history fallback. */
+  simulations?: number | null;
+  /** Option C provenance — required for seating. */
+  probabilityProvenance?: PropProbabilityProvenance | null;
 };
 
 export type EnrichCoachPropSimResult = {
@@ -174,8 +186,19 @@ export async function enrichCoachPropSimHits(
     historyNeeded.push(pick);
     const poolRow = poolRowForPick(pick, pool);
     const market = pick.propMarketKey ?? poolRow?.marketKey ?? pick.market;
-    // Rare multi-count Overs (HR/SB/goals ≥1.5): never trust generic boosted
-    // server MC — always recompute via rare-count local model (or null).
+    const candidateId = {
+      athleteId: pick.athleteId ?? poolRow?.athleteId,
+      eventId: pick.eventId ?? poolRow?.eventId,
+      propMarketKey: market,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
+    };
+    const hasTrustedExact =
+      propProvenanceAllowsSeating(row?.probabilityProvenance, candidateId) &&
+      row?.probabilityProvenance?.source === "exact_market_10k";
+
+    // Rare multi-count Overs: do not trust generic boosted MC without Option C
+    // evidence — but a completed trusted exact_market_10k stamp must survive.
     if (
       isRareMultiCountOver({
         market,
@@ -183,19 +206,66 @@ export async function enrichCoachPropSimHits(
         line: pick.propLine,
       })
     ) {
+      if (hasTrustedExact && row) {
+        const clipped = clipPropSimHitForGrade(pick, row.hitProbability);
+        if (clipped !== row.hitProbability) {
+          const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
+            nullReason:
+              clipped == null ? "rare_count_insufficient_evidence" : null,
+            hitAdjustment: "grade_clip",
+          });
+          out.set(key, {
+            ...row,
+            hitProbability: seatingHitFromProvenance(aligned, candidateId),
+            nullReason: aligned.nullReason,
+            probabilityProvenance: aligned,
+          });
+        }
+        continue;
+      }
       pending.push(pick);
       continue;
     }
-    // Exact 0/1 on binary TD markets is not a usable grade — soft-clip in place
-    // (or fall through to local history) instead of treating as "already simulated".
+    // Exact 0/1 on binary TD markets is not a usable grade — soft-clip and
+    // remint evidence (never mutate an exact stamp's hit in place).
     if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) {
       const clipped = clipPropSimHitForGrade(pick, row.hitProbability);
-      if (clipped != null && clipped !== row.hitProbability) {
-        out.set(key, { hitProbability: clipped, nullReason: null });
+      if (hasTrustedExact) {
+        if (clipped !== row.hitProbability) {
+          const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
+            nullReason: clipped == null ? "clipped_hit_null" : null,
+            hitAdjustment: "grade_clip",
+          });
+          out.set(key, {
+            ...row,
+            hitProbability: seatingHitFromProvenance(aligned, candidateId),
+            nullReason: aligned.nullReason,
+            probabilityProvenance: aligned,
+          });
+        }
         continue;
       }
-      if (row.hitProbability > 0 && row.hitProbability < 1) continue;
-      // Unclipped extreme 0/1 on non-binary markets: try local fallback.
+      if (clipped != null && clipped !== row.hitProbability) {
+        const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
+          hitAdjustment: "grade_clip",
+        });
+        // Fail closed — never store an unauthorized clipped hit.
+        out.set(key, {
+          ...row,
+          hitProbability: seatingHitFromProvenance(aligned, candidateId),
+          nullReason: aligned.nullReason,
+          probabilityProvenance: aligned,
+        });
+        continue;
+      }
+      if (
+        row.hitProbability > 0 &&
+        row.hitProbability < 1 &&
+        (row.simulations ?? 0) >= 10_000
+      ) {
+        continue;
+      }
+      // Unclipped extreme 0/1 or unauthorized source: try local fallback.
     }
     pending.push(pick);
   }
@@ -301,10 +371,46 @@ export async function enrichCoachPropSimHits(
         hitReliability = anytimeTdHitFromValues(vals, side).reliability;
       }
     }
-    out.set(key, {
+    const candidateId = {
+      athleteId,
+      eventId: pick.eventId ?? poolRow?.eventId,
+      propMarketKey: market,
+      propSide: side,
+      propLine: pick.propLine,
+    };
+    // Never wipe a trusted exact_market_10k stamp with unapproved history.
+    const existing = out.get(key);
+    if (
+      propProvenanceAllowsSeating(existing?.probabilityProvenance, candidateId) &&
+      existing?.probabilityProvenance?.source === "exact_market_10k"
+    ) {
+      continue;
+    }
+    const historical = historicalModelProvenance({
       hitProbability: local.hitProbability,
-      nullReason: null,
+      sport,
+      marketKey: market,
       hitReliability,
+      athleteId,
+      eventId: pick.eventId ?? poolRow?.eventId,
+      side,
+      line: pick.propLine,
+    });
+    const probabilityProvenance = preferPropProvenance(
+      existing?.probabilityProvenance,
+      historical,
+      candidateId,
+    );
+    out.set(key, {
+      // Option C: unapproved history never becomes a seating hit.
+      hitProbability: seatingHitFromProvenance(probabilityProvenance, candidateId),
+      nullReason: probabilityProvenance.nullReason,
+      hitReliability,
+      simulations:
+        probabilityProvenance.source === "exact_market_10k"
+          ? (existing?.simulations ?? probabilityProvenance.simulations)
+          : 0,
+      probabilityProvenance,
     });
   }
 

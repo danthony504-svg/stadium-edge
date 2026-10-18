@@ -22,6 +22,7 @@ import {
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
   lookupPropsOnlyHitReliability,
+  lookupPropsOnlyProvenance,
   mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
@@ -44,7 +45,13 @@ import {
   propsOnlyTerminalShortNote,
 } from "./coachPropsOnlyFailReason.ts";
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
-import { propsSportLabelForAsk } from "./boardScanPropDelivery.ts";
+import { propsOnlySportLabelFromAsk } from "./boardScanPropDelivery.ts";
+import { enforceSeatedPropProviderProvenance } from "./propProviderProvenance.ts";
+import {
+  filterPicksByAllowedSports,
+  filterPoolByAllowedSports,
+  resolveAuthoritativeCandidateSport,
+} from "./coachAskSportScope.ts";
 import {
   playerTrendMomentum,
   scoreLineShopping,
@@ -87,6 +94,16 @@ import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
+import {
+  alignProvenanceToHit,
+  exactMarket10kProvenance,
+  insufficientPropProvenance,
+  preferPropProvenance,
+  propProvenanceAllowsSeating,
+  seatingHitFromProvenance,
+  type PropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
+import type { PropsOnlyHit } from "./coachFootballPropsOnlyGrade.ts";
 
 export {
   FOOTBALL_PROPS_ONLY_BATCH,
@@ -252,6 +269,7 @@ function scoredLegFromHit(
   },
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
   hitReliability: number = 1,
+  probabilityProvenance: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null = null,
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -351,6 +369,20 @@ function scoredLegFromHit(
   // Matchup must move projection/grade — adjust sim hit (bounded), not display-only.
   hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
 
+  // Edge/EV/grade/seating share one validated provenance hit (lineage-preserving adjust).
+  const candidateId = {
+    athleteId: norm.athleteId ?? poolRow?.athleteId,
+    eventId: norm.eventId ?? (poolRow as { eventId?: string | null } | undefined)?.eventId,
+    propMarketKey: marketKey,
+    propSide: norm.propSide,
+    propLine: norm.propLine,
+  };
+  const alignedProvenance = alignProvenanceToHit(probabilityProvenance, hit, {
+    hitAdjustment: "defense_tilt",
+  });
+  hit = seatingHitFromProvenance(alignedProvenance, candidateId);
+  if (hit == null) return null;
+
   const trend = propsOnlyTrendFromHistory(
     ph,
     String(marketKey ?? ""),
@@ -386,6 +418,7 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    propProbabilityProvenance: alignedProvenance,
     propHolisticContext: {
       sport,
       marketKey,
@@ -430,6 +463,7 @@ function scoredLegFromHit(
       ...norm,
       propsOnlyTicket: true,
       finalAiScore: score,
+      propProbabilityProvenance: alignedProvenance,
       ticketRole: norm.propIsAlt ? "alt" : "main",
     },
     evPct: ev,
@@ -466,6 +500,7 @@ async function prefetchCandidateHistory(
   candidates: ParsedPick[],
   pool: PropPoolEntry[],
   seeded: Record<string, PlayerHistorySlice>,
+  espnGames?: EspnGame[],
 ): Promise<Record<string, PlayerHistorySlice>> {
   const out = { ...seeded };
   const rows: { player: string; athleteId: string; sport: string }[] = [];
@@ -481,10 +516,17 @@ async function prefetchCandidateHistory(
     const fromPool = pool.find(
       (e) => e.player === p.player && String(e.athleteId ?? "") === id,
     );
+    // Never invent "nfl" for missing tags — resolve from pool/pick/event or skip.
     const sport =
       normalizeHistorySport(fromPool?.sport) ||
       normalizeHistorySport(p.sport) ||
-      "nfl";
+      resolveAuthoritativeCandidateSport({
+        sport: p.sport ?? fromPool?.sport,
+        game: p.game,
+        espnGames,
+      }) ||
+      "";
+    if (!sport) continue;
     rows.push({ player: p.player, athleteId: id, sport });
     if (rows.length >= 48) break;
   }
@@ -595,6 +637,11 @@ export type FootballPropsOnlyBuildOpts = {
   askText?: string | null;
   ticketStyle?: string | null;
   allowRareMultiCount?: boolean;
+  /**
+   * Immutable ask sport scope (from resolveImmutableAskSportScope).
+   * Belted before sim/qualify/seat; missing tags fail closed.
+   */
+  allowedSports?: readonly string[];
 };
 
 export type FootballPropsOnlyResult = {
@@ -611,13 +658,24 @@ export type FootballPropsOnlyResult = {
 export async function buildFootballPropsOnlyTicket(
   opts: FootballPropsOnlyBuildOpts,
 ): Promise<FootballPropsOnlyResult> {
-  const propPoolSize = opts.pool.length;
-  const athleteLinked = countAthleteLinked(opts.pool);
-  const sports = countPoolSports(opts.pool);
+  const sportScope = {
+    allowedSports: opts.allowedSports?.length
+      ? opts.allowedSports
+      : [],
+  };
+  // Fail closed when caller provides scope: unknown/other-league rows never sim.
+  // Empty scope → unscoped pool (generic mixed football); never TDZ on self-ref.
+  const scopedPool =
+    sportScope.allowedSports.length > 0
+      ? filterPoolByAllowedSports(opts.pool, sportScope)
+      : opts.pool;
+  const propPoolSize = scopedPool.length;
+  const athleteLinked = countAthleteLinked(scopedPool);
+  const sports = countPoolSports(scopedPool);
   const oddsSlack = opts.recoveryFill
     ? PROPS_ONLY_RECOVERY_ODDS_SLACK
     : PROPS_ONLY_ODDS_SLACK;
-  const candidates = selectFootballPropsOnlyCandidates(opts.pool, opts.target);
+  const candidates = selectFootballPropsOnlyCandidates(scopedPool, opts.target);
 
   if (!candidates.length) {
     const failDiag = buildPropsOnlyFailDiag({
@@ -654,8 +712,9 @@ export async function buildFootballPropsOnlyTicket(
 
   const seededHistory = await prefetchCandidateHistory(
     candidates,
-    opts.pool,
+    scopedPool,
     opts.playerHistory ?? {},
+    opts.espnGames,
   );
 
   const localHistories: Record<string, PropsOnlyHistorySlice | undefined> = {};
@@ -671,28 +730,36 @@ export async function buildFootballPropsOnlyTicket(
   const propHits = gradeFootballPropsOnlyFromHistory(
     candidates,
     localHistories,
-    opts.pool,
+    scopedPool,
   );
-  softClipPropsOnlyHits(candidates, propHits, opts.pool);
+  softClipPropsOnlyHits(candidates, propHits, scopedPool);
 
-  // Server MC in parallel batches for still-null — never overwrite local grades.
-  const stillNull = candidates.filter((p) => {
-    const row = propsOnlyPoolRowForPick(p, opts.pool);
-    const h = lookupPropsOnlyHit(p, row, propHits);
-    return h == null || !Number.isFinite(h);
+  // Deep MC for seats lacking authorized provenance (Option C). History-only
+  // hits that are not allowlisted do not count — request exact-market 10k.
+  // Same batching/timeout as before; no new endpoints.
+  const needsDeep = candidates.filter((p) => {
+    const row = propsOnlyPoolRowForPick(p, scopedPool);
+    const prov = lookupPropsOnlyProvenance(p, row, propHits);
+    return !propProvenanceAllowsSeating(prov, {
+      athleteId: p.athleteId ?? row?.athleteId,
+      eventId: p.eventId ?? row?.eventId,
+      propMarketKey: p.propMarketKey ?? p.market,
+      propSide: p.propSide,
+      propLine: p.propLine,
+    });
   });
-  if (stillNull.length && !opts.signal?.aborted) {
+  if (needsDeep.length && !opts.signal?.aborted) {
     opts.onStatus?.(
-      `Local grades ready — boosting ${stillNull.length} remaining via deep sim…`,
+      `Scoring ${needsDeep.length} props via exact-market deep sim…`,
     );
-    for (let i = 0; i < stillNull.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
+    for (let i = 0; i < needsDeep.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
       if (opts.signal?.aborted) break;
-      const batch = stillNull.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
+      const batch = needsDeep.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
       try {
         const serverRows = await Promise.race([
           fetchPropSimulations(
             batch,
-            opts.pool,
+            scopedPool,
             {
               tier: "deep",
               teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
@@ -703,34 +770,107 @@ export async function buildFootballPropsOnlyTicket(
         ]);
         if (!serverRows) continue;
         for (const [k, v] of serverRows.hits) {
-          if (v.hitProbability != null && Number.isFinite(v.hitProbability)) {
-            const existing = propHits.get(k)?.hitProbability;
-            if (existing == null || !Number.isFinite(existing)) {
-              propHits.set(k, {
-                hitProbability: v.hitProbability,
-                nullReason: v.nullReason ?? null,
-              });
-            }
-          } else if (!propHits.has(k)) {
-            propHits.set(k, {
-              hitProbability: null,
-              nullReason: v.nullReason ?? null,
-            });
-          }
+          const existing = propHits.get(k);
+          const sport =
+            batch.find((p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k)
+              ?.sport ?? existing?.probabilityProvenance?.sport;
+          const marketKey = v.market ?? existing?.probabilityProvenance?.marketKey;
+          const batchPick = batch.find(
+            (p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k,
+          );
+          const poolRow = batchPick
+            ? propsOnlyPoolRowForPick(batchPick, scopedPool)
+            : undefined;
+          const side =
+            (v.side as "Over" | "Under" | undefined) ??
+            (batchPick?.propSide === "Under"
+              ? "Under"
+              : batchPick?.propSide === "Over"
+                ? "Over"
+                : null);
+          const candidate = {
+            athleteId: batchPick?.athleteId ?? poolRow?.athleteId ?? null,
+            eventId: batchPick?.eventId ?? poolRow?.eventId ?? null,
+            propMarketKey: marketKey,
+            propSide: side,
+            propLine: v.line ?? batchPick?.propLine ?? null,
+          };
+          const incoming = exactMarket10kProvenance({
+            hitProbability: v.hitProbability,
+            simulations: v.simulations,
+            sport,
+            marketKey,
+            nullReason: v.nullReason ?? null,
+            hitReliability: existing?.hitReliability ?? null,
+            athleteId: candidate.athleteId,
+            eventId: candidate.eventId,
+            side: candidate.propSide,
+            line: candidate.propLine,
+          });
+          const merged = preferPropProvenance(
+            existing?.probabilityProvenance,
+            incoming,
+            candidate,
+          );
+          propHits.set(k, {
+            hitProbability: propProvenanceAllowsSeating(merged, candidate)
+              ? merged.hitProbability
+              : null,
+            nullReason: merged.nullReason,
+            hitReliability: existing?.hitReliability ?? null,
+            probabilityProvenance: merged,
+          } satisfies PropsOnlyHit);
         }
-        softClipPropsOnlyHits(batch, propHits, opts.pool);
+        softClipPropsOnlyHits(batch, propHits, scopedPool);
       } catch {
-        /* keep local */
+        /* keep existing provenance — do not invent hits */
       }
     }
   }
 
-  const nullReasons = collectNullReasons(candidates, propHits, opts.pool);
+  // Candidates still without authorized provenance stay insufficient (no invented hit).
+  for (const p of candidates) {
+    const row = propsOnlyPoolRowForPick(p, scopedPool);
+    const key = propsOnlySimLookupKey(p, row);
+    if (!key) continue;
+    const existing = propHits.get(key);
+    if (
+      propProvenanceAllowsSeating(existing?.probabilityProvenance, {
+        athleteId: p.athleteId ?? row?.athleteId,
+        eventId: p.eventId ?? row?.eventId,
+        propMarketKey: p.propMarketKey ?? p.market,
+        propSide: p.propSide,
+        propLine: p.propLine,
+      })
+    ) {
+      continue;
+    }
+    const prov =
+      existing?.probabilityProvenance ??
+      insufficientPropProvenance({
+        sport: p.sport,
+        marketKey: p.propMarketKey ?? p.market,
+        nullReason: existing?.nullReason ?? "insufficient_evidence",
+        hitReliability: existing?.hitReliability,
+      });
+    propHits.set(key, {
+      hitProbability: null,
+      nullReason: prov.nullReason,
+      hitReliability: existing?.hitReliability ?? null,
+      probabilityProvenance: {
+        ...prov,
+        source: "insufficient_evidence",
+        hitProbability: null,
+      },
+    });
+  }
+
+  const nullReasons = collectNullReasons(candidates, propHits, scopedPool);
 
   // Count graded BEFORE odds filter — phone empties were scoring 0 because
   // wrong-side / null-line never produced a gradeable key.
   const gradedCandidates = candidates.filter((p) =>
-    propsOnlyPickHasGrade(p, propHits, opts.pool),
+    propsOnlyPickHasGrade(p, propHits, scopedPool),
   );
   const propLegsScored = gradedCandidates.length;
 
@@ -750,14 +890,14 @@ export async function buildFootballPropsOnlyTicket(
   const bestSides = collapsePropsOnlyToBestEvSides(
     candidates,
     propHits,
-    opts.pool,
+    scopedPool,
     oddsSlack,
   ).flatMap(
     (pick) => {
-      const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+      const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
       const sport = pick.sport ?? row?.sport;
       const resolvePack = (p: ParsedPick) => {
-        const r = propsOnlyPoolRowForPick(p, opts.pool) as PropPoolEntry | undefined;
+        const r = propsOnlyPoolRowForPick(p, scopedPool) as PropPoolEntry | undefined;
         const sp = p.sport ?? r?.sport ?? sport;
         const abbr = r?.teamAbbr ?? p.teamAbbr;
         return {
@@ -867,20 +1007,49 @@ export async function buildFootballPropsOnlyTicket(
   );
   const propScored: BoardScoredLeg[] = [];
   for (const pick of bestSides) {
-    const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+    const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
     const reliability = lookupPropsOnlyHitReliability(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack, reliability);
+    const provenance = lookupPropsOnlyProvenance(pick, row, propHits);
+    // Never score a seat without authorized provenance (empty allowlist ⇒ need 10k).
+    if (
+      !propProvenanceAllowsSeating(provenance, {
+        athleteId: pick.athleteId ?? row?.athleteId,
+        eventId: pick.eventId ?? (row as { eventId?: string | null } | undefined)?.eventId,
+        propMarketKey: pick.propMarketKey ?? pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      }) ||
+      raw == null
+    ) {
+      continue;
+    }
+    const leg = scoredLegFromHit(
+      pick,
+      raw,
+      row,
+      rushCtx,
+      oddsSlack,
+      reliability,
+      provenance,
+    );
     if (leg) propScored.push(leg);
   }
   propScored.sort(comparePropsOnlyLegsByReliableEv);
 
-  const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
+  const stagedRaw = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
     allowRareCountFamilyStack: !!opts.allowRareCountFamilyStack,
     askText: opts.askText,
     ticketStyle: opts.ticketStyle,
     allowRareMultiCount: opts.allowRareMultiCount,
   });
+  // Final seat belt — ALT/backfill cannot override immutable sport scope.
+  const scopedPicks =
+    sportScope.allowedSports.length > 0
+      ? filterPicksByAllowedSports(stagedRaw, sportScope, opts.espnGames)
+      : stagedRaw;
+  // #773 provider provenance — props-only must not skip the board-scan belt.
+  const { picks } = enforceSeatedPropProviderProvenance(scopedPicks);
   const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
@@ -917,7 +1086,7 @@ export async function buildFootballPropsOnlyTicket(
     stageRejects,
   });
 
-  const sportLabel = propsSportLabelForAsk(opts.askText ?? "");
+  const sportLabel = propsOnlySportLabelFromAsk(opts.askText ?? "");
   let note = "";
   if (picks.length === 0) {
     // Same terminal diagnosis as buildCoachParlay recovery / final Coach bubble.

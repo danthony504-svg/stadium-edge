@@ -18,9 +18,9 @@ import {
   askRequiresFootballPropMix,
   askIsCollegeFootballOnly,
   askAllowsNcaafPlayerProps,
-  propsSportLabelForAsk,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
+  propsOnlySportLabelFromAsk,
   fillReservedPeriodSlots,
   skillPropFamily,
   skillPropRank,
@@ -34,6 +34,64 @@ import {
 } from "./boardScanScope.ts";
 import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { coachShortfallNote } from "./coach/session.ts";
+import {
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
+
+function stampQualifiedPropInScored<
+  T extends { pick: Record<string, unknown>; rankScore: number },
+>(leg: T, simHit = 0.58): T {
+  if (!leg.pick.isProp) return leg;
+  const sport = leg.pick.sport as string | undefined;
+  const marketKey = (leg.pick.propMarketKey ?? leg.pick.market) as string | undefined;
+  const finalAiScore = {
+    composite: 8,
+    grade: "B+",
+    confidencePct: 58,
+    edgePct: 4,
+    simHit,
+    simAligned: true,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: {
+      composite: 8,
+      grade: "B+",
+      confidencePct: 58,
+      edgePct: 4,
+      scores: {} as never,
+    },
+    propProbabilityProvenance: exactMarket10kProvenance({
+      hitProbability: simHit,
+      simulations: 10_000,
+      sport,
+      marketKey,
+      athleteId: (leg.pick.athleteId as string | undefined) ?? "ath-fill",
+      eventId: (leg.pick.eventId as string | undefined) ?? "evt-fill",
+      side: (leg.pick.propSide as string | undefined) ?? (leg.pick.side as string | undefined) ?? "Over",
+      line: (leg.pick.propLine as number | undefined) ?? 1.5,
+    }),
+    ...(leg.pick.finalAiScore as object | undefined),
+  };
+  const pick = withExactMarket10kProvenance({
+    ...leg.pick,
+    isProp: true,
+    athleteId: (leg.pick.athleteId as string | undefined) ?? "ath-fill",
+    eventId: (leg.pick.eventId as string | undefined) ?? "evt-fill",
+    propSide: (leg.pick.propSide as string | undefined) ?? "Over",
+    propLine: (leg.pick.propLine as number | undefined) ?? 1.5,
+    simHit,
+    finalAiScore,
+  });
+  return { ...leg, pick };
+}
+
+function stampQualifiedPropScoredArray<
+  T extends { pick: Record<string, unknown>; rankScore: number },
+>(legs: T[]): T[] {
+  return legs.map((leg) => (leg.pick.isProp ? stampQualifiedPropInScored(leg) : leg));
+}
 
 /** Dead #469 wipe formula — kept only so the regression proves it stays dead. */
 function buggyWipeOnAwaitingPropSlots<T extends { isProp?: boolean }>(
@@ -86,12 +144,20 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askRequiresFootballPropMix("8 leg college"), false);
 });
 
-test("propsSportLabelForAsk: NFL player props ≠ college football (Stage2 device)", () => {
-  // askAllowsNcaafPlayerProps("…player props") is true for NFL — must not drive copy.
-  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), true);
-  assert.equal(propsSportLabelForAsk("5 leg NFL player props"), "NFL");
-  assert.equal(propsSportLabelForAsk("7 leg college football player props"), "college football");
-  assert.equal(propsSportLabelForAsk("6 leg football player props"), "football");
+test("propsOnlySportLabelFromAsk: NFL asks are NFL, not college football", () => {
+  // Regression: label must not reuse askAllowsNcaafPlayerProps (NFL-only → false).
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), false);
+  assert.equal(propsOnlySportLabelFromAsk("5 leg NFL player props"), "NFL");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg nfl player props"), "NFL");
+  assert.equal(propsOnlySportLabelFromAsk("7 leg NFL"), "NFL");
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg college football player props"),
+    "college football",
+  );
+  assert.equal(propsOnlySportLabelFromAsk("5 leg ncaaf player props"), "college football");
+  assert.equal(propsOnlySportLabelFromAsk("8 leg college"), "college football");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg football player props"), "football");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg player props"), "football");
 });
 
 test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {
@@ -697,7 +763,11 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
       rankScore: 74,
     },
   ];
-  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const out = fillReservedPropSlots(
+    gameHeavy,
+    stampQualifiedPropScoredArray(scored),
+    target,
+  );
   const propCount = out.filter((p) => p.isProp).length;
   assert.equal(propCount, boardScanPropSlotCount(8)); // 4 of 8
   assert.ok(out.some((p) => /rush/i.test(p.market || "")));
@@ -764,7 +834,11 @@ test("fillReservedPropSlots diversifies TD / pass / rec / rush alts over ML-only
       rankScore: 70 + i,
     })),
   ];
-  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const out = fillReservedPropSlots(
+    gameHeavy,
+    stampQualifiedPropScoredArray(scored),
+    target,
+  );
   const props = out.filter((p) => p.isProp);
   assert.equal(props.length, boardScanPropSlotCount(8));
   assert.ok(out.some((p) => !p.isProp), "still keeps some game lines");
@@ -800,33 +874,26 @@ test("fillReservedPropSlots swaps a full 10-leg NFL spread/total ticket for skil
   ];
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
-    ...skill.map((s, i) => ({
-      pick: {
-        isProp: true,
-        sport: "nfl",
-        market: s.market,
-        propMarketKey: s.market,
-        propLine: s.line,
-        game: `PropAway${i} @ PropHome${i}`,
-        player: s.player,
-        pick: `Over ${s.line}`,
-        side: "Over",
-        scores: { composite: 80 },
-        finalAiScore: {
-          composite: 8,
-          grade: "B+",
-          confidencePct: 58,
-          edgePct: 4,
-          simHit: 0.56,
-          simAligned: true,
-          highRiskValuePlay: false,
-          recommends: true,
-          factors: [],
-          rubric: { composite: 8, grade: "B+", confidencePct: 58, edgePct: 4, scores: {} as never },
+    ...skill.map((s, i) =>
+      stampQualifiedPropInScored(
+        {
+          pick: {
+            isProp: true,
+            sport: "nfl",
+            market: s.market,
+            propMarketKey: s.market,
+            propLine: s.line,
+            game: `PropAway${i} @ PropHome${i}`,
+            player: s.player,
+            pick: `Over ${s.line}`,
+            side: "Over",
+            scores: { composite: 80 },
+          },
+          rankScore: 90 - i,
         },
-      },
-      rankScore: 90 - i,
-    })),
+        0.56,
+      ),
+    ),
   ];
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   const props = out.filter((p) => p.isProp);
@@ -917,7 +984,11 @@ test("fillReservedPropSlots swaps MLB game lines for HR / hits / K props", () =>
       rankScore: 90 - i,
     })),
   ];
-  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const out = fillReservedPropSlots(
+    gameHeavy,
+    stampQualifiedPropScoredArray(scored),
+    target,
+  );
   const props = out.filter((p) => p.isProp);
   assert.equal(props.length, boardScanPropSlotCount(8)); // 4 of 8 (~50%)
   assert.ok(props.some((p) => skillPropFamily(p.market) === "hr"), "includes HR props");
@@ -967,7 +1038,11 @@ test("fillReservedPropSlots swaps NBA game lines for points / reb / ast props", 
       rankScore: 90 - i,
     })),
   ];
-  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const out = fillReservedPropSlots(
+    gameHeavy,
+    stampQualifiedPropScoredArray(scored),
+    target,
+  );
   const props = out.filter((p) => p.isProp);
   assert.equal(props.length, boardScanPropSlotCount(8));
   assert.ok(props.some((p) => skillPropFamily(p.market) === "points"), "includes points props");

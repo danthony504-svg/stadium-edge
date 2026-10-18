@@ -38,6 +38,10 @@ import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { simEdgeFromHit, simEvPct } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
+import {
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 test("pipeline attestation: COACH_PIPELINE_VERSION is unified-quality-v1", () => {
   const a = assertUnifiedQualityPipeline();
@@ -291,7 +295,9 @@ test("explicit 2+ HR / lottery path stays open", () => {
 test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
   // Defect guard: "2+ HR" is balanced style (not longshot). Qualify with
   // allowRareMultiCount, then a bare boardLegPoolRole() must still allow.
-  const pick = {
+  const pick = withExactMarket10kProvenance({
+    athleteId: "ath-hr",
+    eventId: "evt-hr",
     isProp: true,
     sport: "mlb",
     player: "Judge",
@@ -304,6 +310,7 @@ test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
     pick: "Judge Over 1.5 Home Runs",
     allowRareMultiCount: true,
     hitReliability: 0.2,
+    simHit: 0.03,
     finalAiScore: {
       grade: "C+",
       confidencePct: 55,
@@ -321,8 +328,19 @@ test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
         edgePct: 2,
         scores: {} as never,
       },
+      propProbabilityProvenance: exactMarket10kProvenance({
+        hitProbability: 0.03,
+        simulations: 10_000,
+        sport: "mlb",
+        marketKey: "batter_home_runs",
+      
+      athleteId: "ath-hr",
+      eventId: "evt-hr",
+      side: "Over",
+      line: 1.5,
+    }),
     },
-  } as ParsedPick & { allowRareMultiCount: boolean; hitReliability: number };
+  }) as ParsedPick & { allowRareMultiCount: boolean; hitReliability: number };
   assert.notEqual(boardLegPoolRole(pick, pick.finalAiScore), null);
   assert.equal(
     boardLegPoolRole(
@@ -355,7 +373,9 @@ test("combinator path: 2+ HR ask seats rare multi-count (balanced style)", () =>
     },
   };
   const mkHr = (player: string, game: string, rank: number): BoardScoredLeg => ({
-    pick: {
+    pick: withExactMarket10kProvenance({
+    athleteId: "ath-hr",
+    eventId: "evt-hr",
       isProp: true,
       sport: "mlb",
       player,
@@ -366,8 +386,23 @@ test("combinator path: 2+ HR ask seats rare multi-count (balanced style)", () =>
       odds: 25000,
       game,
       pick: `${player} Over 1.5 Home Runs`,
-      finalAiScore: { ...score, composite: rank },
-    } as ParsedPick,
+      simHit: 0.04,
+      finalAiScore: {
+        ...score,
+        composite: rank,
+        propProbabilityProvenance: exactMarket10kProvenance({
+          hitProbability: 0.04,
+          simulations: 10_000,
+          sport: "mlb",
+          marketKey: "batter_home_runs",
+        
+      athleteId: "ath-hr",
+      eventId: "evt-hr",
+      side: "Over",
+      line: 1.5,
+    }),
+      },
+    }) as ParsedPick,
     evPct: 4,
     edgePct: 4,
     confidencePct: 56,

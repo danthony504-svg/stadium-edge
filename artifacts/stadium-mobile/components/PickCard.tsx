@@ -14,6 +14,7 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, pickHasSimGrade } from "@/lib/simMarketSupport";
+import { altLadderSimulationCaption } from "@/lib/coachPropProbabilityProvenance";
 import { buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import {
@@ -148,6 +149,11 @@ export type ParsedPick = {
    * letter grade (not Not Rec.) even when holistic confidence sits at 50–51.
    */
   propsOnlyTicket?: boolean;
+  /**
+   * Option C — player-prop probability provenance. Must travel with the pick
+   * through qualify / ALT / backfill / partial / final. Never forge exact_market_10k.
+   */
+  propProbabilityProvenance?: import("@/lib/coachPropProbabilityProvenance").PropProbabilityProvenance | null;
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
   /**
@@ -387,11 +393,23 @@ function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confid
   return "overall";
 }
 
-// Line ladder: heuristic Safe/Best/Value before sim; labeled 10k alt lines after.
+// Line ladder: heuristic Safe/Best/Value before sim; provenance-aware ALT caption.
 function LineLadder({ pick, locked }: { pick: ParsedPick; locked?: boolean }) {
   const colors = useColors();
   const sub = useSubscriptionOptional();
   const simAlts = pick.simAltLines ?? [];
+  const altCaption = altLadderSimulationCaption({
+    parent: pick,
+    alts: simAlts.map((alt) => ({
+      propLine: alt.line,
+      line: alt.line,
+      propSide: alt.side,
+      side: alt.side,
+      propProbabilityProvenance: (alt as {
+        propProbabilityProvenance?: ParsedPick["propProbabilityProvenance"];
+      }).propProbabilityProvenance,
+    })),
+  });
 
   if (locked) {
     return (
@@ -442,7 +460,7 @@ function LineLadder({ pick, locked }: { pick: ParsedPick; locked?: boolean }) {
             textTransform: "uppercase",
           }}
         >
-          Alternate lines · 10k sim · Safest → Best → Value → High Risk
+          {altCaption}
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "stretch" }}>
           {simAlts.map((alt) => (
