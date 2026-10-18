@@ -151,6 +151,9 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   assert.match(src, /resolveImmutableAskSportScope/);
   assert.match(src, /filterPoolByAllowedSports/);
   assert.match(src, /allowedSports:\s*askSportScope\.allowedSports/);
+  // Props-only shortfall sport wording prefers belt / failDiag over ask text.
+  assert.match(src, /propsOnlySportLabelFromAsk\(opts\.askText,\s*\{/);
+  assert.match(src, /failDiagSports:\s*propsFailDiag\?\.sports/);
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
   // Terminal empty/short copy must follow preferPropsOnlyFailDiag / failDiag —

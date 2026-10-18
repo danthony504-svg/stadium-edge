@@ -1168,7 +1168,10 @@ export async function buildFootballPropsOnlyTicket(
     stageRejects,
   });
 
-  const sportLabel = propsOnlySportLabelFromAsk(opts.askText ?? "");
+  const sportLabel = propsOnlySportLabelFromAsk(opts.askText ?? "", {
+    allowedSports: sportScope.allowedSports,
+    failDiagSports: sports,
+  });
   let note = "";
   if (picks.length === 0) {
     // Same terminal diagnosis as buildCoachParlay recovery / final Coach bubble.

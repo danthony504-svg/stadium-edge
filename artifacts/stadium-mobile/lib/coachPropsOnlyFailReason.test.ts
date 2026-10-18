@@ -590,3 +590,39 @@ test("NFL vs NCAAF: partial / empty / full ticket sport labels stay separated", 
   assert.match(reconciled, /qualified NFL player props/);
   assert.doesNotMatch(reconciled, /college football/i);
 });
+
+test("NFL → Anytime TD → MLB: authoritative sports label MLB shortfall (not football)", () => {
+  assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
+  // Consecutive Coach asks: prior NFL/ATD text must not poison MLB shortfall copy.
+  const staleAsk = "5 leg NFL anytime touchdown";
+  const mlbLabel = propsOnlySportLabelFromAsk(staleAsk, {
+    allowedSports: ["mlb"],
+    failDiagSports: { mlb: 48 },
+  });
+  assert.equal(mlbLabel, "MLB");
+
+  const mlbShort = shortDiag({
+    target: 5,
+    staged: 3,
+    oddsCleared: 14,
+    uniqueGames: 3,
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 11 },
+    }),
+  });
+  const note = propsOnlyTerminalShortNote(mlbShort, {
+    sportLabel: mlbLabel,
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 3 qualified MLB player props for your 5-leg request/);
+  assert.match(note, /52% confidence floor/);
+  assert.doesNotMatch(note, /football/i);
+  assert.doesNotMatch(note, /\bNFL\b/);
+
+  // Missing sportLabel must stay neutral — never invent football.
+  const neutral = propsOnlyTerminalShortNote(mlbShort, {
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(neutral, /qualified eligible player props/);
+  assert.doesNotMatch(neutral, /football/i);
+});

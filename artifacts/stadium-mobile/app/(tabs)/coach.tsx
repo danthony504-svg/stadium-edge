@@ -804,7 +804,9 @@ export default function CoachScreen() {
                 sessionRef.current.outcome === "shortfall" ||
                 sessionRef.current.outcome === "failed")
             ) {
-              const sportLabel = propsOnlySportLabelFromAsk(ask);
+              const sportLabel = propsOnlySportLabelFromAsk(ask, {
+                failDiagSports: result.failDiag.sports,
+              });
               const reconciled = reconcileCoachTerminalNote({
                 priorText: "",
                 nextText: result.note,
