@@ -136,7 +136,7 @@ test("football skill candidacy prefers athleteId rows (local enrich can grade)",
   assert.ok(!!yards[0]?.athleteId, "first yards candidate must have athleteId");
 });
 
-test("player_anytime_td / first_td map to real rush+rec+pass TD columns", () => {
+test("player_anytime_td maps scorer TDs; First TD unmapped; pass TD ≠ scorer", () => {
   const none = new Set<string>();
   const wr = {
     rushingTouchdowns: "0",
@@ -144,12 +144,14 @@ test("player_anytime_td / first_td map to real rush+rec+pass TD columns", () => 
     passingTouchdowns: "0",
   };
   assert.equal(gameValueForMarket("player_anytime_td", wr, none), 1);
-  assert.equal(gameValueForMarket("player_first_td", wr, none), 1);
+  // First TD needs scoring-order PBP — fail closed locally.
+  assert.equal(gameValueForMarket("player_first_td", wr, none), null);
   const qb = {
     rushingTouchdowns: "0",
     receivingTouchdowns: "0",
     passingTouchdowns: "2",
   };
-  assert.equal(gameValueForMarket("player_anytime_td", qb, none), 2);
+  // QB pass TDs thrown are not personal Anytime TD scores.
+  assert.equal(gameValueForMarket("player_anytime_td", qb, none), 0);
   assert.equal(gameValueForMarket("player_anytime_td", {}, none), null);
 });

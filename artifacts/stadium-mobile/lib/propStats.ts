@@ -302,16 +302,23 @@ export function gameValueForMarket(
     if (pass == null || rush == null || rec == null) return null;
     return pass + rush + rec;
   }
-  // Anytime / first TD — sum of real rush+rec+pass TD columns (first-TD books
-  // still need a grounded per-game scorer rate for local MC fallback).
-  if (market === "player_anytime_td" || market === "player_first_td") {
-    const pass = num(stats, "passingTouchdowns");
+  // Anytime TD scorer — rush/rec/return only. Passing TDs thrown are NOT
+  // personal scores (QB pass TD ≠ Anytime TD). First TD has no local scoring-
+  // order feed — leave unmapped so deep sim / provenance fail closed.
+  if (market === "player_anytime_td") {
     const rush = num(stats, "rushingTouchdowns");
     const rec = num(stats, "receivingTouchdowns");
-    // Prefer skill-position columns; treat missing pass TD as 0 when rush/rec present
-    // (WR/RB logs often omit passingTouchdowns entirely).
-    if (rush == null && rec == null && pass == null) return null;
-    return (pass ?? 0) + (rush ?? 0) + (rec ?? 0);
+    const kr = num(stats, "kickReturnTouchdowns");
+    const pr = num(stats, "puntReturnTouchdowns");
+    const ir = num(stats, "interceptionReturnTouchdowns");
+    const fr = num(stats, "fumbleReturnTouchdowns");
+    if (rush == null && rec == null && kr == null && pr == null && ir == null && fr == null) {
+      return null;
+    }
+    return (rush ?? 0) + (rec ?? 0) + (kr ?? 0) + (pr ?? 0) + (ir ?? 0) + (fr ?? 0);
+  }
+  if (market === "player_first_td") {
+    return null;
   }
 
   // Kicking points: prefer ESPN machine field; else exact FG×3 + XP identity.
