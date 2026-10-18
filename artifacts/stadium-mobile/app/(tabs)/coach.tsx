@@ -1173,7 +1173,7 @@ export default function CoachScreen() {
                         ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
                         : item.text.trim()}
                     </Text>
-                    {!coachPremiumUnlocked && item.picks && item.picks.length > 0 ? (
+                    {!coachPremiumUnlocked && !isFreeTwoLegCoachPreview(item.requestedLegs) && item.picks && item.picks.length > 0 ? (
                       <Pressable
                         onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
                         accessibilityRole="button"
@@ -1216,8 +1216,8 @@ export default function CoachScreen() {
                       <PickCard
                         pick={displayPick}
                         onPress={statsHandlerFor(pick)}
-                        lockPickDetails
-                        allowSlipActions={item.responseKind !== "nleg_ticket"}
+                        lockPickDetails={!isFreeTwoLegCoachPreview(item.requestedLegs)}
+                        allowSlipActions={item.responseKind !== "nleg_ticket" && coachPremiumUnlocked}
                       />
                     </View>
                   );
