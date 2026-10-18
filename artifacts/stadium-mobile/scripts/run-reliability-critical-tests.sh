@@ -81,6 +81,7 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachTourPlacement.test.ts \
     lib/coachPerfDiagnostics.test.ts \
     lib/coach/coachRequestDeadline.test.ts \
+    lib/coachDeliveryGrounding.test.ts \
     lib/coachTicketHold.test.ts \
     lib/simMarketSupport.test.ts
 )

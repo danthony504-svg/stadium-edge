@@ -39,11 +39,26 @@ function asGroundingPick(p: ParsedPick): CoachReliabilityGroundingPick {
   };
 }
 
-/** Drop only confirmed mismatches; unknown identity stays. */
+/** Player props cannot be delivered when their team has not been identified.
+ * This is stricter than observe-only mismatch telemetry: unknown is not a
+ * proven mismatch, but it is also not verified evidence for a ticket. */
+function lacksPlayerTeamEvidence(p: ParsedPick): boolean {
+  const prop = p.isProp === true ||
+    !!String(p.propMarketKey ?? "").trim() ||
+    !!String(p.athleteId ?? "").trim();
+  return prop && !!String(p.game ?? "").trim() && !!String(p.player ?? "").trim() && !String(p.teamAbbr ?? "").trim();
+}
+
+function unsafePlayerGameSeat(p: ParsedPick): boolean {
+  return lacksPlayerTeamEvidence(p) ||
+    pickHasPlayerGameGroundingMismatch(asGroundingPick(p));
+}
+
+/** Exclude proven mismatches and player props without team evidence. */
 export function filterPicksForPlayerGameGrounding(
   picks: readonly ParsedPick[],
 ): ParsedPick[] {
-  return picks.filter((p) => !pickHasPlayerGameGroundingMismatch(asGroundingPick(p)));
+  return picks.filter((p) => !unsafePlayerGameSeat(p));
 }
 
 /**
@@ -64,7 +79,7 @@ export function applyDeliveryGroundingGate(opts: {
   let removedCount = 0;
   const kept: ParsedPick[] = [];
   for (const p of incoming) {
-    if (pickHasPlayerGameGroundingMismatch(asGroundingPick(p))) {
+    if (unsafePlayerGameSeat(p)) {
       removedCount += 1;
       if (!affectedGame) {
         const g = String(p.game ?? "").trim();
@@ -84,7 +99,7 @@ export function applyDeliveryGroundingGate(opts: {
       if (out.length >= target) break;
       const fp = pickLegFingerprint(cand);
       if (used.has(fp)) continue;
-      if (pickHasPlayerGameGroundingMismatch(asGroundingPick(cand))) continue;
+      if (unsafePlayerGameSeat(cand)) continue;
       used.add(fp);
       out.push(cand);
       replacedCount += 1;

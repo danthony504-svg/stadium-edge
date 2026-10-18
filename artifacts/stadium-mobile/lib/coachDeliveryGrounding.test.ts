@@ -24,7 +24,7 @@ function prop(
   };
 }
 
-test("incident-derived: proven mismatch removed; unknown identity kept", () => {
+test("incident-derived: proven mismatch and unknown player team both excluded", () => {
   const picks = [
     prop({
       game: "Rays @ Guardians",
@@ -43,9 +43,8 @@ test("incident-derived: proven mismatch removed; unknown identity kept", () => {
     }),
   ];
   const kept = filterPicksForPlayerGameGrounding(picks);
-  assert.equal(kept.length, 2);
+  assert.equal(kept.length, 1);
   assert.equal(kept[0]!.player, "Junior Caminero");
-  assert.equal(kept[1]!.player, "Unknown Player");
 });
 
 test("incident-derived: replace only with grounded qualified candidates; honest shortfall", () => {
@@ -175,4 +174,13 @@ test("NFL Buccaneers TB kept; MLB Rays on NFL game stripped", () => {
   assert.equal(result.removedCount, 1);
   assert.equal(result.picks.length, 1);
   assert.equal(result.picks[0]!.player, "Baker Mayfield");
+});
+
+test("NHL prop missing team evidence is excluded even with a plausible game", () => {
+  const bad = prop({ game: "Columbus Blue Jackets @ Minnesota Wild", teamAbbr: "", player: "Quinn Hughes", sport: "nhl", market: "Points", propMarketKey: "player_points" });
+  const valid = prop({ game: "Columbus Blue Jackets @ Minnesota Wild", teamAbbr: "MIN", player: "Verified Player", sport: "nhl", market: "Points", propMarketKey: "player_points", pick: "Over 1.5" });
+  const out = applyDeliveryGroundingGate({picks:[bad],qualifiedCandidates:[valid],target:1});
+  assert.equal(out.removedCount,1);
+  assert.equal(out.replacedCount,1);
+  assert.equal(out.picks[0]?.player,"Verified Player");
 });
