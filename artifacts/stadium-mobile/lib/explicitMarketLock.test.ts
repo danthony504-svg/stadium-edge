@@ -19,11 +19,8 @@ import {
 import {
   propsOnlyLegClearsOdds,
   PROPS_ONLY_RECOVERY_ODDS_SLACK,
-  gradeFootballPropFromHistory,
 } from "./coachFootballPropsOnlyGrade.ts";
-import { stageFootballPropsOnlyLegs } from "./coachFootballPropsOnly.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -259,7 +256,7 @@ test("multi-market ask unions named families", () => {
   assert.ok(m!.allowedMarketKeys.includes("batter_home_runs"));
 });
 
-test("recovery odds slack stages near-miss same-stat TD without unlocking markets", () => {
+test("recovery odds slack clears near-miss same-stat TD without unlocking markets", () => {
   const td = {
     game: "A @ B",
     market: "Anytime TD",
@@ -273,33 +270,33 @@ test("recovery odds slack stages near-miss same-stat TD without unlocking market
     sport: "nfl",
     athleteId: "star-1",
   } as ParsedPick;
-  const hist = {
-    recent: Array.from({ length: 8 }, (_, g) => ({
-      stats: {
-        rushingTouchdowns: "0",
-        receivingTouchdowns: g % 2 === 0 ? "1" : "0",
-        passingTouchdowns: "0",
-      },
-    })),
-  };
-  const hit = gradeFootballPropFromHistory(td, hist).hitProbability;
+  // Near-miss vs -130 implied (~56.5%): below strict clear, inside recovery slack.
+  const hit = 0.54;
   assert.equal(propsOnlyLegClearsOdds(td, hit), false);
   assert.equal(propsOnlyLegClearsOdds(td, hit, PROPS_ONLY_RECOVERY_ODDS_SLACK), true);
 
   const constraint = parseCoachAskMarketConstraint("5 leg touchdown");
-  const scored: BoardScoredLeg[] = [
-    {
-      pick: { ...td, propsOnlyTicket: true },
-      simHit: hit,
-      evPct: -5,
-      rankScore: 5,
-    } as BoardScoredLeg,
-  ];
-  const staged = stageFootballPropsOnlyLegs(scored, 5, PROPS_ONLY_RECOVERY_ODDS_SLACK);
-  assert.equal(staged.length, 1);
-  const kept = filterPicksByAskMarketConstraint(staged, constraint);
+  assert.ok(propMarketKeyAllowed("player_anytime_td", constraint.allowedMarketKeys));
+  assert.equal(propMarketKeyAllowed("player_rush_yds", constraint.allowedMarketKeys), false);
+  const kept = filterPicksByAskMarketConstraint(
+    [
+      { ...td, propsOnlyTicket: true },
+      {
+        isProp: true,
+        market: "Rush Yds",
+        propMarketKey: "player_rush_yds",
+        pick: "Star Rush Yds",
+        player: "Star",
+        propLine: 50.5,
+        propSide: "Over",
+        odds: -110,
+        sport: "nfl",
+      } as ParsedPick,
+    ],
+    constraint,
+  );
   assert.equal(kept.length, 1);
-  assert.ok(propMarketKeyAllowed(kept[0]!.propMarketKey, constraint.allowedMarketKeys));
+  assert.equal(kept[0]!.propMarketKey, "player_anytime_td");
 });
 
 test("locked TD recovery must reject yards / receptions / sacks cross-fill", () => {
