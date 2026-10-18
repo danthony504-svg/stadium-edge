@@ -516,6 +516,7 @@ export async function buildCoachParlay(opts: {
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
   const activePropPool = filterUngroundedCoachPropPool(
     hrBoardAsk ? filterHrScorerPoolEntries(scopedPropPool) : scopedPropPool,
+    inputs.espnGames,
   );
   const propPoolSize = activePropPool.length;
 
