@@ -586,7 +586,16 @@ test("phone insufficient_game_log rebuild: 2-game early-season sample grades", (
     ],
   };
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
-  assertUnapprovedHistoricalSeat(graded);
+  // Split-category game rows merge, but history alone still cannot seat a TD.
+  // The current model may reject earlier for insufficient mapped scoring stats.
+  assert.equal(graded.hitProbability, null);
+  assert.equal(graded.probabilityProvenance?.source, "insufficient_evidence");
+  assert.ok(
+    ["unapproved_historical_model", "insufficient_mapped_stats"].includes(
+      graded.probabilityProvenance?.nullReason ?? "",
+    ),
+    "historical TD without exact-market 10K must remain unapproved",
+  );
 });
 
 test("merge prior-season logs fills thin current season (phone hist=19 graded=0)", () => {
