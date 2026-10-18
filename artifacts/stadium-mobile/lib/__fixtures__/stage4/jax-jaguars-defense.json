@@ -1,0 +1,139 @@
+{
+  "sport": "nfl",
+  "teamId": "30",
+  "raw": {
+    "sport": "nfl",
+    "teamId": "30",
+    "teamName": "Jacksonville Jaguars",
+    "avgPointsAgainst": 14,
+    "avgPointsFor": 24.6,
+    "pointDifferential": 53,
+    "defensive": {
+      "sacks": {
+        "value": 11,
+        "displayValue": "11"
+      },
+      "totalTackles": {
+        "value": 318,
+        "displayValue": "318"
+      },
+      "passesDefended": {
+        "value": 22,
+        "displayValue": "22"
+      },
+      "stuffs": {
+        "value": 20,
+        "displayValue": "20"
+      },
+      "teamGamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      },
+      "interceptions": {
+        "value": 6,
+        "displayValue": "6"
+      },
+      "totalTakeaways": {
+        "value": 8,
+        "displayValue": "8"
+      },
+      "gamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      }
+    },
+    "offensive": {
+      "passingYardsPerGame": {
+        "value": 234.8,
+        "displayValue": "234.8"
+      },
+      "completionPct": {
+        "value": 67.1,
+        "displayValue": "67.1"
+      },
+      "yardsPerPassAttempt": {
+        "value": 8.2,
+        "displayValue": "8.2"
+      },
+      "sacks": {
+        "value": 10,
+        "displayValue": "10"
+      },
+      "sackYardsLost": {
+        "value": 71,
+        "displayValue": "71"
+      },
+      "interceptionPct": {
+        "value": 2.1,
+        "displayValue": "2.10"
+      },
+      "interceptions": {
+        "value": 3,
+        "displayValue": "3"
+      },
+      "passingAttempts": {
+        "value": 143,
+        "displayValue": "143"
+      },
+      "teamGamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      },
+      "rushingYardsPerGame": {
+        "value": 114.2,
+        "displayValue": "114.2"
+      },
+      "yardsPerRushAttempt": {
+        "value": 4.1,
+        "displayValue": "4.1"
+      },
+      "totalPointsPerGame": {
+        "value": 24.6,
+        "displayValue": "24.6"
+      },
+      "gamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      }
+    },
+    "rushDefense": {
+      "rushingYardsAllowedPerGame": 63.8,
+      "yardsPerRushAllowed": 2.93,
+      "sampleSize": 5
+    },
+    "passDefense": {
+      "passingYardsAllowedPerGame": 266.2,
+      "yardsPerPassAllowed": null,
+      "sampleSize": 5
+    }
+  },
+  "pack": {
+    "teamName": "Jacksonville Jaguars",
+    "pointsAgainst": 14,
+    "pointsFor": 24.6,
+    "gamesPlayed": 5,
+    "sacks": 11,
+    "interceptions": 6,
+    "passesDefended": 22,
+    "stuffs": 20,
+    "totalTakeaways": 8,
+    "sacksAllowed": 10,
+    "sackYardsLost": 71,
+    "interceptionPct": 2.1,
+    "intsThrown": 3,
+    "passingAttempts": 143,
+    "ownRushYpc": 4.1,
+    "rush": {
+      "rushingYardsAllowedPerGame": 63.8,
+      "yardsPerRushAllowed": 2.93,
+      "sampleSize": 5,
+      "teamName": "Jacksonville Jaguars"
+    },
+    "pass": {
+      "passingYardsAllowedPerGame": 266.2,
+      "yardsPerPassAllowed": null,
+      "sampleSize": 5,
+      "teamName": "Jacksonville Jaguars"
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "sport": "nfl",
+  "teamId": "34",
+  "raw": {
+    "sport": "nfl",
+    "teamId": "34",
+    "teamName": "Houston Texans",
+    "avgPointsAgainst": 22.4,
+    "avgPointsFor": 22,
+    "pointDifferential": -2,
+    "defensive": {
+      "sacks": {
+        "value": 18,
+        "displayValue": "18"
+      },
+      "totalTackles": {
+        "value": 358,
+        "displayValue": "358"
+      },
+      "passesDefended": {
+        "value": 25,
+        "displayValue": "25"
+      },
+      "stuffs": {
+        "value": 16,
+        "displayValue": "16"
+      },
+      "teamGamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      },
+      "interceptions": {
+        "value": 2,
+        "displayValue": "2"
+      },
+      "totalTakeaways": {
+        "value": 5,
+        "displayValue": "5"
+      },
+      "gamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      }
+    },
+    "offensive": {
+      "passingYardsPerGame": {
+        "value": 280.4,
+        "displayValue": "280.4"
+      },
+      "completionPct": {
+        "value": 64,
+        "displayValue": "64.0"
+      },
+      "yardsPerPassAttempt": {
+        "value": 7.5,
+        "displayValue": "7.5"
+      },
+      "sacks": {
+        "value": 14,
+        "displayValue": "14"
+      },
+      "sackYardsLost": {
+        "value": 93,
+        "displayValue": "93"
+      },
+      "interceptionPct": {
+        "value": 0,
+        "displayValue": "0.00"
+      },
+      "interceptions": {
+        "value": 0,
+        "displayValue": "0"
+      },
+      "passingAttempts": {
+        "value": 186,
+        "displayValue": "186"
+      },
+      "teamGamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      },
+      "rushingYardsPerGame": {
+        "value": 79,
+        "displayValue": "79.0"
+      },
+      "yardsPerRushAttempt": {
+        "value": 3.4,
+        "displayValue": "3.4"
+      },
+      "totalPointsPerGame": {
+        "value": 22,
+        "displayValue": "22.0"
+      },
+      "gamesPlayed": {
+        "value": 5,
+        "displayValue": "5"
+      }
+    },
+    "rushDefense": {
+      "rushingYardsAllowedPerGame": 78.4,
+      "yardsPerRushAllowed": 3.32,
+      "sampleSize": 5
+    },
+    "passDefense": {
+      "passingYardsAllowedPerGame": 234,
+      "yardsPerPassAllowed": null,
+      "sampleSize": 5
+    }
+  },
+  "pack": {
+    "teamName": "Houston Texans",
+    "pointsAgainst": 22.4,
+    "pointsFor": 22,
+    "gamesPlayed": 5,
+    "sacks": 18,
+    "interceptions": 2,
+    "passesDefended": 25,
+    "stuffs": 16,
+    "totalTakeaways": 5,
+    "sacksAllowed": 14,
+    "sackYardsLost": 93,
+    "interceptionPct": 0,
+    "intsThrown": 0,
+    "passingAttempts": 186,
+    "ownRushYpc": 3.4,
+    "rush": {
+      "rushingYardsAllowedPerGame": 78.4,
+      "yardsPerRushAllowed": 3.32,
+      "sampleSize": 5,
+      "teamName": "Houston Texans"
+    },
+    "pass": {
+      "passingYardsAllowedPerGame": 234,
+      "yardsPerPassAllowed": null,
+      "sampleSize": 5,
+      "teamName": "Houston Texans"
+    }
+  }
+}
