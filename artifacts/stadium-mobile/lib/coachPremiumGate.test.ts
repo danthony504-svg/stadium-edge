@@ -16,6 +16,7 @@ import {
   redactPremiumPickFields,
   resolveCoachAskAccess,
   isFreeTwoLegCoachPreview,
+  freeCoachCardPresentation,
 } from "./coachPremiumGate.ts";
 
 const NOW = 1_700_000_000_000;
@@ -230,4 +231,11 @@ test("redaction keeps grades; strips identity, lines, odds, times", () => {
 test("free preview is exactly two requested legs; no up/down coercion", () => {
   assert.equal(isFreeTwoLegCoachPreview(2), true);
   for (const value of [0, 1, 3, 5, 9, 15, null, undefined, NaN, 2.5]) assert.equal(isFreeTwoLegCoachPreview(value), false, String(value));
+});
+
+test("two-leg preview cards reveal without subscription CTA or slip actions", () => {
+  assert.deepEqual(freeCoachCardPresentation(2, false), { revealPick: true, showSubscribeToReveal: false, allowSlipActions: false });
+  assert.deepEqual(freeCoachCardPresentation(3, false), { revealPick: false, showSubscribeToReveal: true, allowSlipActions: false });
+  assert.deepEqual(freeCoachCardPresentation(15, false), { revealPick: false, showSubscribeToReveal: true, allowSlipActions: false });
+  assert.deepEqual(freeCoachCardPresentation(2, true), { revealPick: true, showSubscribeToReveal: false, allowSlipActions: true });
 });
