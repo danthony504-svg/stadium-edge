@@ -107,7 +107,9 @@ test("greenfield grounding: full 6/6 with one bad leg still pages (no suppress-o
   assert.equal(body?.affectedGame, "Rays @ Guardians");
 });
 
-test("greenfield-1792246362208: missing_sim_output modes distinguished", () => {
+test("greenfield-1792246362208: missing_sim_output remains distinct from grounding", () => {
+  // Stamp-reject taxonomy is deferred (sim-stamp / PR follow-ups). PR-A only
+  // asserts existing main codes still classify without false grounding pages.
   assert.equal(
     mapScanFailureCode("GAME_SIMS_FETCH_EMPTY")?.failureReason,
     "missing_sim_output",
@@ -117,37 +119,13 @@ test("greenfield-1792246362208: missing_sim_output modes distinguished", () => {
     "missing_sim_output",
   );
   assert.equal(
-    mapScanFailureCode("GAME_SIMS_STAMP_REJECTED")?.failureReason,
-    "missing_sim_output",
-  );
-  assert.equal(
     mapScanFailureCode("GAME_LINES_NO_SIM_GRADE")?.failureReason,
-    "simulation_failure",
-  );
-  assert.equal(
-    mapScanFailureCode("PROP_ALL_NO_SIM_GRADE")?.failureReason,
     "simulation_failure",
   );
   assert.equal(
     mapScanFailureCode("PROP_POOL_EMPTY")?.failureReason,
     "alt_market_failure",
   );
-
-  const stamp = deriveCoachScanFailureReason({
-    stagedPickCount: 0,
-    oddsGameCount: 5,
-    teamIdMapSize: 10,
-    gameEntryCount: 5,
-    gameSimsLoaded: 0,
-    gameLegsScored: 0,
-    propPoolSize: 0,
-    propLegsScored: 0,
-    oddsLabelsBound: 5,
-    gameSimsFetchNull: 5,
-    gameSimsStampRejected: 5,
-    gameSimsAttempted: true,
-  });
-  assert.equal(stamp?.code, "GAME_SIMS_STAMP_REJECTED");
 
   const httpEmpty = deriveCoachScanFailureReason({
     stagedPickCount: 0,
@@ -160,7 +138,6 @@ test("greenfield-1792246362208: missing_sim_output modes distinguished", () => {
     propLegsScored: 0,
     oddsLabelsBound: 5,
     gameSimsFetchNull: 5,
-    gameSimsStampRejected: 0,
     gameSimsAttempted: true,
   });
   assert.equal(httpEmpty?.code, "GAME_SIMS_FETCH_EMPTY");
@@ -173,8 +150,10 @@ test("greenfield-1792246362208: missing_sim_output modes distinguished", () => {
     durationMs: 8615,
     realOddsAvailable: true,
     scanFailureCode: "GAME_SIMS_FETCH_EMPTY",
-    scanFailureDetail: "5 game(s) had ESPN ids but 0 Monte Carlo draws returned usable grades",
+    scanFailureDetail:
+      "5 game(s) had ESPN ids but 0 Monte Carlo draws returned usable grades",
   });
   assert.equal(body?.scanFailureCode, "GAME_SIMS_FETCH_EMPTY");
   assert.equal(body?.returnedLegCount, 0);
+  assert.notEqual(body?.eventType, "coach_grounding_failure");
 });
