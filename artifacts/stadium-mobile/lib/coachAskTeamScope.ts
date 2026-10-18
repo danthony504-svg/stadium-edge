@@ -628,6 +628,19 @@ export function coachAskTeamScope(
 ): CoachAskTeamScope | null {
   const t = stripTeamExclusionClauses(String(text ?? ""));
   if (!t.trim()) return null;
+  // City-only asks require an explicit league to disambiguate Atlanta's
+  // Falcons/Braves/Hawks and prevent an unscoped multi-game fallback.
+  if (/\\batlanta\\b/i.test(t)) {
+    if (/\\bnfl\\b|\\bfootball\\b/i.test(t) && !/\\bcollege\\b|\\bncaaf\\b/i.test(t)) {
+      return scopeFromEntry("falcons", NICK_TO_SPORT.falcons!);
+    }
+    if (/\\bmlb\\b|\\bbaseball\\b/i.test(t)) {
+      return scopeFromEntry("braves", NICK_TO_SPORT.braves!);
+    }
+    if (/\\bnba\\b|\\bbasketball\\b/i.test(t) && !/\\bwnba\\b|\\bncaab\\b/i.test(t)) {
+      return scopeFromEntry("hawks", NICK_TO_SPORT.hawks!);
+    }
+  }
   for (const nick of nickKeysLongestFirst()) {
     if (!nickPattern(nick).test(t)) continue;
     // Bare ambiguous nicknames never auto-scope (giants / cardinals / …).
