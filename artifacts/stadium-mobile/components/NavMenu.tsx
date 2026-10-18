@@ -2,7 +2,8 @@ import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { setTourMenuFocus, subscribeTourMenuFocus } from "@/lib/tourMenuFocus";
 import { Dimensions, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -52,6 +53,8 @@ export function NavMenu() {
   const { isSignedIn } = useAuth();
   const { entitlement, requirePro } = useSubscription();
   const [open, setOpen] = useState(false);
+  const [tourFocus, setTourFocus] = useState<string | null>(null);
+  useEffect(() => subscribeTourMenuFocus((route) => { setTourFocus(route); if (route) setOpen(true); }), []);
 
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
@@ -66,6 +69,7 @@ export function NavMenu() {
   const go = (route: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
+    setTourMenuFocus(null);
     const premiumId = premiumFeatureForRoute(route);
     // Navigate into the tab; PremiumFeatureGate shows Sign In / Subscribe when locked.
     // Nudge soft paywall for signed-in free users (logged-out users get Sign In on the gate).
@@ -132,8 +136,8 @@ export function NavMenu() {
         ) : null}
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={{ flex: 1 }} onPress={() => setOpen(false)}>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => { setOpen(false); setTourMenuFocus(null); }}>
+        <Pressable style={{ flex: 1 }} onPress={() => { setOpen(false); setTourMenuFocus(null); }}>
           <View
             style={{
               position: "absolute",
@@ -174,7 +178,10 @@ export function NavMenu() {
                       gap: 12,
                       paddingHorizontal: 16,
                       paddingVertical: 12,
-                      backgroundColor: pressed ? colors.background : "transparent",
+                      backgroundColor: tourFocus === d.route ? "rgba(59,130,246,0.18)" : pressed ? colors.background : "transparent",
+                      borderWidth: tourFocus === d.route ? 2 : 0,
+                      borderColor: colors.primary,
+                      borderRadius: tourFocus === d.route ? 10 : 0,
                     })}
                   >
                     <Feather
