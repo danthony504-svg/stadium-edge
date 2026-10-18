@@ -1,0 +1,61 @@
+{
+  "nba": {
+    "teamName": "Example NBA D",
+    "pointsAgainst": 108,
+    "steals": 9.2,
+    "defRebounds": 35,
+    "blocks": 5.5,
+    "gamesPlayed": 10
+  },
+  "wnba": {
+    "teamName": "Example WNBA D",
+    "pointsAgainst": 78,
+    "steals": 8,
+    "defRebounds": 30,
+    "blocks": 4.2,
+    "gamesPlayed": 8
+  },
+  "ncaab": {
+    "teamName": "Example NCAAB D",
+    "pointsAgainst": 64,
+    "steals": 7.5,
+    "defRebounds": 27,
+    "blocks": 4,
+    "gamesPlayed": 12
+  },
+  "nhl": {
+    "teamName": "Example NHL D",
+    "goalsAgainstAvg": 2.5,
+    "savePct": 0.915,
+    "shotsAgainst": 28,
+    "gamesPlayed": 10
+  },
+  "mlb": {
+    "teamName": "Example MLB D",
+    "era": 3.6,
+    "whip": 1.15,
+    "battingAverageAgainst": 0.23,
+    "gamesPlayed": 20
+  },
+  "soccer": {
+    "teamName": "Example Soccer D",
+    "goalsConceded": 10,
+    "gamesPlayed": 10
+  },
+  "ncaaf": {
+    "teamName": "Example NCAAF D",
+    "gamesPlayed": 5,
+    "pointsAgainst": 18,
+    "sacksAllowed": 12,
+    "rush": {
+      "rushingYardsAllowedPerGame": 110,
+      "yardsPerRushAllowed": 3.5,
+      "sampleSize": 5
+    },
+    "pass": {
+      "passingYardsAllowedPerGame": 200,
+      "yardsPerPassAllowed": 6.5,
+      "sampleSize": 5
+    }
+  }
+}
