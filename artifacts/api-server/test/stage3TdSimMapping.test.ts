@@ -97,6 +97,27 @@ describe("Stage 3 scoring TD mapping", () => {
       null,
     );
   });
+
+  it("incomplete rush/rec history is null — missing sibling is not a verified zero", () => {
+    assert.equal(
+      gameValueForMarket("player_anytime_td", { rushingTouchdowns: "1" }, NONE),
+      null,
+    );
+    assert.equal(
+      gameValueForMarket("player_anytime_td", { receivingTouchdowns: "2" }, NONE),
+      null,
+    );
+    assert.equal(scoringTouchdownsForGame({ rushingTouchdowns: "1" }), null);
+    assert.equal(scoringTouchdownsForGame({ receivingTouchdowns: "0" }), null);
+    // Both present (including explicit zeros) is complete.
+    assert.equal(
+      scoringTouchdownsForGame({
+        rushingTouchdowns: "1",
+        receivingTouchdowns: "0",
+      }),
+      1,
+    );
+  });
 });
 
 describe("Stage 3 First TD diagnosis", () => {
@@ -215,7 +236,7 @@ describe("Stage 3 multi-TD vs Anytime probability", () => {
 });
 
 describe("Stage 3 eventId merge for split category rows", () => {
-  it("mergeAuthGamesByEventId unions rush+pass columns", () => {
+  it("mergeAuthGamesByEventId unions rush+pass+rec columns for scorer", () => {
     const merged = mergeAuthGamesByEventId([
       {
         eventId: "e1",
@@ -232,14 +253,29 @@ describe("Stage 3 eventId merge for split category rows", () => {
         opponentId: "10",
         opponentName: "X",
         isHome: true,
-        stats: { rushingTouchdowns: "1", rushingYards: "20" },
+        stats: {
+          rushingTouchdowns: "1",
+          rushingYards: "20",
+          receivingTouchdowns: "0",
+          receivingYards: "0",
+        },
         periodTag: "full",
       },
     ]);
     assert.equal(merged.length, 1);
     assert.equal(merged[0]!.stats.passingTouchdowns, "2");
     assert.equal(merged[0]!.stats.rushingTouchdowns, "1");
+    assert.equal(merged[0]!.stats.receivingTouchdowns, "0");
+    // Pass TDs ignored; complete rush+rec → 1 scoring TD.
     assert.equal(scoringTouchdownsForGame(merged[0]!.stats), 1);
+    // Incomplete merge (rush only) must not invent receiving=0.
+    assert.equal(
+      scoringTouchdownsForGame({
+        passingTouchdowns: "2",
+        rushingTouchdowns: "1",
+      }),
+      null,
+    );
   });
 });
 

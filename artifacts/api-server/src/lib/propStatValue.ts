@@ -71,14 +71,18 @@ const SCORING_TD_FIELDS = [
   "fumbleReturnTouchdowns",
 ] as const;
 
-/** Sum scoring TDs for a game. Missing skill columns → null; optional return cols as 0. */
+/**
+ * Sum scoring TDs for a game.
+ * Skill path requires BOTH rushingTouchdowns and receivingTouchdowns present —
+ * a missing sibling is incomplete history, never a verified zero.
+ * Return/defensive fields are added only when ESPN exposes them.
+ */
 export function scoringTouchdownsForGame(
   stats: Record<string, string>,
 ): number | null {
   const rush = num(stats, "rushingTouchdowns");
   const rec = num(stats, "receivingTouchdowns");
-  // Prefer rush/rec when present (skill logs). Pass-only rows without rush/rec
-  // are not scorer events — fail closed rather than count passingTouchdowns.
+  // Pass-only / incomplete skill rows: do not invent zeros for missing columns.
   if (rush == null && rec == null) {
     // Pure return specialist logs may only expose return TD fields.
     let retSum = 0;
@@ -93,7 +97,8 @@ export function scoringTouchdownsForGame(
     }
     return retAny ? retSum : null;
   }
-  let sum = (rush ?? 0) + (rec ?? 0);
+  if (rush == null || rec == null) return null;
+  let sum = rush + rec;
   for (const lab of SCORING_TD_FIELDS) {
     if (lab === "rushingTouchdowns" || lab === "receivingTouchdowns") continue;
     const n = num(stats, lab);
