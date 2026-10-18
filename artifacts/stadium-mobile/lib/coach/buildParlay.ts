@@ -48,7 +48,19 @@ import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
 import { rareMultiCountLotteryPathOpen } from "@/lib/rareMultiCountCoachGate";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
-import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
+import {
+  armDeadlineAbort,
+  coachPastRequestDeadline,
+  coachPhaseBudgetMs,
+  coachRemainingBudgetMs,
+  coachTimeoutRootCause,
+  coachTotalRequestBudgetMs,
+  createCoachRequestTiming,
+  finalizeCoachRequestTiming,
+  markCoachPhase,
+  markCoachPending,
+  type CoachRequestTiming,
+} from "@/lib/coach/coachRequestDeadline";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
@@ -145,6 +157,10 @@ export type CoachParlayBuildResult = {
   teamGameScopeDiagnostics?: CoachTeamGameScopeDiagnostics | null;
   /** Props-only empty/short diagnosis — logs / reliability; never chat copy. */
   failDiag?: import("@/lib/coachPropsOnlyFailReason").PropsOnlyFailDiag;
+  /** Shared greenfield id for assembly + UI delivery-commit telemetry. */
+  reliabilityRequestId?: string;
+  /** Monotonic request timing (observe-only). */
+  timing?: CoachRequestTiming;
 };
 
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
@@ -267,17 +283,47 @@ export async function buildCoachParlay(opts: {
   signal: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
-  /** Fires after prop/alt board load — UI should start the scoring absolute clock here. */
+  /**
+   * Fires after prop/alt board + context load. UI must NOT reset the absolute
+   * clock here — the monotonic deadline already includes load time.
+   */
   onReadyToScan?: (info: { propPoolSize: number }) => void;
+  /** Shared request start (UI beginCoachSession). Defaults to now. */
+  requestStartedAtMs?: number;
+  /** Shared greenfield id for delivery-commit correlation. */
+  reliabilityRequestId?: string;
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
-  const budgetMs = coachAbsoluteBudgetMs(target);
+  const budgetMs = coachTotalRequestBudgetMs(target);
+  // Monotonic deadline from request start — load counts against this window.
+  const requestStartedAtMs = opts.requestStartedAtMs ?? Date.now();
+  const timing = createCoachRequestTiming({ requestStartedAtMs, budgetMs });
+  let deliveryTerminalized = false;
 
   // Observe-only reliability markers — created before the P0 early exit /
   // loadScanInputs so the blocked path can emit without slate sims.
-  const coachRelStarted = Date.now();
-  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelStarted = requestStartedAtMs;
+  const coachRelRequestId =
+    (opts.reliabilityRequestId && String(opts.reliabilityRequestId).trim()) ||
+    `greenfield-${Date.now()}`;
   const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
+
+  const reportTimingFields = () => {
+    finalizeCoachRequestTiming(timing);
+    const rc = coachTimeoutRootCause(timing);
+    return {
+      loadMs: timing.loadMs,
+      scanMs: timing.scanMs,
+      finalizationMs: timing.finalizationMs,
+      totalMs: timing.totalMs,
+      lastCompletedPhase: timing.lastCompletedPhase,
+      pendingOperation: timing.pendingOperation,
+      timeoutReason: timing.timeoutReason,
+      rootCause: rc?.rootCause ?? undefined,
+      rootCauseGrade: rc?.rootCauseGrade ?? undefined,
+      durationMs: timing.totalMs ?? Date.now() - coachRelStarted,
+    };
+  };
 
   // Ask-only gate — before loadScanInputs / slate sims. Bare "6 leg NCAAF" /
   // "8 leg college" is gameLinesOnly + NCAAF-locked; every FG market is P0
@@ -299,18 +345,20 @@ export async function buildCoachParlay(opts: {
       opts.onStatus?.("College game lines blocked (unvalidated simulation)…");
       // Short fixed copy only — no long clarification / quality-bar wording.
       const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
+      markCoachPhase(timing, "terminal");
       reportCoachScanReliability({
         requestId: coachRelRequestId,
         sportCategory: coachRelSport || "ncaaf",
         requestedLegCount: target,
         returnedLegCount: 0,
-        durationMs: Date.now() - coachRelStarted,
         realOddsAvailable: null,
         picks: [],
+        deliveryCommitted: false,
         // Digest-visible policy block — not a scan/qualification/fulfillment miss.
         eventType: "parlay_zero_results",
         failureReason: BLOCKED_UNVALIDATED_MARKET_REASON,
         rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+        ...reportTimingFields(),
       });
       return {
         picks: [],
@@ -318,19 +366,64 @@ export async function buildCoachParlay(opts: {
         scan: null,
         timedOut: false,
         propPoolSize: 0,
+        reliabilityRequestId: coachRelRequestId,
+        timing,
       };
     }
   }
 
-  const inputs = await loadScanInputs(
-    opts.signal,
-    target,
-    opts.askText,
-    opts.onStatus,
-    opts.priorUserTexts ?? [],
-  );
-  if (opts.signal.aborted) {
-    return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
+  markCoachPending(timing, "load");
+  const loadStarted = Date.now();
+  const loadArm = armDeadlineAbort({
+    parent: opts.signal,
+    remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+  });
+  let inputs: Awaited<ReturnType<typeof loadScanInputs>>;
+  try {
+    inputs = await loadScanInputs(
+      loadArm.signal,
+      target,
+      opts.askText,
+      opts.onStatus,
+      opts.priorUserTexts ?? [],
+    );
+  } finally {
+    loadArm.dispose();
+  }
+  markCoachPhase(timing, "load", Date.now() - loadStarted);
+
+  if (opts.signal.aborted || loadArm.signal.aborted) {
+    const timedOut =
+      !opts.signal.aborted &&
+      coachPastRequestDeadline(requestStartedAtMs, budgetMs);
+    if (timedOut) {
+      timing.timedOut = true;
+      timing.timeoutReason = "load_deadline";
+    }
+    deliveryTerminalized = true;
+    reportCoachScanReliability({
+      requestId: coachRelRequestId,
+      sportCategory: coachRelSport,
+      requestedLegCount: target,
+      returnedLegCount: 0,
+      realOddsAvailable: null,
+      picks: [],
+      timedOut,
+      cancelled: opts.signal.aborted && !timedOut,
+      deliveryCommitted: false,
+      ...reportTimingFields(),
+    });
+    return {
+      picks: [],
+      note: timedOut
+        ? "Hit the delivery budget while loading the board — composer unlocked."
+        : "",
+      scan: null,
+      timedOut,
+      propPoolSize: 0,
+      reliabilityRequestId: coachRelRequestId,
+      timing,
+    };
   }
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
@@ -420,8 +513,15 @@ export async function buildCoachParlay(opts: {
           ? "Loading injuries, weather, and coach context…"
           : "Loading injury context…",
   );
+  markCoachPending(timing, "context");
+  const contextStarted = Date.now();
+  const contextArm = armDeadlineAbort({
+    parent: opts.signal,
+    remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+  });
+  const contextSignal = contextArm.signal;
   const contextPromise = Promise.all([
-    loadBoardInjuries(boardSports, opts.signal).catch(() => ({
+    loadBoardInjuries(boardSports, contextSignal).catch(() => ({
       injuriesBySport: {} as Record<string, import("@/lib/api").InjuryTeam[]>,
       matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
       injuryTeams: [] as import("@/lib/api").InjuryTeam[],
@@ -432,12 +532,12 @@ export async function buildCoachParlay(opts: {
           espnGames: inputs.espnGames,
           hrOnly: hrBoardAsk,
           maxBatters: hrBoardAsk ? 32 : 16,
-          signal: opts.signal,
+          signal: contextSignal,
         }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
       : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
     (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? prefetchPropPlayerHistory(activePropPool, {
-          signal: opts.signal,
+          signal: contextSignal,
           maxPlayers: hrBoardAsk ? 24 : 16,
           concurrency: 6,
         }).catch(() => ({}))
@@ -447,14 +547,14 @@ export async function buildCoachParlay(opts: {
     )
       ? loadFootballOppRushDefense({
           espnGames: inputs.espnGames,
-          signal: opts.signal,
+          signal: contextSignal,
         }).catch(() => ({}))
       : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
     needFootballWx
       ? loadFootballScanContext({
           espnGames: inputs.espnGames,
           sports: boardSports,
-          signal: opts.signal,
+          signal: contextSignal,
         }).catch(() => ({ footballGameEnv: {} }))
       : Promise.resolve({ footballGameEnv: {} }),
     // Game-line / mixed tickets need mlLean opponent comparison (NFL parity).
@@ -462,7 +562,7 @@ export async function buildCoachParlay(opts: {
       ? fetchBoardMatchupHistory({
           espnGames: inputs.espnGames,
           realOdds: scanRealOdds,
-          signal: opts.signal,
+          signal: contextSignal,
           focalText: opts.askText,
           matchupCap: gameLinesOnly ? 20 : 12,
         }).catch(() => ({} as Record<string, MatchupHistoryEntry>))
@@ -471,6 +571,48 @@ export async function buildCoachParlay(opts: {
 
   const [injuryPack, mlb, earlyHistory, oppRushDefense, football, matchupHistoryRaw] =
     await contextPromise;
+  contextArm.dispose();
+  markCoachPhase(timing, "context", Date.now() - contextStarted);
+
+  if (
+    opts.signal.aborted ||
+    contextSignal.aborted ||
+    coachPastRequestDeadline(requestStartedAtMs, budgetMs)
+  ) {
+    const timedOut =
+      !opts.signal.aborted &&
+      coachPastRequestDeadline(requestStartedAtMs, budgetMs);
+    if (timedOut) {
+      timing.timedOut = true;
+      timing.timeoutReason = "context_deadline";
+    }
+    deliveryTerminalized = true;
+    reportCoachScanReliability({
+      requestId: coachRelRequestId,
+      sportCategory: coachRelSport,
+      requestedLegCount: target,
+      returnedLegCount: 0,
+      realOddsAvailable:
+        (inputs.realOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
+      picks: [],
+      timedOut,
+      cancelled: opts.signal.aborted && !timedOut,
+      deliveryCommitted: false,
+      ...reportTimingFields(),
+    });
+    return {
+      picks: [],
+      note: timedOut
+        ? "Hit the delivery budget while loading matchup context — composer unlocked."
+        : "",
+      scan: null,
+      timedOut,
+      propPoolSize,
+      reliabilityRequestId: coachRelRequestId,
+      timing,
+    };
+  }
+
   const matchupInjuries = attachMatchupInjuries(
     inputs.espnGames,
     injuryPack.injuriesBySport,
@@ -526,12 +668,18 @@ export async function buildCoachParlay(opts: {
       askText: opts.askText,
       ticketStyle: propsOnlyTicketStyle,
     });
+    markCoachPending(timing, "props_only");
+    const propsOnlyStarted = Date.now();
+    const propsArm = armDeadlineAbort({
+      parent: opts.signal,
+      remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+    });
     const built = await buildFootballPropsOnlyTicket({
       target,
       pool: activePropPool,
       realOdds: inputs.realOdds,
       teamIdMap,
-      signal: opts.signal,
+      signal: propsArm.signal,
       onStatus: opts.onStatus,
       playerHistory,
       oppRushDefense,
@@ -544,6 +692,7 @@ export async function buildCoachParlay(opts: {
       allowRareMultiCount,
       allowedSports: askSportScope.allowedSports,
       onPartialPicks: (picks) => {
+        if (deliveryTerminalized) return;
         opts.onPartialPicks?.(
           filterPicksByAllowedSports(
             filterPicksForCoachAskTeams(
@@ -557,6 +706,17 @@ export async function buildCoachParlay(opts: {
         );
       },
     });
+    propsArm.dispose();
+    markCoachPhase(timing, "props_only", Date.now() - propsOnlyStarted);
+    const propsOnlyTimedOut =
+      propsArm.signal.aborted &&
+      !opts.signal.aborted &&
+      coachPastRequestDeadline(requestStartedAtMs, budgetMs);
+    if (propsOnlyTimedOut) {
+      timing.timedOut = true;
+      timing.timeoutReason = "scan_deadline";
+      deliveryTerminalized = true;
+    }
     let propsFailDiag = built.failDiag;
     let picks = filterPicksByAllowedSports(
       filterPicksForCoachAskTeams(
@@ -856,19 +1016,22 @@ export async function buildCoachParlay(opts: {
       gamesAfterFilter: inputs.oddsGames,
       finalLegCount: picks.length,
     });
+    markCoachPhase(timing, "finalization", 0);
+    deliveryTerminalized = true;
     // Fire-and-forget reliability — props-only early return must still emit.
-    // Do not await; grounding vs legitimate-underfill is classified inside.
+    // Assembly reports deliveryCommitted:false; UI finishSession commits success.
     reportCoachScanReliability({
       requestId: coachRelRequestId,
       sportCategory: coachRelSport,
       requestedLegCount: target,
       returnedLegCount: picks.length,
-      durationMs: Date.now() - coachRelStarted,
       realOddsAvailable:
         (inputs.realOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
       picks,
-      timedOut: false,
+      timedOut: !!timing.timedOut,
       scanMissing: false,
+      deliveryCommitted: false,
+      ...reportTimingFields(),
     });
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
     // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
@@ -877,9 +1040,11 @@ export async function buildCoachParlay(opts: {
         picks,
         note,
         scan: null,
-        timedOut: false,
+        timedOut: !!timing.timedOut,
         propPoolSize,
         teamGameScopeDiagnostics,
+        reliabilityRequestId: coachRelRequestId,
+        timing,
         ...(propsFailDiag ? { failDiag: propsFailDiag } : {}),
       };
     }
@@ -887,9 +1052,11 @@ export async function buildCoachParlay(opts: {
       picks,
       note,
       scan: null,
-      timedOut: false,
+      timedOut: !!timing.timedOut,
       propPoolSize,
       teamGameScopeDiagnostics,
+      reliabilityRequestId: coachRelRequestId,
+      timing,
       ...(propsFailDiag && picks.length < target ? { failDiag: propsFailDiag } : {}),
     };
   }
@@ -904,6 +1071,16 @@ export async function buildCoachParlay(opts: {
     shouldSkipScannerPropExpand(propPoolSize);
 
   let latest: FullBoardScanResult | null = null;
+  markCoachPending(timing, "scan");
+  const scanStarted = Date.now();
+  const scanRemaining = coachPhaseBudgetMs({
+    remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+    phase: "scan",
+  });
+  const scanArm = armDeadlineAbort({
+    parent: opts.signal,
+    remainingMs: scanRemaining,
+  });
   const scanPromise = tryReachFullBoardScan({
     target,
     oddsGames: inputs.oddsGames,
@@ -914,7 +1091,7 @@ export async function buildCoachParlay(opts: {
     gameMeta: [],
     teamIdMap,
     excludedTeams: inputs.excludedTeams,
-    signal: opts.signal,
+    signal: scanArm.signal,
     skipPropPoolExpand: skipPropExpand,
     prioritySports: inputs.prioritySports,
     propsOnly,
@@ -956,6 +1133,8 @@ export async function buildCoachParlay(opts: {
       }),
     },
     onPartial: (partial) => {
+      // Late async after terminalization must not overwrite a timed-out request.
+      if (deliveryTerminalized) return;
       latest = partial;
       // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
       const scopedPartialPicks = filterPicksForCoachAskTeams(
@@ -1001,62 +1180,86 @@ export async function buildCoachParlay(opts: {
   const timed = await Promise.race([
     scanPromise.then((scan) => ({ scan, timedOut: false as const })),
     new Promise<{ scan: null; timedOut: true }>((resolve) => {
-      const t = setTimeout(() => resolve({ scan: null, timedOut: true }), budgetMs);
-      opts.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(t);
-          resolve({ scan: null, timedOut: true });
-        },
-        { once: true },
+      // Remaining time only — never a fresh full budget after load.
+      const waitMs = Math.max(
+        0,
+        coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
       );
+      const t = setTimeout(() => resolve({ scan: null, timedOut: true }), waitMs);
+      const onAbort = () => {
+        clearTimeout(t);
+        resolve({ scan: null, timedOut: true });
+      };
+      opts.signal.addEventListener("abort", onAbort, { once: true });
+      scanArm.signal.addEventListener("abort", onAbort, { once: true });
     }),
   ]);
+  scanArm.dispose();
+  markCoachPhase(timing, "scan", Date.now() - scanStarted);
 
   let scan = timed.scan ?? latest ?? null;
+  if (timed.timedOut) {
+    timing.timedOut = true;
+    timing.timeoutReason = opts.signal.aborted ? "user_cancelled" : "scan_deadline";
+  }
   const propsStillPending = (s: FullBoardScanResult | null | undefined) =>
     !!s &&
     countPropLike(s.picks ?? []) === 0 &&
     (!!s.awaitingPropSlots || !!s.propPhaseIncomplete);
 
-  // Budget hit while props were still pending — grace window when the pool was
-  // already loaded (5-leg→2 totals / 7-leg→3 F5 lines failure modes).
-  // Football mix gets a longer grace so skill props can finish before we refuse.
+  // Grace only within remaining monotonic budget — never extend past deadline.
   if (
     timed.timedOut &&
     !opts.signal.aborted &&
     propPoolSize > 0 &&
     propsStillPending(scan)
   ) {
-    opts.onStatus?.(`Finishing prop/alt scoring (${propPoolSize} posted)…`);
-    const graceMs = requirePropMix
-      ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
-      : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
-    const grace = await Promise.race([
-      scanPromise.then((s) => ({ scan: s })),
-      new Promise<{ scan: null }>((resolve) => {
-        const t = setTimeout(() => resolve({ scan: null }), graceMs);
-        opts.signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(t);
-            resolve({ scan: null });
-          },
-          { once: true },
-        );
-      }),
-    ]);
-    if (grace.scan) scan = grace.scan;
-    else scan = latest ?? scan;
+    const graceRemaining = coachRemainingBudgetMs(requestStartedAtMs, budgetMs);
+    if (graceRemaining > 0) {
+      opts.onStatus?.(`Finishing prop/alt scoring (${propPoolSize} posted)…`);
+      const graceMs = Math.min(
+        graceRemaining,
+        requirePropMix
+          ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
+          : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25))),
+      );
+      const grace = await Promise.race([
+        scanPromise.then((s) => ({ scan: s })),
+        new Promise<{ scan: null }>((resolve) => {
+          const t = setTimeout(() => resolve({ scan: null }), graceMs);
+          opts.signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(t);
+              resolve({ scan: null });
+            },
+            { once: true },
+          );
+        }),
+      ]);
+      if (grace.scan) scan = grace.scan;
+      else scan = latest ?? scan;
+    } else {
+      scan = latest ?? scan;
+    }
   } else if (!scan) {
     // Never await a hung scan forever after the delivery budget — that left
     // Coach on "Scoring ticket… 1 legs" with no terminal latch.
+    const drainMs = Math.min(
+      2_500,
+      coachRemainingBudgetMs(requestStartedAtMs, budgetMs) || 2_500,
+    );
     scan = await Promise.race([
       scanPromise.catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500)),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), drainMs)),
     ]);
     if (!scan) scan = latest;
   }
+
+  // Finalization starts — mark so late scan completions cannot re-open limbo.
+  markCoachPending(timing, "finalization");
+  const finalizationStarted = Date.now();
+  if (timed.timedOut) deliveryTerminalized = true;
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
@@ -1218,27 +1421,33 @@ export async function buildCoachParlay(opts: {
     finalLegCount: picks.length,
   });
 
+  markCoachPhase(timing, "finalization", Date.now() - finalizationStarted);
+  deliveryTerminalized = true;
   // Fire-and-forget reliability — after ticket is finalized; never awaits.
+  // Assembly is not delivery success — UI finishSession sets deliveryCommitted.
   reportCoachScanReliability({
     requestId: coachRelRequestId,
     sportCategory: coachRelSport,
     requestedLegCount: target,
     returnedLegCount: picks.length,
-    durationMs: Date.now() - coachRelStarted,
     realOddsAvailable: (scanRealOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
     scanFailureCode: scan?.failureReason?.code ?? null,
     scanFailureDetail: scan?.failureReason?.detail ?? null,
     picks,
-    timedOut: timed.timedOut,
+    timedOut: timed.timedOut || !!timing.timedOut,
     scanMissing: !scan,
+    deliveryCommitted: false,
+    ...reportTimingFields(),
   });
 
   return {
     picks,
     note,
     scan,
-    timedOut: timed.timedOut,
+    timedOut: timed.timedOut || !!timing.timedOut,
     propPoolSize,
     teamGameScopeDiagnostics,
+    reliabilityRequestId: coachRelRequestId,
+    timing,
   };
 }

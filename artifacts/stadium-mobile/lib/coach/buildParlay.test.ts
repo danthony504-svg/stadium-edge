@@ -22,18 +22,32 @@ test("fixed-leg scoring budgets leave room for prop/alt scoring after game lines
   assert.ok(coachAbsoluteBudgetMs(6) > 45_000);
 });
 
-test("prop-board load failsafe is independent of scoring budget", () => {
-  assert.equal(coachPropLoadFailsafeMs(6), 105_000);
-  assert.ok(coachPropLoadFailsafeMs(6) >= coachAbsoluteBudgetMs(6));
-  assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8));
+test("prop-board load failsafe equals total request budget (no +15s extension)", () => {
+  assert.equal(coachPropLoadFailsafeMs(6), 90_000);
+  assert.equal(coachPropLoadFailsafeMs(6), coachAbsoluteBudgetMs(6));
+  assert.equal(coachPropLoadFailsafeMs(8), coachAbsoluteBudgetMs(8));
 });
 
-test("resetCoachAbsoluteClock restarts scoring window after prop prefetch", () => {
+test("resetCoachAbsoluteClock still restarts window but parlay must not call it", async () => {
   const session = createCoachSession(1, 6, 1_000);
   resetCoachAbsoluteClock(session, 50_000);
   assert.equal(session.startedAtMs, 50_000);
   assert.equal(session.absoluteTimer, null);
   assert.equal(session.outcome, "open");
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const coachSrc = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../app/(tabs)/coach.tsx"),
+    "utf8",
+  );
+  assert.doesNotMatch(coachSrc, /resetCoachAbsoluteClock/);
+  const buildSrc = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"),
+    "utf8",
+  );
+  assert.match(buildSrc, /coachRemainingBudgetMs/);
+  assert.match(buildSrc, /deliveryCommitted:\s*false/);
 });
 
 /**
