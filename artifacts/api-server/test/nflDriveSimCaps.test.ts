@@ -7,6 +7,7 @@ import {
   NFL_DRIVE_TD_RATE_CAP,
   nflDriveRatesSaturated,
   nflDriveScoringRates,
+  ncaafDriveScoringRates,
   runNflDriveSim,
 } from "../src/lib/sportSim/nflDriveSim.ts";
 import { teamMean } from "../src/lib/sportSim/shared.ts";
@@ -55,38 +56,46 @@ test("controlled sensitivity: only sub-cap shocks change rates", () => {
   assert.notDeepEqual(nflDriveScoringRates(saturated), nflDriveScoringRates(below));
 });
 
-test("deterministic seeded draws: saturated home/away means stay near coin-flip ML", () => {
-  const realRandom = Math.random;
-  let i = 0;
-  // Fixed LCG so cover rates are reproducible across runs.
-  Math.random = () => {
-    i = (i * 1664525 + 1013904223) >>> 0;
-    return i / 0x100000000;
-  };
-  try {
-    const result = runNflDriveSim({
-      sport: "ncaaf",
-      simulations: 5000,
-      home: { ptsFor: 28, ptsAgainst: 16.8, recentScores: [21, 24, 31, 28, 27] },
-      away: { ptsFor: 20, ptsAgainst: 19, recentScores: [20, 27, 38, 32, 28] },
-      coverQueries: [
-        { id: "away-ml", kind: "ml", teamSide: "away" },
-        { id: "away-sp2", kind: "spread", teamSide: "away", line: 2 },
-      ],
-      retainOutcomes: false,
-    });
-    assert.ok(result);
-    const ml = result!.coverHitRates?.["away-ml"] ?? 0;
-    const sp = result!.coverHitRates?.["away-sp2"] ?? 0;
-    // Saturated both sides → ML near 50%; +2 dog covers comfortably.
-    assert.ok(ml > 0.4 && ml < 0.6, `expected near coin-flip ML, got ${ml}`);
-    assert.ok(sp > 0.5, `expected +2 dog cover >50%, got ${sp}`);
-    // Inflated scoring means (same integrity issue as P0 totals).
-    assert.ok((result!.homeProjectedScore ?? 0) > 35);
-    assert.ok((result!.awayProjectedScore ?? 0) > 35);
-  } finally {
-    Math.random = realRandom;
+test("NCAAF candidate maps game mean to drives without saturation in ordinary FBS range", () => {
+  for (const points of [8, 15, 21, 28, 35, 42, 55]) {
+    const rates = ncaafDriveScoringRates(points, 11);
+    const mean = 11 * (7 * rates.tdRate + 3 * rates.fgRate);
+    assert.ok(Math.abs(mean - points) < 0.001, `${points}: ${mean}`);
+    assert.ok(rates.tdRate + rates.fgRate < 1);
   }
+  assert.ok(ncaafDriveScoringRates(30, 11).tdRate > ncaafDriveScoringRates(25, 11).tdRate);
+  assert.ok(ncaafDriveScoringRates(25, 11).tdRate > ncaafDriveScoringRates(20, 11).tdRate);
+});
+
+test("seeded 10K NCAAF score means track matchup points, and +3/-6 changes spread probability", () => {
+  const run = (homePts: number) => {
+    const realRandom = Math.random;
+    let i = 7;
+    Math.random = () => {
+      i = (i * 1664525 + 1013904223) >>> 0;
+      return i / 0x100000000;
+    };
+    try {
+      return runNflDriveSim({
+        sport: "ncaaf", simulations: 10000,
+        home: { ptsFor: homePts, ptsAgainst: 19, recentScores: [21, 27, 33, 28, 31] },
+        away: { ptsFor: 23, ptsAgainst: 24, recentScores: [20, 27, 26, 17, 30] },
+        coverQueries: [{ id: "home-cover", kind: "spread", teamSide: "home", line: -3.5 }],
+        retainOutcomes: false,
+      });
+    } finally { Math.random = realRandom; }
+  };
+  const baseline = run(28);
+  const positive = run(34); // +3 teamMean points via +6 ptsFor
+  const qbOut = run(16); // -6 teamMean points via -12 ptsFor
+  assert.ok(baseline && positive && qbOut);
+  assert.ok(baseline!.homeProjectedScore! < 35 && baseline!.homeProjectedScore! > 18, `baseline mean ${baseline!.homeProjectedScore}`);
+  assert.ok(baseline!.awayProjectedScore! < 31 && baseline!.awayProjectedScore! > 16, `opponent mean ${baseline!.awayProjectedScore}`);
+  const baseCover = baseline!.coverHitRates!["home-cover"]!;
+  const betterCover = positive!.coverHitRates!["home-cover"]!;
+  const qbOutCover = qbOut!.coverHitRates!["home-cover"]!;
+  assert.ok(betterCover >= baseCover + 0.02, `+3 expected cover +2pt: ${betterCover} vs ${baseCover}`);
+  assert.ok(baseCover >= qbOutCover + 0.02, `QB-out expected cover -2pt: ${baseCover} vs ${qbOutCover}`);
 });
 
 test("rush/pass defense yards never enter runNflDriveSim inputs", () => {
