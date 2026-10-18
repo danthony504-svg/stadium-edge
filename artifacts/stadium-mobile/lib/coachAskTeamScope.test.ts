@@ -457,3 +457,27 @@ test("city-only Atlanta NFL ask scopes Falcons; MLB/NBA stay distinct", () => {
   assert.equal(coachAskTeamScope("5 leg Atlanta NBA")?.sport, "nba");
   assert.equal(coachAskTeamScope("5 leg Atlanta"), null);
 });
+
+test("Atlanta NFL constraints survive board and final ticket filtering", () => {
+  const scope = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.ok(scope);
+  const games = [
+    { sport: "nfl", awayTeam: "Chicago Bears", homeTeam: "Atlanta Falcons" },
+    { sport: "nfl", awayTeam: "Buffalo Bills", homeTeam: "Las Vegas Raiders" },
+    { sport: "mlb", awayTeam: "Atlanta Braves", homeTeam: "Cleveland Guardians" },
+  ];
+  const filtered = filterOddsGamesForAskTeam(games, scope);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]?.homeTeam, "Atlanta Falcons");
+  const picks = filterPicksForAskTeam([
+    { sport: "nfl", game: "Chicago Bears @ Atlanta Falcons" },
+    { sport: "nfl", game: "Buffalo Bills @ Las Vegas Raiders" },
+    { sport: "nfl", game: "Arizona Cardinals @ Los Angeles Rams" },
+    { sport: "mlb", game: "Atlanta Braves @ Cleveland Guardians" },
+  ], scope);
+  assert.equal(picks.length, 1);
+  assert.match(String(picks[0]?.game), /Falcons/);
+  assert.equal(filterPicksForAskTeam([
+    { sport: "nfl", game: "Buffalo Bills @ Las Vegas Raiders" },
+  ], scope).length, 0, "no Atlanta matchup must return zero, not five unrelated picks");
+});
