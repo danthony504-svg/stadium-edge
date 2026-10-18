@@ -1183,24 +1183,36 @@ export async function buildCoachParlay(opts: {
     requestId: coachRelRequestId,
   });
 
-  const timed = await Promise.race([
-    scanPromise.then((scan) => ({ scan, timedOut: false as const })),
-    new Promise<{ scan: null; timedOut: true }>((resolve) => {
+  let scanTimeout: ReturnType<typeof setTimeout> | null = null;
+  let scanAbortListener: (() => void) | null = null;
+  try {
+    const timeoutPromise = new Promise<{ scan: null; timedOut: true }>((resolve) => {
       // Remaining time only — never a fresh full budget after load.
       const waitMs = Math.max(
         0,
         coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
       );
-      const t = setTimeout(() => resolve({ scan: null, timedOut: true }), waitMs);
-      const onAbort = () => {
-        clearTimeout(t);
-        resolve({ scan: null, timedOut: true });
-      };
-      opts.signal.addEventListener("abort", onAbort, { once: true });
-      scanArm.signal.addEventListener("abort", onAbort, { once: true });
-    }),
-  ]);
-  scanArm.dispose();
+      scanAbortListener = () => resolve({ scan: null, timedOut: true });
+      opts.signal.addEventListener("abort", scanAbortListener, { once: true });
+      scanArm.signal.addEventListener("abort", scanAbortListener, { once: true });
+      if (opts.signal.aborted || scanArm.signal.aborted) {
+        scanAbortListener();
+      } else {
+        scanTimeout = setTimeout(scanAbortListener, waitMs);
+      }
+    });
+    var timed = await Promise.race([
+      scanPromise.then((scan) => ({ scan, timedOut: false as const })),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (scanTimeout !== null) clearTimeout(scanTimeout);
+    if (scanAbortListener) {
+      opts.signal.removeEventListener("abort", scanAbortListener);
+      scanArm.signal.removeEventListener("abort", scanAbortListener);
+    }
+    scanArm.dispose();
+  }
   markCoachPhase(timing, "scan", Date.now() - scanStarted);
 
   let scan = timed.scan ?? latest ?? null;
@@ -1229,20 +1241,23 @@ export async function buildCoachParlay(opts: {
           ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
           : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25))),
       );
-      const grace = await Promise.race([
-        scanPromise.then((s) => ({ scan: s })),
-        new Promise<{ scan: null }>((resolve) => {
-          const t = setTimeout(() => resolve({ scan: null }), graceMs);
-          opts.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(t);
-              resolve({ scan: null });
-            },
-            { once: true },
-          );
-        }),
-      ]);
+      let graceTimeout: ReturnType<typeof setTimeout> | null = null;
+      let graceAbortListener: (() => void) | null = null;
+      let grace: { scan: FullBoardScanResult | null };
+      try {
+        grace = await Promise.race([
+          scanPromise.then((s) => ({ scan: s })),
+          new Promise<{ scan: null }>((resolve) => {
+            graceAbortListener = () => resolve({ scan: null });
+            opts.signal.addEventListener("abort", graceAbortListener, { once: true });
+            if (opts.signal.aborted) graceAbortListener();
+            else graceTimeout = setTimeout(graceAbortListener, graceMs);
+          }),
+        ]);
+      } finally {
+        if (graceTimeout !== null) clearTimeout(graceTimeout);
+        if (graceAbortListener) opts.signal.removeEventListener("abort", graceAbortListener);
+      }
       if (grace.scan) scan = grace.scan;
       else scan = latest ?? scan;
     } else {
@@ -1255,10 +1270,17 @@ export async function buildCoachParlay(opts: {
       2_500,
       coachRemainingBudgetMs(requestStartedAtMs, budgetMs) || 2_500,
     );
-    scan = await Promise.race([
-      scanPromise.catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), drainMs)),
-    ]);
+    let drainTimeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      scan = await Promise.race([
+        scanPromise.catch(() => null),
+        new Promise<null>((resolve) => {
+          drainTimeout = setTimeout(() => resolve(null), drainMs);
+        }),
+      ]);
+    } finally {
+      if (drainTimeout !== null) clearTimeout(drainTimeout);
+    }
     if (!scan) scan = latest;
   }
 
