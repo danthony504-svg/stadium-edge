@@ -482,3 +482,22 @@ test("Atlanta NFL constraints survive board and final ticket filtering", () => {
     { sport: "nfl", game: "Buffalo Bills @ Las Vegas Raiders" },
   ], scope).length, 0, "no Atlanta matchup must return zero, not five unrelated picks");
 });
+
+test("league-scoped city names apply to NFL/NHL/MLB teams, not just Atlanta", () => {
+  const cases = [
+    ["5 leg Chicago NFL", "nfl", "bears"],
+    ["5 leg Buffalo NFL", "nfl", "bills"],
+    ["5 leg Denver NFL", "nfl", "broncos"],
+    ["5 leg Seattle NFL", "nfl", "seahawks"],
+    ["5 leg Anaheim NHL", "nhl", "ducks"],
+    ["5 leg Philadelphia NFL", "nfl", "eagles"],
+  ] as const;
+  for (const [ask, sport, token] of cases) {
+    const scope = coachAskTeamScope(ask);
+    assert.equal(scope?.sport, sport, ask);
+    assert.ok(scope?.matchTokens.includes(token), ask);
+  }
+  const atlanta = coachAskTeamScope("5 leg ATLANTA NFL");
+  assert.equal(atlanta?.sport, "nfl");
+  assert.ok(atlanta?.matchTokens.includes("falcons"));
+});
