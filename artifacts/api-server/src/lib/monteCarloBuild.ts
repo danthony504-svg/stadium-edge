@@ -1,4 +1,9 @@
-import { computeAmbiguous, gameValueForMarket, isDiscreteCountMarket } from "./propStatValue.js";
+import {
+  computeAmbiguous,
+  gameValueForMarket,
+  isDiscreteCountMarket,
+  isFirstTdMarket,
+} from "./propStatValue.js";
 import {
   type PropSimulationContext,
   type PropSimulationResult,
@@ -31,7 +36,9 @@ export type PropSimNullReason =
   | "missing_athlete_id"
   | "no_history"
   | "insufficient_sample"
-  | "stat_mapping_failed";
+  | "stat_mapping_failed"
+  /** First TD (and similar) needs game scoring order — no PBP feed yet. */
+  | "missing_scoring_order";
 
 export type SimPropRequest = {
   player: string;
@@ -167,6 +174,9 @@ export function diagnosePropSimNullReason(
 ): PropSimNullReason {
   if (!req.athleteId) return "missing_athlete_id";
   if (!history?.recent?.length) return "no_history";
+  // First TD requires in-game scoring sequence across both teams — ESPN
+  // athlete gamelog only has per-game TD totals, not order. Fail closed.
+  if (isFirstTdMarket(req.market)) return "missing_scoring_order";
   const labels = history.labels ?? [];
   const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length === 0) return "stat_mapping_failed";
@@ -180,6 +190,8 @@ export function buildPropSimulationContext(
   game: GameSimContext,
 ): PropSimulationContext | null {
   if (!history?.recent?.length) return null;
+  // Never build a First TD context from Anytime-rate proxies.
+  if (isFirstTdMarket(req.market)) return null;
   const labels = history.labels ?? [];
   const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length < 3) return null;
