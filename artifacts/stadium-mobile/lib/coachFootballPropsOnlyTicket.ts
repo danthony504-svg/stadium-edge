@@ -7,7 +7,13 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { EspnGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
+import type {
+  EspnGame,
+  PropPoolEntry,
+  PropSimulationResult,
+  PropSimTeamIds,
+  RealOddsEntry,
+} from "./api.ts";
 import { fetchPropSimulations, getPlayerHistory } from "./api.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
 import {
@@ -103,6 +109,11 @@ import {
   type PropProbabilityProvenance,
 } from "./coachPropProbabilityProvenance.ts";
 import type { PropsOnlyHit } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  isDefenseIndexShadowEnabled,
+  recordDefenseIndexShadow,
+  type ShadowPropInput,
+} from "./defenseIndexShadow.ts";
 
 export {
   FOOTBALL_PROPS_ONLY_BATCH,
@@ -735,6 +746,9 @@ export async function buildFootballPropsOnlyTicket(
   // Deep MC for seats lacking authorized provenance (Option C). History-only
   // hits that are not allowlisted do not count — request exact-market 10k.
   // Same batching/timeout as before; no new endpoints.
+  // Stage 4 P1: capture mean/std for shadow only — NEVER send defenseIndexByFamily
+  // on live deep requests (would change seating probabilities).
+  const deepSimMeta = new Map<string, PropSimulationResult>();
   const needsDeep = candidates.filter((p) => {
     const row = propsOnlyPoolRowForPick(p, scopedPool);
     const prov = lookupPropsOnlyProvenance(p, row, propHits);
@@ -768,6 +782,7 @@ export async function buildFootballPropsOnlyTicket(
         ]);
         if (!serverRows) continue;
         for (const [k, v] of serverRows.hits) {
+          deepSimMeta.set(k, v);
           const existing = propHits.get(k);
           const sport =
             batch.find((p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k)
@@ -824,6 +839,77 @@ export async function buildFootballPropsOnlyTicket(
         /* keep existing provenance — do not invent hits */
       }
     }
+  }
+
+  // Stage 4 P1 — parallel shadow defenseIndex (local normal-CDF). Bounded,
+  // try/catch, never writes propHits / grades / tickets. Reuses packs already
+  // loaded on the Coach board (no extra team-defense / Odds fetches).
+  try {
+    if (isDefenseIndexShadowEnabled() && opts.oppRushDefense) {
+      const shadowProps: ShadowPropInput[] = [];
+      for (const p of candidates) {
+        if (shadowProps.length >= 12) break;
+        const row = propsOnlyPoolRowForPick(p, scopedPool) as PropPoolEntry | undefined;
+        const key = propsOnlySimLookupKey(p, row);
+        if (!key) continue;
+        const sport = String(p.sport ?? row?.sport ?? "").toLowerCase();
+        const teamAbbr = row?.teamAbbr ?? p.teamAbbr;
+        const oppId = opponentTeamIdForProp({
+          sport,
+          game: p.game,
+          teamAbbr,
+          espnGames: opts.espnGames,
+          teamIdMap: opts.teamIdMap,
+        });
+        if (!oppId) continue;
+        const pack = oppDefensePackForOpponent({
+          sport,
+          opponentTeamId: oppId,
+          map: opts.oppRushDefense,
+        });
+        const ownPack = ownTeamPackForProp({
+          sport,
+          ownTeamId: ownTeamIdForProp({
+            sport,
+            game: p.game,
+            teamAbbr,
+            espnGames: opts.espnGames,
+            teamIdMap: opts.teamIdMap,
+          }),
+          map: opts.oppRushDefense,
+        });
+        const meta = deepSimMeta.get(key);
+        const hit = propHits.get(key);
+        const side =
+          p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
+        const line = p.propLine;
+        const market = p.propMarketKey ?? p.market;
+        if (!side || line == null || !market) continue;
+        shadowProps.push({
+          sport,
+          opponentTeamId: oppId,
+          athleteId: p.athleteId ?? row?.athleteId ?? null,
+          eventId:
+            p.eventId ??
+            (row as { eventId?: string | null } | undefined)?.eventId ??
+            null,
+          player: p.player ?? null,
+          market,
+          side,
+          line,
+          baselineHit: hit?.hitProbability ?? meta?.hitProbability ?? null,
+          baselineMean: meta?.meanProjection ?? null,
+          stdDev: meta?.stdDev ?? null,
+          pack,
+          ownPack,
+        });
+      }
+      if (shadowProps.length) {
+        recordDefenseIndexShadow({ props: shadowProps });
+      }
+    }
+  } catch {
+    /* shadow must never break Coach seating */
   }
 
   // Candidates still without authorized provenance stay insufficient (no invented hit).
