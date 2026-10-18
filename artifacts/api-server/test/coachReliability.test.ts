@@ -13,6 +13,7 @@ import {
   countCoachPickLines,
   mapScanFailureCode,
   parseCoachMeta,
+  parseCoachPerfFields,
   percentile,
   serializeCoachMeta,
   shouldAlertCoachEvent,
@@ -187,10 +188,20 @@ test("telegram coach alert includes requestId/category without PII", () => {
     affectedGame: "Away vs Home",
     rootCause: "TEAM_IDS_UNRESOLVED",
     occurrenceCount: 2,
+    updateId: "01a14f8c-aaaa-bbbb-cccc-ddddeeee0001",
+    terminalStatus: "error",
+    enrichmentMs: 1200,
+    propSimMs: 3400,
+    loadMs: 5000,
+    scanMs: 20000,
   });
   assert.match(alert, /Coach alert/);
   assert.match(alert, /grounding/);
   assert.match(alert, /requestId: greenfield-123/);
+  assert.match(alert, /updateId: 01a14f8c/);
+  assert.match(alert, /terminalStatus: error/);
+  assert.match(alert, /enrichmentMs: 1200/);
+  assert.match(alert, /propSimMs: 3400/);
   assert.equal(alert.includes("user_"), false);
   assert.equal(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(alert), false);
 
@@ -364,4 +375,48 @@ test("no SIM_V2_SERVE flip in coach reliability files", () => {
     const src = readFileSync(join(process.cwd(), f), "utf8");
     assert.equal(src.includes("SIM_V2_SERVE"), false);
   }
+});
+
+test("observe-only coach perf fields ingest + meta round-trip", () => {
+  const body = {
+    eventType: "parlay_underfilled",
+    failureReason: "legitimate_underfill",
+    sportCategory: "mlb",
+    questionKind: "parlay_build",
+    requestedLegCount: 6,
+    returnedLegCount: 2,
+    durationMs: 12_000,
+    requestId: "perf-ingest-1",
+    updateId: "01a14f8c-aaaa-bbbb-cccc-ddddeeee0001",
+    enrichmentMs: 1_100,
+    propSimMs: 2_200,
+    gameSimMs: 3_300,
+    qualificationMs: 40,
+    finalizationMs: 60,
+    terminalStatus: "shortfall",
+    requestedSport: "mlb",
+    effectiveSports: ["mlb"],
+    candidatesPoolBefore: 50,
+    candidatesPoolAfter: 40,
+    qualifiedCount: 2,
+  };
+  const parsed = parseCoachReliabilityIngestBody(body);
+  assert.ok(parsed);
+  assert.equal(parsed!.updateId, "01a14f8c-aaaa-bbbb-cccc-ddddeeee0001");
+  assert.equal(parsed!.enrichmentMs, 1_100);
+  assert.equal(parsed!.terminalStatus, "shortfall");
+  const perfOnly = parseCoachPerfFields(body);
+  assert.equal(perfOnly.propSimMs, 2_200);
+  assert.equal(perfOnly.gameSimMs, 3_300);
+  const meta = baseMeta({
+    ...perfOnly,
+    requestId: "perf-ingest-1",
+  });
+  const raw = serializeCoachMeta(meta);
+  assert.ok(raw.length <= 1800);
+  const back = parseCoachMeta(raw);
+  assert.ok(back);
+  assert.equal(back!.updateId, "01a14f8c-aaaa-bbbb-cccc-ddddeeee0001");
+  assert.equal(back!.enrichmentMs, 1_100);
+  assert.equal(back!.candidatesPoolBefore, 50);
 });

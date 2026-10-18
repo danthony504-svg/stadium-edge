@@ -120,7 +120,99 @@ export type CoachReliabilityMeta = {
   rootCause: string | null;
   /** Folded duration samples for percentile digest (capped). */
   durationSamples?: number[];
+  /** Expo Updates.updateId from the mobile client (observe-only). */
+  updateId?: string | null;
+  loadMs?: number | null;
+  enrichmentMs?: number | null;
+  propSimMs?: number | null;
+  gameSimMs?: number | null;
+  qualificationMs?: number | null;
+  scanMs?: number | null;
+  finalizationMs?: number | null;
+  totalMs?: number | null;
+  lastCompletedPhase?: string | null;
+  pendingOperation?: string | null;
+  timeoutReason?: string | null;
+  terminalStatus?: string | null;
+  requestedSport?: string | null;
+  effectiveSports?: string[] | null;
+  candidatesPoolBefore?: number | null;
+  candidatesPoolAfter?: number | null;
+  candidatesSelected?: number | null;
+  deepSimRequested?: number | null;
+  deepSimCompleted?: number | null;
+  qualifiedCount?: number | null;
 };
+
+function optionalMs(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  return Math.max(0, Math.round(v));
+}
+
+function optionalInt(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  return Math.max(0, Math.round(v));
+}
+
+function optionalSports(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = [
+    ...new Set(
+      v
+        .map((s) => String(s ?? "").toLowerCase().trim())
+        .filter(Boolean)
+        .map((s) => s.slice(0, 24)),
+    ),
+  ].slice(0, 8);
+  return out.length ? out : null;
+}
+
+/** Pull observe-only perf fields from a coach-events POST body. */
+export function parseCoachPerfFields(
+  b: Record<string, unknown>,
+): Partial<CoachReliabilityMeta> {
+  return {
+    updateId:
+      typeof b.updateId === "string"
+        ? sanitizeReliabilityText(b.updateId, 80) || null
+        : null,
+    loadMs: optionalMs(b.loadMs),
+    enrichmentMs: optionalMs(b.enrichmentMs),
+    propSimMs: optionalMs(b.propSimMs),
+    gameSimMs: optionalMs(b.gameSimMs),
+    qualificationMs: optionalMs(b.qualificationMs),
+    scanMs: optionalMs(b.scanMs),
+    finalizationMs: optionalMs(b.finalizationMs),
+    totalMs: optionalMs(b.totalMs) ?? optionalMs(b.durationMs),
+    lastCompletedPhase:
+      typeof b.lastCompletedPhase === "string"
+        ? sanitizeReliabilityText(b.lastCompletedPhase, 40) || null
+        : null,
+    pendingOperation:
+      typeof b.pendingOperation === "string"
+        ? sanitizeReliabilityText(b.pendingOperation, 40) || null
+        : null,
+    timeoutReason:
+      typeof b.timeoutReason === "string"
+        ? sanitizeReliabilityText(b.timeoutReason, 40) || null
+        : null,
+    terminalStatus:
+      typeof b.terminalStatus === "string"
+        ? sanitizeReliabilityText(b.terminalStatus, 40) || null
+        : null,
+    requestedSport:
+      typeof b.requestedSport === "string"
+        ? sanitizeReliabilityText(b.requestedSport, 24) || null
+        : null,
+    effectiveSports: optionalSports(b.effectiveSports),
+    candidatesPoolBefore: optionalInt(b.candidatesPoolBefore),
+    candidatesPoolAfter: optionalInt(b.candidatesPoolAfter),
+    candidatesSelected: optionalInt(b.candidatesSelected),
+    deepSimRequested: optionalInt(b.deepSimRequested),
+    deepSimCompleted: optionalInt(b.deepSimCompleted),
+    qualifiedCount: optionalInt(b.qualifiedCount),
+  };
+}
 
 const MAX_SAMPLES = 64;
 const LEGITIMATE_UNDERFILL_REASONS: ReadonlySet<CoachFailureReason> = new Set([
@@ -416,8 +508,48 @@ export function serializeCoachMeta(meta: CoachReliabilityMeta): string {
           .map((n) => Math.max(0, Math.round(n)))
           .slice(-MAX_SAMPLES)
       : undefined,
+    updateId: meta.updateId
+      ? sanitizeReliabilityText(meta.updateId, 80)
+      : null,
+    loadMs: optionalMs(meta.loadMs),
+    enrichmentMs: optionalMs(meta.enrichmentMs),
+    propSimMs: optionalMs(meta.propSimMs),
+    gameSimMs: optionalMs(meta.gameSimMs),
+    qualificationMs: optionalMs(meta.qualificationMs),
+    scanMs: optionalMs(meta.scanMs),
+    finalizationMs: optionalMs(meta.finalizationMs),
+    totalMs: optionalMs(meta.totalMs),
+    lastCompletedPhase: meta.lastCompletedPhase
+      ? sanitizeReliabilityText(meta.lastCompletedPhase, 40)
+      : null,
+    pendingOperation: meta.pendingOperation
+      ? sanitizeReliabilityText(meta.pendingOperation, 40)
+      : null,
+    timeoutReason: meta.timeoutReason
+      ? sanitizeReliabilityText(meta.timeoutReason, 40)
+      : null,
+    terminalStatus: meta.terminalStatus
+      ? sanitizeReliabilityText(meta.terminalStatus, 40)
+      : null,
+    requestedSport: meta.requestedSport
+      ? sanitizeReliabilityText(meta.requestedSport, 24)
+      : null,
+    effectiveSports: optionalSports(meta.effectiveSports),
+    candidatesPoolBefore: optionalInt(meta.candidatesPoolBefore),
+    candidatesPoolAfter: optionalInt(meta.candidatesPoolAfter),
+    candidatesSelected: optionalInt(meta.candidatesSelected),
+    deepSimRequested: optionalInt(meta.deepSimRequested),
+    deepSimCompleted: optionalInt(meta.deepSimCompleted),
+    qualifiedCount: optionalInt(meta.qualifiedCount),
   };
-  return JSON.stringify(safe).slice(0, 1800);
+  // Compact — drop null optional perf keys so meta stays under the 1800 cap.
+  const compact: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(safe)) {
+    if (v == null) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    compact[k] = v;
+  }
+  return JSON.stringify(compact).slice(0, 1800);
 }
 
 export function parseCoachMeta(raw: string | null | undefined): CoachReliabilityMeta | null {
@@ -454,6 +586,7 @@ export function parseCoachMeta(raw: string | null | undefined): CoachReliability
       durationSamples: Array.isArray(j.durationSamples)
         ? j.durationSamples.filter((n): n is number => typeof n === "number")
         : undefined,
+      ...parseCoachPerfFields(j as Record<string, unknown>),
     };
   } catch {
     return null;

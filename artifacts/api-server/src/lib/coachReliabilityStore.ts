@@ -52,6 +52,28 @@ export type RecordCoachEventInput = {
    * Logged only — not used in fingerprint / classification / Telegram rules.
    */
   correlationId?: string | null;
+  /** Observe-only perf / OTA identity — see CoachReliabilityMeta. */
+  updateId?: string | null;
+  loadMs?: number | null;
+  enrichmentMs?: number | null;
+  propSimMs?: number | null;
+  gameSimMs?: number | null;
+  qualificationMs?: number | null;
+  scanMs?: number | null;
+  finalizationMs?: number | null;
+  totalMs?: number | null;
+  lastCompletedPhase?: string | null;
+  pendingOperation?: string | null;
+  timeoutReason?: string | null;
+  terminalStatus?: string | null;
+  requestedSport?: string | null;
+  effectiveSports?: string[] | null;
+  candidatesPoolBefore?: number | null;
+  candidatesPoolAfter?: number | null;
+  candidatesSelected?: number | null;
+  deepSimRequested?: number | null;
+  deepSimCompleted?: number | null;
+  qualifiedCount?: number | null;
 };
 
 export type CoachDigestStats = {
@@ -97,6 +119,48 @@ function buildMeta(input: RecordCoachEventInput): CoachReliabilityMeta {
     requestId: typeof input.requestId === "string" ? input.requestId : null,
     affectedGame: typeof input.affectedGame === "string" ? input.affectedGame : null,
     rootCause: typeof input.rootCause === "string" ? input.rootCause : null,
+    updateId: typeof input.updateId === "string" ? input.updateId : null,
+    loadMs: typeof input.loadMs === "number" ? input.loadMs : null,
+    enrichmentMs: typeof input.enrichmentMs === "number" ? input.enrichmentMs : null,
+    propSimMs: typeof input.propSimMs === "number" ? input.propSimMs : null,
+    gameSimMs: typeof input.gameSimMs === "number" ? input.gameSimMs : null,
+    qualificationMs:
+      typeof input.qualificationMs === "number" ? input.qualificationMs : null,
+    scanMs: typeof input.scanMs === "number" ? input.scanMs : null,
+    finalizationMs:
+      typeof input.finalizationMs === "number" ? input.finalizationMs : null,
+    totalMs: typeof input.totalMs === "number" ? input.totalMs : null,
+    lastCompletedPhase:
+      typeof input.lastCompletedPhase === "string" ? input.lastCompletedPhase : null,
+    pendingOperation:
+      typeof input.pendingOperation === "string" ? input.pendingOperation : null,
+    timeoutReason:
+      typeof input.timeoutReason === "string" ? input.timeoutReason : null,
+    terminalStatus:
+      typeof input.terminalStatus === "string" ? input.terminalStatus : null,
+    requestedSport:
+      typeof input.requestedSport === "string" ? input.requestedSport : null,
+    effectiveSports: Array.isArray(input.effectiveSports)
+      ? input.effectiveSports
+      : null,
+    candidatesPoolBefore:
+      typeof input.candidatesPoolBefore === "number"
+        ? input.candidatesPoolBefore
+        : null,
+    candidatesPoolAfter:
+      typeof input.candidatesPoolAfter === "number"
+        ? input.candidatesPoolAfter
+        : null,
+    candidatesSelected:
+      typeof input.candidatesSelected === "number"
+        ? input.candidatesSelected
+        : null,
+    deepSimRequested:
+      typeof input.deepSimRequested === "number" ? input.deepSimRequested : null,
+    deepSimCompleted:
+      typeof input.deepSimCompleted === "number" ? input.deepSimCompleted : null,
+    qualifiedCount:
+      typeof input.qualifiedCount === "number" ? input.qualifiedCount : null,
   };
 }
 
@@ -134,6 +198,12 @@ async function sendCoachAlertIfAllowed(opts: {
       affectedGame: opts.meta.affectedGame,
       rootCause: opts.meta.rootCause,
       occurrenceCount: opts.occurrenceCount,
+      updateId: opts.meta.updateId,
+      terminalStatus: opts.meta.terminalStatus,
+      loadMs: opts.meta.loadMs,
+      enrichmentMs: opts.meta.enrichmentMs,
+      propSimMs: opts.meta.propSimMs,
+      scanMs: opts.meta.scanMs,
     }),
   );
   const alerted = sent.ok === true && sent.skipped !== true;

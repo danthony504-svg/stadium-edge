@@ -48,6 +48,10 @@ import {
   fullBoardScanSuccessNote,
   type TicketStagingBreakdown,
 } from "./fullBoardMarketCopy.ts";
+import {
+  coachPerfElapsedMs,
+  coachPerfNowMs,
+} from "./coachPerfDiagnostics.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import {
   opponentTeamIdForProp,
@@ -292,6 +296,10 @@ export type FullBoardScanResult = {
     gameSimsFetchNull?: number;
     gameSimsTimedOut?: number;
     propSimEvaluated?: number;
+    /** Wall ms for sequential game-sim batches (observe-only). */
+    gameSimMs?: number;
+    /** Wall ms for prop deep-sim phase when measured (observe-only). */
+    propSimMs?: number;
   };
   /** HR board ranking diagnostics — selected vs next-best components. */
   hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
@@ -1682,6 +1690,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let gameSimsFetchNull = 0;
   let gameSimsTimedOut = 0;
   let slateUnresolved = 0;
+  let gameSimMs: number | undefined;
   if (!opts.propsOnly) {
     gameSimsAttempted = gameEntries.length > 0;
     const gamePhaseBudgetMs = footballMixOverlap
@@ -1703,6 +1712,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ? coachScoringWorkBudgetMs(opts.target)
       : null;
     const gamePhaseStartedAt = Date.now();
+    const gamePhasePerfStartedAt = coachPerfNowMs();
     const scoringStartedAt = simulateSession?.scoringStartedAtMs ?? gamePhaseStartedAt;
     if (footballMixOverlap && gameEntries.length > 0) {
       simulateSession?.markGamePhaseStart();
@@ -1743,6 +1753,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         continue;
       }
     }
+    gameSimMs = coachPerfElapsedMs(gamePhasePerfStartedAt);
     if (footballMixOverlap && gameEntries.length > 0) {
       simulateSession?.markGamePhaseEnd();
     }
@@ -1853,6 +1864,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     gameSimsFetchNull,
     gameSimsTimedOut,
     propSimEvaluated: propSimEvaluatedAcc,
+    ...(gameSimMs != null ? { gameSimMs } : {}),
   };
   const result = buildScanResult(collapsed, {
     target: opts.target,

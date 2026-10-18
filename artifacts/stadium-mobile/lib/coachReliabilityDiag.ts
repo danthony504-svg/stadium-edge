@@ -53,6 +53,9 @@ export function logCoachRelDiagCall(opts: {
   eventTypeCandidate: string | null;
   returnedPickCount: number;
   picks?: readonly CoachRelDiagPick[] | null;
+  updateId?: string | null;
+  terminalStatus?: string | null;
+  totalMs?: number | null;
 }): void {
   try {
     console.info(DIAG_PREFIX, "call", {
@@ -60,6 +63,9 @@ export function logCoachRelDiagCall(opts: {
       requestId: opts.requestId,
       eventTypeCandidate: opts.eventTypeCandidate,
       returnedPickCount: opts.returnedPickCount,
+      updateId: opts.updateId ?? null,
+      terminalStatus: opts.terminalStatus ?? null,
+      totalMs: opts.totalMs ?? null,
       picks: coachRelDiagPickSnapshots(opts.picks),
     });
   } catch {

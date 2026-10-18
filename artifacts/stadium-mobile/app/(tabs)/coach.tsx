@@ -145,6 +145,27 @@ export default function CoachScreen() {
   /** Shared greenfield request id for build + delivery-commit / cancel telemetry. */
   const reliabilityRequestIdRef = useRef<string | null>(null);
   const reliabilityStartedAtRef = useRef(0);
+  /** Last build timing/perf for delivery-commit reliability POST (observe-only). */
+  const reliabilityPerfRef = useRef<{
+    loadMs?: number | null;
+    enrichmentMs?: number | null;
+    scanMs?: number | null;
+    finalizationMs?: number | null;
+    totalMs?: number | null;
+    propSimMs?: number | null;
+    gameSimMs?: number | null;
+    qualificationMs?: number | null;
+    lastCompletedPhase?: string | null;
+    timeoutReason?: string | null;
+    requestedSport?: string | null;
+    effectiveSports?: string[] | null;
+    candidatesPoolBefore?: number | null;
+    candidatesPoolAfter?: number | null;
+    candidatesSelected?: number | null;
+    deepSimRequested?: number | null;
+    deepSimCompleted?: number | null;
+    qualifiedCount?: number | null;
+  } | null>(null);
   /** Pick count committed at last terminal latch — used for late budget upgrades. */
   const terminalShownPickCountRef = useRef(0);
   /** Active assistant bubble for the open session — used to flush held picks on stop. */
@@ -297,6 +318,8 @@ export default function CoachScreen() {
         text: string;
         requestedLegs: number;
         failed?: boolean;
+        /** Thrown mid-build — not a user stop (observe-only terminalStatus=error). */
+        exception?: boolean;
         /** Absolute flush while props still scoring — honest shortfall, not quality bar. */
         propsPending?: boolean;
       },
@@ -321,6 +344,7 @@ export default function CoachScreen() {
           reliabilityStartedAtRef.current > 0
             ? Date.now() - reliabilityStartedAtRef.current
             : null;
+        const perf = reliabilityPerfRef.current;
         if (opts.failed) {
           reportCoachScanReliability({
             requestId: relId,
@@ -329,8 +353,13 @@ export default function CoachScreen() {
             returnedLegCount: picks.length,
             durationMs,
             picks,
-            cancelled: true,
+            // Stop → cancelled; thrown build → error (same coach_exception eventType).
+            cancelled: !opts.exception,
+            eventType: opts.exception ? "coach_exception" : undefined,
+            failureReason: opts.exception ? "exception" : undefined,
+            rootCause: opts.exception ? "build_exception" : "user_cancelled",
             deliveryCommitted: false,
+            ...(perf ?? {}),
           });
         } else if (outcome === "shown" && picks.length >= opts.requestedLegs) {
           reportCoachScanReliability({
@@ -341,6 +370,7 @@ export default function CoachScreen() {
             durationMs,
             picks,
             deliveryCommitted: true,
+            ...(perf ?? {}),
           });
         }
       }
@@ -663,6 +693,7 @@ export default function CoachScreen() {
           const reliabilityRequestId = `greenfield-${Date.now()}`;
           reliabilityRequestIdRef.current = reliabilityRequestId;
           reliabilityStartedAtRef.current = sessionRef.current.startedAtMs;
+          reliabilityPerfRef.current = null;
           armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
 
           // Failsafe equals total budget (same deadline) — not absolute+15s.
@@ -718,6 +749,29 @@ export default function CoachScreen() {
             clearTimeout(loadTimer);
             loadTimer = null;
           }
+          // Stash observe-only timings for delivery-commit / cancel reports.
+          if (result.timing || result.perf) {
+            reliabilityPerfRef.current = {
+              loadMs: result.timing?.loadMs,
+              enrichmentMs: result.timing?.contextMs,
+              scanMs: result.timing?.scanMs,
+              finalizationMs: result.timing?.finalizationMs,
+              totalMs: result.timing?.totalMs,
+              lastCompletedPhase: result.timing?.lastCompletedPhase,
+              timeoutReason: result.timing?.timeoutReason,
+              propSimMs: result.perf?.propSimMs,
+              gameSimMs: result.perf?.gameSimMs,
+              qualificationMs: result.perf?.qualificationMs,
+              requestedSport: result.perf?.requestedSport,
+              effectiveSports: result.perf?.effectiveSports ?? undefined,
+              candidatesPoolBefore: result.perf?.candidatesPoolBefore,
+              candidatesPoolAfter: result.perf?.candidatesPoolAfter,
+              candidatesSelected: result.perf?.candidatesSelected,
+              deepSimRequested: result.perf?.deepSimRequested,
+              deepSimCompleted: result.perf?.deepSimCompleted,
+              qualifiedCount: result.perf?.qualifiedCount,
+            };
+          }
           // Stale session: sendGen advanced — do not commit or report fulfillment.
           if (sendGenRef.current !== sendGen) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
@@ -761,6 +815,7 @@ export default function CoachScreen() {
                 const relId =
                   result.reliabilityRequestId || reliabilityRequestIdRef.current;
                 if (relId) {
+                  const stashed = reliabilityPerfRef.current;
                   reportCoachScanReliability({
                     requestId: relId,
                     sportCategory: classifySportCategoryFromAsk(ask),
@@ -772,9 +827,26 @@ export default function CoachScreen() {
                         : null,
                     picks,
                     deliveryCommitted: true,
-                    loadMs: result.timing?.loadMs,
-                    scanMs: result.timing?.scanMs,
-                    totalMs: result.timing?.totalMs,
+                    ...(stashed ?? {
+                      loadMs: result.timing?.loadMs,
+                      enrichmentMs: result.timing?.contextMs,
+                      scanMs: result.timing?.scanMs,
+                      finalizationMs: result.timing?.finalizationMs,
+                      totalMs: result.timing?.totalMs,
+                      lastCompletedPhase: result.timing?.lastCompletedPhase,
+                      timeoutReason: result.timing?.timeoutReason,
+                      propSimMs: result.perf?.propSimMs,
+                      gameSimMs: result.perf?.gameSimMs,
+                      qualificationMs: result.perf?.qualificationMs,
+                      requestedSport: result.perf?.requestedSport,
+                      effectiveSports: result.perf?.effectiveSports ?? undefined,
+                      candidatesPoolBefore: result.perf?.candidatesPoolBefore,
+                      candidatesPoolAfter: result.perf?.candidatesPoolAfter,
+                      candidatesSelected: result.perf?.candidatesSelected,
+                      deepSimRequested: result.perf?.deepSimRequested,
+                      deepSimCompleted: result.perf?.deepSimCompleted,
+                      qualifiedCount: result.perf?.qualifiedCount,
+                    }),
                   });
                 }
               }
@@ -897,6 +969,7 @@ export default function CoachScreen() {
           text: message,
           requestedLegs,
           failed: true,
+          exception: !abort.signal.aborted,
           propsPending,
         });
       }
