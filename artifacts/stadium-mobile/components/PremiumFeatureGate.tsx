@@ -32,12 +32,12 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isSignedIn } = useAuth();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { entitlement, openSoftPaywall, hydrated } = useSubscription();
   const meta = PREMIUM_FEATURES[featureId];
-  const allowed = canAccessPremiumFeature(featureId, entitlement.isPro);
+  const allowed = !!isSignedIn && canAccessPremiumFeature(featureId, entitlement.isPro);
 
-  if (!hydrated) {
+  if (!authLoaded || !hydrated) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
