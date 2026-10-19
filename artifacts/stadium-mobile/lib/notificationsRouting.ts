@@ -6,7 +6,7 @@ export type NotifRouteData = { type?: string; buildId?: string } | undefined;
 export function routeForNotificationData(data: NotifRouteData): string {
   switch (data?.type) {
     case "dailyPicks":
-      return "/props";
+      return "/coach";
     case "result":
     case "reminder":
     case "oddsMovement":
