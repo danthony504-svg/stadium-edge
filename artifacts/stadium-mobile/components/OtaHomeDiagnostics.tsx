@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
+import { shouldShowOtaHomeDiagnostics } from "@/lib/navMenuAuth";
 import { FONT } from "@/components/ui";
 import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
 import { collectOtaStaticDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
@@ -25,7 +26,6 @@ export function OtaHomeDiagnostics() {
   const Updates = tryGetExpoUpdates();
 
   useEffect(() => {
-    if (__DEV__) return;
     let cancelled = false;
     // Static only — never auto-run checkForUpdateAsync / reloadAsync from Home.
     void collectOtaStaticDiagnostics().then((d) => {
@@ -36,7 +36,7 @@ export function OtaHomeDiagnostics() {
     };
   }, []);
 
-  if (__DEV__ || !Updates?.isEnabled || !diag) return null;
+  if (!Updates?.isEnabled || !diag || !shouldShowOtaHomeDiagnostics(diag.channel, __DEV__)) return null;
 
   const caseColor =
     diag.attestation.caseId === "A"
