@@ -123,6 +123,7 @@ export default function CoachScreen() {
   const { isSignedIn } = useAuth();
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
+  const showComposer = !!isSignedIn && coachPremiumUnlocked;
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -1240,6 +1241,7 @@ export default function CoachScreen() {
                     <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
                       <PickCard
                         pick={displayPick}
+                        freeCoachPreview={isFreeTwoLegCoachPreview(item.requestedLegs)}
                         onPress={statsHandlerFor(pick)}
                         lockPickDetails={freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal}
                         allowSlipActions={item.responseKind !== "nleg_ticket" && freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).allowSlipActions}
@@ -1272,7 +1274,7 @@ export default function CoachScreen() {
           }}
         />
 
-        {coachPremiumUnlocked ? (
+        {showComposer ? (
         <>
         {/* Attached-photo previews — up to 3, above the composer until sent. */}
         {attachedImages.length ? (
