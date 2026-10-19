@@ -1223,7 +1223,7 @@ export default function CoachScreen() {
                     </View>
                   );
                 })}
-                {!item.building && !coachPremiumUnlocked && isFreeTwoLegCoachPreview(item.requestedLegs) && (item.picks?.length ?? 0) > 0 ? (
+                {!item.building && !coachPremiumUnlocked && isFreeTwoLegCoachPreview(item.requestedLegs) && (item.picks?.length ?? 0) === 2 ? (
                   <View style={{ marginHorizontal: 12, marginTop: 8, padding: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.card, gap: 10 }}>
                     <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>Want more than 2 picks?</Text>
                     <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 14, lineHeight: 20 }}>
