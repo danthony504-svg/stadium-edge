@@ -3,9 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Type PREVIEW_ONLY to publish to preview (never production)"
+        description: "Confirm preview publishing (never production)"
         required: true
-        type: string
+        type: choice
+        default: PREVIEW_ONLY
+        options:
+          - PREVIEW_ONLY
 permissions:
   contents: read
 concurrency:
@@ -13,13 +16,20 @@ concurrency:
   cancel-in-progress: false
 jobs:
   preview:
-    if: ${{ github.event.inputs.confirm == 'PREVIEW_ONLY' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: artifacts/stadium-mobile
     steps:
       - uses: actions/checkout@v4
+      - name: Validate preview confirmation
+        env:
+          PREVIEW_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$PREVIEW_CONFIRM" != "PREVIEW_ONLY" ]; then
+            echo "::error::Select PREVIEW_ONLY in Run workflow. No update was published."
+            exit 1
+          fi
       - name: Validate runtime and prevent production publishing
         run: |
           node -e 'const a=require("./app.json").expo;if(a.runtimeVersion!=="1.1.0")process.exit(1); console.log("PREVIEW ONLY — runtime 1.1.0")'
