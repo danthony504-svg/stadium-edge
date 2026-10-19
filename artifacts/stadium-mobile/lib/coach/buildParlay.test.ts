@@ -189,3 +189,12 @@ test("HR stays on full-board path; both exits share resolveCoachParlayShortfallL
   assert.match(src, /lockedMarketAnalyzedFromBoardDiagnostics/);
   assert.doesNotMatch(src, /buildFixedLegCountShortfallLead/);
 });
+
+test("Coach's actual builder must preserve free 2-leg target, never force a 3-leg scan", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"), "utf8");
+  assert.match(src, /const target = Math\.max\(1, Math\.min\(opts\.requestedLegs \|\| 6, 15\)\)/);
+  assert.doesNotMatch(src, /Math\.max\(3, Math\.min\(opts\.requestedLegs/);
+});
