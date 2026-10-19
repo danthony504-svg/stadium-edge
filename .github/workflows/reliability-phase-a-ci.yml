@@ -30,6 +30,8 @@ on:
       - "artifacts/api-server/src/lib/monteCarlo*"
       - "artifacts/api-server/test/ncaafHistoricalAcceptance.test.ts"
       - "artifacts/api-server/src/lib/sportSim/ncaafHistoricalAcceptance.ts"
+      - "artifacts/api-server/src/lib/footballScoringOpportunities*"
+      - "artifacts/api-server/test/footballScoringOpportunities*"
       - "artifacts/api-server/src/lib/anytimeTdModel*"
       - "artifacts/api-server/src/lib/authoritativePlayerHistory*"
       - "artifacts/api-server/test/stage3TdSimMapping*"
@@ -109,6 +111,8 @@ on:
       # Stage 3 / prop simulation — Anytime TD mapping, MC, provenance contracts
       - "artifacts/api-server/src/lib/propStatValue*"
       - "artifacts/api-server/src/lib/monteCarlo*"
+      - "artifacts/api-server/src/lib/footballScoringOpportunities*"
+      - "artifacts/api-server/test/footballScoringOpportunities*"
       - "artifacts/api-server/src/lib/anytimeTdModel*"
       - "artifacts/api-server/src/lib/authoritativePlayerHistory*"
       - "artifacts/api-server/test/stage3TdSimMapping*"

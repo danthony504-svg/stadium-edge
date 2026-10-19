@@ -52,6 +52,7 @@ export type PropSimulationContext = {
    * Opportunity Shift — family-specific workload multiplier (never player-wide).
    * Applied once before the single 10k draw. Default 1.
    */
+  footballTdSignal?: { multiplier: number; explanation: string; fingerprint: string } | null;
   opportunityFamilyMult?: number | null;
   opportunityFamily?: string | null;
   opportunityExplain?: string | null;
@@ -191,7 +192,9 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
     const ownInj = ctx.opportunitySuppressOwnInjuries ? 0 : (ctx.ownKeyInjuries ?? 0);
     p *= clamp(1 + oppInj * 0.015 - ownInj * 0.02, 0.88, 1.12);
 
-    const combined = ctx.combinedPreSimMult;
+    const baseCombined = ctx.combinedPreSimMult;
+    const td = ctx.footballTdSignal?.multiplier;
+    const combined = td != null && Number.isFinite(td) ? (baseCombined ?? ctx.opportunityFamilyMult ?? 1) * clamp(td, 0.94, 1.06) : baseCombined;
     if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
       p *= capAnytimeTdOpportunityMult(clamp(combined, 0.78, 1.35), {
         hasRedZoneChannel: true,
@@ -260,7 +263,9 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
 
   // Pre-sim: Opportunity × Venue × Opponent Matchup (log-combined, capped).
   // Prefer combinedPreSimMult when present; else Opportunity-only (legacy).
-  const combined = ctx.combinedPreSimMult;
+  const baseCombined = ctx.combinedPreSimMult;
+  const td = ctx.footballTdSignal?.multiplier;
+  const combined = td != null && Number.isFinite(td) ? (baseCombined ?? ctx.opportunityFamilyMult ?? 1) * clamp(td, 0.94, 1.06) : baseCombined;
   if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
     mean *= clamp(combined, 0.78, 1.35);
   } else {

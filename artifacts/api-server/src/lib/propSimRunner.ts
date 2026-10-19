@@ -1,3 +1,4 @@
+import { cachedScoringSignals, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import type { PreparedGameContext } from "./preparedGameContext.js";
 import { propHasConfirmedAbsence, propHasConfirmedNonstarter } from "./propAvailability.js";
 /**
@@ -71,6 +72,7 @@ export type OpportunityShiftBuildInputs = {
 };
 
 export type PropSimGameContext = {
+  footballTdSignals?: Record<string, FootballTdSignal>;
   preparedContext?: PreparedGameContext | null;
   sport: string;
   oppPace: number | null;
@@ -95,6 +97,7 @@ export type PropSimGameContext = {
 
 export type PropSimRow = BuiltSimPropRow & {
   tier: SimTier;
+  footballScoringContext?: FootballTdSignal | null;
   cached: boolean;
   deepPending?: boolean;
 };
@@ -241,6 +244,7 @@ async function loadPropHistory(
 
 function gameCtxForSimulate(gameCtx: PropSimGameContext) {
   return {
+    footballTdSignals: gameCtx.footballTdSignals,
     sport: gameCtx.sport,
     oppPace: gameCtx.oppPace,
     leaguePace: gameCtx.leaguePace,
@@ -276,6 +280,7 @@ export async function runPropSims(
   historyShared: number;
   historyCoalesced: number;
 }> {
+  gameCtx = { ...gameCtx, footballTdSignals: cachedScoringSignals(props) };
   const t0 = performance.now();
   const simCount = tierSimCount(tier, simulations);
   const historyCache: HistoryCache = new Map();
@@ -671,7 +676,7 @@ export async function runPropSims(
     for (let i = 0; i < group.length; i++) {
       const item = group[i]!;
       const result = results[i]!;
-      rows[item.index] = { ...result, tier, cached: fromCache };
+      rows[item.index] = { ...result, tier, cached: fromCache, footballScoringContext: ctx.footballTdSignal ?? null };
     }
 
     if (tier === "quick") {
@@ -752,6 +757,7 @@ export async function warmDeepSims(
   gameCtx: PropSimGameContext,
   isHomeByPlayer: Record<string, boolean>,
 ): Promise<void> {
+  gameCtx = { ...gameCtx, footballTdSignals: cachedScoringSignals(props) };
   const historyCache: HistoryCache = new Map();
   const gctx = gameCtxForSimulate(gameCtx);
 
