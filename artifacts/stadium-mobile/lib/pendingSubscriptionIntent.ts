@@ -20,7 +20,9 @@ export function isPaidPlanId(value: unknown): value is PaidPlanId {
   return value === "go" || value === "pro";
 }
 
-export function parseSubscriptionIntent(raw: unknown): SubscriptionIntent | null {
+export function parseSubscriptionIntent(
+  raw: unknown,
+): SubscriptionIntent | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   if (obj.intent === "restore") {
@@ -97,7 +99,9 @@ export function resolvePostAuthHref(opts: {
         : "purchase";
     const planId =
       (isPaidPlanId(opts.plan) ? opts.plan : undefined) ??
-      (opts.stored && isPaidPlanId(opts.stored.planId) ? opts.stored.planId : undefined);
+      (opts.stored && isPaidPlanId(opts.stored.planId)
+        ? opts.stored.planId
+        : undefined);
     const fromParams = parseSubscriptionIntent({
       intent: intentKind,
       planId,
@@ -106,6 +110,8 @@ export function resolvePostAuthHref(opts: {
     if (opts.stored) return plansHrefForSubscriptionIntent(opts.stored);
     return "/plans";
   }
+  // Explicit invite return path; do not consume a stale subscription intent.
+  if (returnTo === "account" || returnTo === "/account") return "/account";
   // Unrelated sign-in (no returnTo=plans) always goes home — do not hijack
   // with a stale Plans intent left after a cancelled subscribe attempt.
   return "/";

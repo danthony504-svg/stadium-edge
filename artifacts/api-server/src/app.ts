@@ -10,6 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import legalPagesRouter from "./routes/legalPages";
+import { referralPublicRouter } from "./routes/referrals";
 import { minAppVersionMiddleware } from "./middlewares/minAppVersion";
 import {
   reliabilityCrashBodyLimitEarly,
@@ -84,6 +85,7 @@ app.use(
 );
 
 // Public Support / Privacy / Terms (App Store Support URL) — no sign-in.
+app.use(referralPublicRouter);
 app.use(legalPagesRouter);
 
 // Minimum native version gate (iOS). Exempts health/config/subscriptions.

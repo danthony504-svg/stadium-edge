@@ -52,6 +52,12 @@ module.registerHooks({
         if (existsSync(fileURLToPath(tsUrl))) {
           return { url: tsUrl.href, shortCircuit: true };
         }
+        // Workspace DB exports its schema directory; native node:test needs
+        // its explicit entry point (production bundlers already resolve it).
+        const indexUrl = new URL(`${specifier}/index.ts`, parent);
+        if (existsSync(fileURLToPath(indexUrl))) {
+          return { url: indexUrl.href, shortCircuit: true };
+        }
       }
     }
 

@@ -1,20 +1,12 @@
 ---
-name: Refer-a-friend (mobile account screen)
-description: Honesty boundary for the mobile refer-a-friend feature — link is a real shareable URL, NOT a tracked referral program.
+name: Refer-a-friend rewards
+description: Registered invite links, verified signup attribution and Apple offer-code rewards.
 ---
 
 # Refer-a-friend
 
-The mobile Account screen has a "Refer a friend" card whose link/code is derived
-deterministically from the real Clerk user id (`?ref=<code>` against
-EXPO_PUBLIC_DOMAIN). The card is gated on a real openable link existing — never a
-code-only or placeholder fallback.
+Referral rewards use registered server-side codes, a public `/invite/:code` landing page, verified new Clerk accounts, and unique email/account attribution. Approved milestones: 3 verified new friends earns a free week; 10 earns a free month; each milestone once per account. Shares alone never count.
 
-**Why:** There is NO referral-tracking backend (no reward ledger, no signup
-attribution, no per-user referral stats). The feature is just a real shareable
-URL the user can hand out.
+Rewards reserve real one-time-use Apple offer codes from encrypted inventory. Assignment is not redemption and never authorizes a subscription bypass. Existing Apple/RevenueCat verification grants actual access. Do not claim active free access merely because a voucher was assigned.
 
-**How to apply:** Do NOT add UI/copy/AI claims about referral rewards, counts,
-"friends joined", credits, or tracking unless a real backend is built first.
-Treat any such number as fabrication (project honesty rule). The link/code is
-real; the *program semantics* are not.
+Activation requires a database migration, server-only key, imported Apple offers with matching durations/eligibility, backend deployment and a mobile update. The default feature flag is off. See docs/referral-rewards.md. Before activation, share the App Store link and label rewards unavailable; never invent joined-friend counts, codes, stock or entitlement status.
