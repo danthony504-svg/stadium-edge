@@ -1,5 +1,5 @@
 /** Start one free two-leg Coach request when a non-premium visitor opens an empty Coach thread. */
-export const AUTO_FREE_COACH_ASK = "Build me a 2-leg parlay for today's games using different markets. Only use real sportsbook odds and qualified simulated picks.";
+export const AUTO_FREE_COACH_ASK = "Build me a 2-leg parlay from the next available upcoming games using different markets. Only use real sportsbook odds and qualified simulated picks.";
 export function shouldAutoBuildFreeCoachPreview(params: {
   subscriptionHydrated: boolean;
   premiumUnlocked: boolean;
@@ -24,5 +24,5 @@ export function freeCoachAskForStyle(style?: FreeCoachStyle): string {
     value: "Prioritize positive expected value and independently supported edges.",
     longshot: "Favor higher-payout qualifying markets where available; never add weak or unqualified legs.",
   }[style ?? "hot"];
-  return `Build me a 2-leg parlay for today's games using different markets. ${intent} Only use real sportsbook odds and qualified simulated picks.`;
+  return `Build me a 2-leg parlay from the next available upcoming games using different markets. ${intent} Only use real sportsbook odds and qualified simulated picks.`;
 }
