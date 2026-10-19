@@ -5,9 +5,13 @@ on:
       - "artifacts/api-server/src/lib/referral*"
       - "artifacts/api-server/src/routes/referrals.ts"
       - "artifacts/api-server/test/referral*"
+      - "artifacts/api-server/test/register-hooks.mjs"
+      - "artifacts/api-server/src/routes/account.ts"
       - "artifacts/stadium-mobile/**/referral*"
       - "artifacts/stadium-mobile/components/ReferralCard.tsx"
       - "artifacts/stadium-mobile/app/invite.tsx"
+      - "artifacts/stadium-mobile/app/account.tsx"
+      - "artifacts/stadium-mobile/lib/pendingSubscriptionIntent*"
       - "lib/db/**"
       - ".github/workflows/referrals-ci.yml"
 jobs:
