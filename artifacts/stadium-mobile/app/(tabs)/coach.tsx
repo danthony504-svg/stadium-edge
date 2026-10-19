@@ -88,7 +88,8 @@ import { reconcileCoachTerminalNote } from "@/lib/coachPropsOnlyFailReason";
 import { propsOnlySportLabelFromAsk } from "@/lib/boardScanPropDelivery";
 import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { AUTO_FREE_COACH_ASK, shouldAutoBuildFreeCoachPreview } from "@/lib/coachAutoFreePreview";
 
 type Role = "user" | "assistant";
 
@@ -1031,6 +1032,24 @@ export default function CoachScreen() {
     },
     [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
+
+  const autoPreviewOnFocusRef = useRef(false);
+  useFocusEffect(useCallback(() => {
+    const id = setTimeout(() => {
+      if (shouldAutoBuildFreeCoachPreview({
+        subscriptionHydrated: !!sub?.hydrated,
+        premiumUnlocked: coachPremiumUnlocked,
+        messageCount: messagesRef.current.length,
+        busy: sessionRef.current.outcome === "open" || busy,
+        alreadyStartedOnFocus: autoPreviewOnFocusRef.current,
+        pendingLaunch: !!(draft.trim() || attachedImages.length),
+      })) {
+        autoPreviewOnFocusRef.current = true;
+        void send(AUTO_FREE_COACH_ASK);
+      }
+    }, 250);
+    return () => { clearTimeout(id); autoPreviewOnFocusRef.current = false; };
+  }, [sub?.hydrated, coachPremiumUnlocked, busy, draft, attachedImages.length, send]));
 
   useEffect(() => {
     const launch = takeCoachLaunch();
