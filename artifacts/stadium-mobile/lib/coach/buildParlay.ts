@@ -301,7 +301,7 @@ export async function buildCoachParlay(opts: {
   /** Shared greenfield id for delivery-commit correlation. */
   reliabilityRequestId?: string;
 }): Promise<CoachParlayBuildResult> {
-  const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
+  const target = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
   const budgetMs = coachTotalRequestBudgetMs(target);
   // Monotonic deadline from request start — load counts against this window.
   const requestStartedAtMs = opts.requestStartedAtMs ?? Date.now();
