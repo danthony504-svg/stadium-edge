@@ -1272,6 +1272,8 @@ export default function CoachScreen() {
           }}
         />
 
+        {coachPremiumUnlocked ? (
+        <>
         {/* Attached-photo previews — up to 3, above the composer until sent. */}
         {attachedImages.length ? (
           <View
@@ -1416,6 +1418,8 @@ export default function CoachScreen() {
             )}
           </Pressable>
         </View>
+        </>
+        ) : null}
       </KeyboardAvoidingView>
     </View>
   );
