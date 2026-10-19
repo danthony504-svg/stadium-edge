@@ -3,6 +3,7 @@
 // re-exports these so existing `from "./api"` imports keep working.
 
 import { focalSportsFromText } from "./chatContextPriority.ts";
+import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 
 // ---------- Pickability window ----------
 
@@ -490,6 +491,7 @@ export function tonightExhaustedNote(opts: {
 export function mentionsPropIntent(text?: string | null): boolean {
   const t = String(text || "");
   return (
+    footballSkillPropFamilies(t) != null ||
     /\b(props?|prop bets?|player props?)\b/i.test(t) ||
     /\b(scorers?|goalkeepers?|keepers?)\b/i.test(t) ||
     /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
@@ -530,6 +532,8 @@ export function wantsPropsOnly(text?: string | null): boolean {
   // phrasing ("player props", "touchdowns", "home runs", "7 props", …) does.
 
   if (!mentionsPropIntent(text)) return false;
+
+  if (footballSkillPropFamilies(t)) return true;
 
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;

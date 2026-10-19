@@ -597,3 +597,36 @@ test("thread prior props-only inherits onto refinement ask", () => {
   ]);
   assert.equal(c.propsOnly, true);
 });
+
+for (const ask of ["10 leg rushing and receiving", "10-leg RUSHING & RECEIVING", "10 lag rushing, receiving"]) {
+  test(`${ask}: locks football skill families before scan and delivery`, () => {
+    const constraint = parseCoachAskMarketConstraint(ask);
+    assert.equal(constraint.propsOnly, true);
+    assert.equal(constraint.gameLinesOnly, false);
+    assert.deepEqual(new Set(constraint.allowedMarketKeys), new Set([
+      "player_rush_yds", "player_rush_attempts", "player_rush_tds",
+      "player_reception_yds", "player_receptions", "player_reception_tds",
+    ]));
+    const pool = ["player_rush_yds_alternate", "player_reception_yds", "player_points", "player_assists", "player_rebounds", "player_shots_on_goal", "player_pass_yds"].map(marketKey => ({ marketKey }));
+    assert.deepEqual(filterPropPoolByAskMarkets(pool, constraint.allowedMarketKeys).map(p => p.marketKey), ["player_rush_yds_alternate", "player_reception_yds"]);
+    const ticket = pool.map(p => ({ isProp: true, propMarketKey: p.marketKey }));
+    ticket.push({ isProp: false, propMarketKey: "spreads" }, { isProp: true, propMarketKey: "" });
+    assert.equal(filterPicksByAskMarketConstraint(ticket, constraint).length, 2);
+  });
+}
+
+test("bare skill intent routes props-only while yards and generic asks retain meaning", async () => {
+  const { wantsPropsOnly, mentionsPropIntent } = await import("./slate.ts");
+  for (const ask of ["10 leg rushing and receiving", "6 leg passing", "5 leg college rushing and receiving"]) {
+    assert.equal(mentionsPropIntent(ask), true);
+    assert.equal(wantsPropsOnly(ask), true);
+    assert.equal(parseCoachAskMarketConstraint(ask).propsOnly, true);
+  }
+  assert.equal(askAllowsNcaafPlayerProps("5 leg college rushing and receiving"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL rushing and receiving"), false);
+  assert.deepEqual(parseCoachAskMarketConstraint("10 leg rushing and receiving yards").allowedMarketKeys?.sort(), ["player_reception_yds", "player_rush_yds"]);
+  for (const ask of ["10 leg NFL", "10 leg mixed sports", "pass on NBA, build 10 legs", "10 leg no player props", "10 leg game lines only"]) {
+    assert.equal(wantsPropsOnly(ask), false);
+    assert.equal(parseCoachAskMarketConstraint(ask).propsOnly, false);
+  }
+});
