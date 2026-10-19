@@ -6,6 +6,8 @@ import {
   notifLogTable,
   appKvTable,
 } from "@workspace/db";
+import { getCoachPrecomputedSlate } from "./coachSlateStore.js";
+import { dailyCoachPicksReady } from "./dailyCoachNotification.js";
 import { logger } from "./logger";
 import { sendPush, type PushMessage } from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
@@ -794,6 +796,10 @@ export async function runNotificationJobs(): Promise<{
     }
   }
 
+  const dailyReady = users.some(u => u.prefs.dailyPicks) && new Date().getUTCHours() >= DAILY_HOUR_UTC
+    ? dailyCoachPicksReady(await getCoachPrecomputedSlate(), now)
+    : false;
+
   // ---- Per-user triggers --------------------------------------------------
   for (const { uid, prefs, slips } of users) {
     // de-dupe within a single user across multiple slips/legs touching one game
@@ -874,7 +880,7 @@ export async function runNotificationJobs(): Promise<{
     }
 
     // Daily AI-picks nudge — once per UTC day, after the morning hour.
-    if (prefs.dailyPicks && new Date().getUTCHours() >= DAILY_HOUR_UTC) {
+    if (prefs.dailyPicks && dailyReady && new Date().getUTCHours() >= DAILY_HOUR_UTC) {
       const today = new Date().toISOString().slice(0, 10);
       queue.push({
         userId: uid,
