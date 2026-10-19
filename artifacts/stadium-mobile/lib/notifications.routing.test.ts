@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { routeForNotificationData } from "./notificationsRouting.ts";
 
 test("routeForNotificationData maps backend notification types", () => {
-  assert.equal(routeForNotificationData({ type: "dailyPicks" }), "/props");
+  assert.equal(routeForNotificationData({ type: "dailyPicks" }), "/coach");
   assert.equal(routeForNotificationData({ type: "upsetAlert" }), "/");
   assert.equal(routeForNotificationData({ type: "edgeLock" }), "/arbitrage");
   assert.equal(routeForNotificationData({ type: "coachReady" }), "/coach");
