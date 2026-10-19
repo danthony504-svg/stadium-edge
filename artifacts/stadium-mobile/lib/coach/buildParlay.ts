@@ -1,3 +1,5 @@
+import { preparedEnvironmentForGames, filterPreparedDeliveryPicks } from "@/lib/preparedGameContext";
+import { coachContextWarmer } from "@/lib/coachContextWarmup";
 import { filterUngroundedCoachPropPool } from "@/lib/coachPreSimGrounding";
 /**
  * Greenfield parlay build — board scan only, hard wall-clock, no delivery limbo.
@@ -282,7 +284,7 @@ async function loadScanInputs(
   };
 }
 
-export async function buildCoachParlay(opts: {
+async function buildCoachParlayImpl(opts: {
   requestedLegs: number;
   /** User ask — scopes sports (college football) and priority inject. */
   askText?: string | null;
@@ -651,10 +653,10 @@ export async function buildCoachParlay(opts: {
   );
   const injuryTeams = injuryPack.injuryTeams;
   mlbPlatoon = Object.keys(mlb.mlbPlatoon).length ? mlb.mlbPlatoon : undefined;
-  const mergedEnv = {
+  const mergedEnv = preparedEnvironmentForGames(inputs.espnGames, {
     ...(mlb.mlbGameEnv ?? {}),
     ...(football.footballGameEnv ?? {}),
-  };
+  });
   mlbGameEnv = Object.keys(mergedEnv).length ? mergedEnv : undefined;
   const playerHistory = Object.keys(earlyHistory).length ? earlyHistory : undefined;
   const matchupHistory = Object.keys(matchupHistoryRaw).length
@@ -999,7 +1001,7 @@ export async function buildCoachParlay(opts: {
       qualifiedCandidates: [],
       target,
     });
-    picks = deliveryGrounding.picks;
+    picks = filterPreparedDeliveryPicks(deliveryGrounding.picks, inputs.espnGames);
     const shortfall = resolveCoachParlayShortfallLead({
       askText: opts.askText ?? "",
       requestedLegs: target,
@@ -1439,6 +1441,7 @@ export async function buildCoachParlay(opts: {
       ...(latest?.qualifiedCandidates ?? []),
     ],
   });
+  picks = filterPreparedDeliveryPicks(picks, inputs.espnGames);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
@@ -1537,4 +1540,11 @@ export async function buildCoachParlay(opts: {
     timing,
     perf,
   };
+}
+
+/** Preparation never extends the foreground deadline or competes with its queue. */
+export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
+  const release = coachContextWarmer.beginForeground();
+  try { return await buildCoachParlayImpl(opts); }
+  finally { release(); }
 }

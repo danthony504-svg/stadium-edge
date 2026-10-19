@@ -25,9 +25,9 @@ function rushHist(carries: number[]): PlayerHistoryShape {
 
 function rebHist(rebounds: number[], minutes: number[]): PlayerHistoryShape {
   return {
-    labels: ["REB", "MIN"],
+    labels: ["reboundChances", "MIN"],
     recent: rebounds.map((r, i) => ({
-      stats: { REB: String(r), MIN: String(minutes[i] ?? 24) },
+      stats: { reboundChances: String(r), MIN: String(minutes[i] ?? 24) },
       isHome: true,
     })),
     vsOpponent: [],
@@ -236,7 +236,7 @@ describe("Opportunity Shift — usage weighting formula", () => {
     assert.ok(m3.multiplier <= 1.28);
   });
 
-  it("NBA shared engine: rebound opportunity weights by REB history", () => {
+  it("NBA shared engine: rebound opportunity weights by measured rebound chances", () => {
     const big = deriveChannelUsageFromHistory(rebHist([10, 9, 11, 8], [28, 30, 27, 29]));
     const wing = deriveChannelUsageFromHistory(rebHist([4, 5, 3, 4], [32, 34, 31, 33]));
     const weights = normalizeUsageWeights([

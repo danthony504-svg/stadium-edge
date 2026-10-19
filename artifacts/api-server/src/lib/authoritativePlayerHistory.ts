@@ -128,7 +128,7 @@ function memGet(key: string): AuthoritativePlayerHistory | undefined {
 function memSet(key: string, value: AuthoritativePlayerHistory): void {
   histMem.set(key, {
     value,
-    expiresAt: Date.now() + AUTHORITATIVE_PLAYER_HISTORY_TTL_MS,
+    expiresAt: value.loadedAtMs + AUTHORITATIVE_PLAYER_HISTORY_TTL_MS,
   });
 }
 
@@ -176,21 +176,21 @@ async function fetchAndCacheAuthoritative(
 ): Promise<AuthoritativePlayerHistory | null> {
   const path = ESPN_SPORT_PATHS[sport];
   if (!path || !athleteId) return null;
-  const key = `player-history:${path}:${athleteId}:current`;
-  const log = await cachedJson<GameLog>(key, AUTHORITATIVE_PLAYER_HISTORY_TTL_MS, async () => {
+  const key = `authoritative-history:v2:${path}:${athleteId}:current`;
+  const source = await cachedJson<{ log: GameLog; observedAtMs: number }>(key, AUTHORITATIVE_PLAYER_HISTORY_TTL_MS, async () => {
     const url = `https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${athleteId}/gamelog`;
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error(`ESPN gamelog ${r.status}`);
-    return (await r.json()) as GameLog;
+    return { log: (await r.json()) as GameLog, observedAtMs: Date.now() };
   });
-  const { labels, flat } = flattenGameLog(log);
+  const { labels, flat } = flattenGameLog(source.log);
   if (!flat.length) return null;
   return {
     sport,
     athleteId,
     labels,
     flat,
-    loadedAtMs: Date.now(),
+    loadedAtMs: source.observedAtMs,
   };
 }
 

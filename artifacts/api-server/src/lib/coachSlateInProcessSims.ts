@@ -1,3 +1,4 @@
+import { preparedContextForMatch } from "./preparedGameContext.js";
 /**
  * In-process prop/game simulations for the Render Cron Job worker.
  * Reuses the same runners as /sports/simulate/* — does not change sim counts.
@@ -97,6 +98,7 @@ export type InProcessPropSimRow = {
 /** Same contract as POST /sports/simulate/props success body (props rows). */
 export async function runPropSimsInProcess(body: {
   sport: string;
+  startsAt?: string;
   tier?: string;
   homeTeam?: string;
   awayTeam?: string;
@@ -157,7 +159,7 @@ export async function runPropSimsInProcess(body: {
     }
   }
 
-  const injuries = await fetchEspnInjuries(sport);
+  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, body.startsAt)]);
   const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
   // Same Opp Shift inputs as HTTP /sports/simulate — weighting built in runPropSims.
   const opportunityShiftInputs =
@@ -175,8 +177,8 @@ export async function runPropSimsInProcess(body: {
                 ? homeTeam
                 : p.isHome === false
                   ? awayTeam
-                  : homeTeam,
-            position: null as string | null,
+                  : null,
+            position: p.position ?? null,
           })),
         }
       : null;
@@ -188,6 +190,7 @@ export async function runPropSimsInProcess(body: {
     ownKeyInjuries: homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0,
     weatherImpact: null as number | null,
     opportunityShiftInputs,
+    preparedContext,
     defenseIndex: body.defenseIndex ?? null,
     defenseIndexByFamily: body.defenseIndexByFamily ?? null,
   };

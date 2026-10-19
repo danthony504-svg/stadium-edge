@@ -33,6 +33,8 @@ import {
 } from "./preSimShift/index.js";
 
 export type PropSimNullReason =
+  | "confirmed_unavailable"
+  | "confirmed_nonstarter"
   | "missing_athlete_id"
   | "no_history"
   | "insufficient_sample"
@@ -53,6 +55,8 @@ export type SimPropRequest = {
   awayTeamId?: string | null;
   /** ESPN team id for the player's own side (never inferred from name). */
   playerTeamId?: string | null;
+  /** ESPN roster role; not a claimed confirmed starter. */
+  position?: string | null;
   /** Extra alt rungs scored on the same 10k draw as `line`. */
   additionalLines?: number[];
 };

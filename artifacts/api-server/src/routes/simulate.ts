@@ -1,3 +1,4 @@
+import { preparedContextForMatch } from "../lib/preparedGameContext.js";
 import { type SimTier } from "../lib/simCache.js";
 import { DEEP_SIMULATIONS } from "../lib/monteCarlo.js";
 import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js";
@@ -341,7 +342,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     }
   }
 
-  const injuries = await fetchEspnInjuries(sport);
+  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, req.body?.startsAt)]);
   const oppKeyInjuries = awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0;
   const ownKeyInjuries = homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0;
 
@@ -368,8 +369,8 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
                 ? homeTeam
                 : p.isHome === false
                   ? awayTeam
-                  : homeTeam,
-            position: null as string | null,
+                  : null,
+            position: p.position ?? null,
           })),
         }
       : null;
@@ -396,6 +397,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     ownKeyInjuries,
     weatherImpact,
     opportunityShiftInputs,
+    preparedContext,
     defenseIndex,
     defenseIndexByFamily,
   };

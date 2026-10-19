@@ -1,9 +1,11 @@
+import { preparedContextRejectsProp } from "./preparedGameContext.ts";
 /** Reject known bad or unidentified player-game rows before expensive Coach simulation. */
 import type { EspnGame, PropPoolEntry } from "./api.ts";
 import { pickHasPlayerGameGroundingMismatch } from "./coachReliabilityGrounding.ts";
 
 export function filterUngroundedCoachPropPool<T extends PropPoolEntry>(entries: readonly T[], games: readonly EspnGame[] = []): T[] {
   return entries.filter((entry) => {
+    if (preparedContextRejectsProp(entry, games)) return false;
     // Never simulate a named player against a known game if their team is unknown.
     // The final ticket belt remains an independent defense.
     if (entry.player?.trim() && entry.game?.trim() && !entry.teamAbbr?.trim()) return false;
