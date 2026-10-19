@@ -1,3 +1,4 @@
+import { totalSelection } from "@/lib/totalBreakdown";
 import Feather from "@expo/vector-icons/Feather";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
@@ -1896,23 +1897,20 @@ export function gameSideFromPick(
     : { name: away, opp: home, isHome: false, line };
 }
 
-// A GAME total ("Over/Under 214.5") names NO single team — it's about the two
-// teams' combined score — so unlike gameSideFromPick this surfaces BOTH teams so
-// a matchup stats sheet can show each side's real scoring. Returns null for
+// Total selections route to a matchup sheet, which distinguishes combined game
+// scores from a named team’s own total. Returns null for
 // props, non-totals (moneyline/spread), and malformed "Away @ Home" labels.
 export function gameTotalFromPick(
   pick: ParsedPick,
 ): { away: string; home: string; side: "Over" | "Under"; line: number | null } | null {
   if (pick.isProp) return null;
-  const side = sideOf(pick.pick);
-  if (!side) return null;
+  const selection = totalSelection(pick.pick);
+  if (!selection) return null;
   const parts = pick.game.split(/\s+@\s+/);
   if (parts.length !== 2) return null;
   const [away, home] = parts.map((s) => s.trim());
   if (!away || !home) return null;
-  const m = pick.pick.match(/(\d+(?:\.\d+)?)/);
-  const line = m ? Number(m[1]) : null;
-  return { away, home, side, line };
+  return { away, home, ...selection };
 }
 
 export function parsePicks(

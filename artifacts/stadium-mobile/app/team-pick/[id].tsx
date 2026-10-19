@@ -32,7 +32,6 @@ import {
 import { runClientFightMonteCarlo } from "@/lib/ufcClientSim";
 import {
   injuriesForMatchup,
-  teamNameMatches,
   friendlyInjury,
   injuryImpact,
   summarizeTeamInjuries,
@@ -42,6 +41,7 @@ import {
 import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
+import { resolveBreakdownTeam, totalBreakdown, totalHistoryRows, totalHistoryCounts } from "@/lib/totalBreakdown";
 
 const fmt1 = (v: number | null | undefined) =>
   v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`;
@@ -69,7 +69,7 @@ function MatchupLine({ game }: { game: string }) {
 
 // The screen routes to one of two views: the default single-team pick sheet
 // (moneyline/spread) or — for a game total, which names no single team — a
-// matchup sheet showing BOTH teams' real combined-scoring. `kind` is fixed per
+// matchup sheet showing game totals or the selected team’s own scoring. `kind` is fixed per
 // navigation, so each mounted view runs a stable set of hooks.
 export default function TeamPickDetailScreen() {
   const params = useLocalSearchParams<{ kind?: string }>() ?? {};
@@ -150,12 +150,7 @@ function TeamPickView() {
       // Fail closed: only resolve a same-sport team whose name actually matches.
       // Falling back to another sport's (or a non-matching) result would attribute
       // this leg's stats to the wrong team.
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      const hit =
-        sportHits.find((t) => teamNameMatches(t.name, team)) ??
-        sportHits[0] ??
-        null;
-      return hit;
+      return resolveBreakdownTeam(r.results, team, sport);
     },
   });
   const resolved = resolveQ.data ?? null;
@@ -190,7 +185,7 @@ function TeamPickView() {
   const games = useMemo(() => {
     const rows = history?.recent ?? [];
     return rows
-      .filter((g) => g.pts != null && g.oppPts != null)
+      .filter((g) => typeof g.pts === "number" && Number.isFinite(g.pts) && typeof g.oppPts === "number" && Number.isFinite(g.oppPts))
       .slice(0, 10)
       .map((g) => ({
         margin: (g.pts as number) - (g.oppPts as number),
@@ -298,8 +293,7 @@ function TeamPickView() {
       const r = await searchTeam(opp, signal);
       // Fail closed: require a same-sport hit whose name actually matches the
       // opponent — never fall back to an unrelated team's defensive stats.
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      const hit = sportHits.find((t) => teamNameMatches(t.name, opp)) ?? null;
+      const hit = resolveBreakdownTeam(r.results, opp, sport);
       if (!hit) return null;
       return getTeamDefense(sport, hit.teamId, signal);
     },
@@ -365,7 +359,7 @@ function TeamPickView() {
                 {isFight ? "FIGHT PICK" : "TEAM PICK"}
               </Text>
             </View>
-            {(!isFight || fightHasStats) ? (
+            {(isFight ? fightHasStats : n > 0) ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <Feather name="check-circle" size={12} color={colors.success} />
               <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
@@ -577,7 +571,7 @@ function TeamPickView() {
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
               {injuriesQ.isError
                 ? "Couldn't reach the ESPN injury report."
-                : "No injuries reported for either side."}
+                : "No matching injury information is available. This does not confirm either team is injury-free."}
             </Text>
           ) : (
             <View style={{ gap: 14 }}>
@@ -793,6 +787,8 @@ function TotalMatchupView() {
           : "Minimal";
 
   const p = useLocalSearchParams<{
+    team?: string;
+    opp?: string;
     away?: string;
     home?: string;
     totalSide?: string;
@@ -805,20 +801,29 @@ function TotalMatchupView() {
     pick?: string;
   }>() ?? {};
 
-  const away = String(p.away ?? "");
-  const home = String(p.home ?? "");
+  const breakdown = totalBreakdown(p);
+  const { away, home, teamTotal, selectedTeam, side: totalSide } = breakdown;
   const sport = String(p.sport ?? "");
   const market = String(p.market ?? "Total");
   const game = String(p.game ?? "");
   const startsAt = p.startsAt ? String(p.startsAt) : "";
   const odds = Number(p.odds);
-  const line = p.line != null && p.line !== "" ? Number(p.line) : null;
+  const line = breakdown.line;
   const pickStr = String(p.pick ?? "");
   const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
 
   // UFC/MMA totals = total rounds — fighters are not ESPN teams (phone: empty
   // AWAY/HOME "No real recent results" + team combined-score copy on Under 2.5).
   const isFight = isCombatFightSport(sport);
+  const historySupported = breakdown.scoreHistorySupported && !["tennis", "tabletennis", "cricket"].includes(sport);
+  const awayHistory = useTotalHistory(away, sport, !isFight && historySupported && (!teamTotal || selectedTeam === away));
+  const homeHistory = useTotalHistory(home, sport, !isFight && historySupported && (!teamTotal || selectedTeam === home));
+  const awayGames = totalHistoryRows(awayHistory.history?.recent ?? [], teamTotal);
+  const homeGames = totalHistoryRows(homeHistory.history?.recent ?? [], teamTotal);
+  const totalHasStats = historySupported && (teamTotal
+    ? selectedTeam === away ? awayGames.length > 0 : selectedTeam === home && homeGames.length > 0
+    : awayGames.length > 0 && homeGames.length > 0);
+
   const fightSides = isFight
     ? parseFightGameSides(game) ?? (away && home ? { away, home } : null)
     : null;
@@ -963,10 +968,10 @@ function TotalMatchupView() {
               }}
             >
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                {isFight ? fightTotalBadgeLabel(market) : "GAME TOTAL"}
+                {isFight ? fightTotalBadgeLabel(market) : teamTotal ? "TEAM TOTAL" : "GAME TOTAL"}
               </Text>
             </View>
-            {(!isFight || fightHasStats) ? (
+            {(isFight ? fightHasStats : totalHasStats) ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Feather name="check-circle" size={12} color={colors.success} />
                 <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
@@ -982,7 +987,7 @@ function TotalMatchupView() {
                 {pickStr}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
-                {isFight ? fightTotalMarketSubtitle(market) : `${market} · combined score`}
+                {isFight ? fightTotalMarketSubtitle(market) : `${market} · ${teamTotal ? "selected team’s score" : "combined score"}`}
               </Text>
             </View>
             <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 24 }}>
@@ -1020,17 +1025,21 @@ function TotalMatchupView() {
           )
         ) : (
           <>
-            {/* Each side's REAL combined-scoring form vs the line */}
-            <TeamTotalBlock roleLabel="AWAY" name={away} sport={sport} line={line} />
-            <TeamTotalBlock roleLabel="HOME" name={home} sport={sport} line={line} />
-
-            {line != null ? (
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-                "Over {line}" counts each team's own recent games whose combined final
-                score cleared {line} — vs varied opponents, not a prediction of this
-                matchup.
-              </Text>
-            ) : null}
+            {!historySupported ? (
+              <EmptyNote text="Recent final scores cannot measure this market. Matching market-specific history is unavailable." />
+            ) : teamTotal && !selectedTeam ? (
+              <EmptyNote text="The selected team could not be identified unambiguously. No scoring history is attributed to this pick." />
+            ) : (
+              <>
+                {(!teamTotal || selectedTeam === away) && <TeamTotalBlock roleLabel="AWAY" name={away || "Away team unavailable"} data={awayHistory} line={line} side={totalSide} teamTotal={teamTotal} />}
+                {(!teamTotal || selectedTeam === home) && <TeamTotalBlock roleLabel="HOME" name={home || "Home team unavailable"} data={homeHistory} line={line} side={totalSide} teamTotal={teamTotal} />}
+                {line != null && totalSide ? (
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+                    {`"${totalSide} ${line}" counts recent games where ${teamTotal ? "the selected team’s own final score" : "both teams’ combined final score"} finished ${totalSide === "Over" ? "above" : "below"} ${line}. Equal scores are pushes. Results are against varied opponents, not a prediction of this matchup.`}
+                  </Text>
+                ) : null}
+              </>
+            )}
           </>
         )}
 
@@ -1051,7 +1060,7 @@ function TotalMatchupView() {
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
               {injuriesQ.isError
                 ? "Couldn't reach the ESPN injury report."
-                : "No injuries reported for either side."}
+                : "No matching injury information is available. This does not confirm either team is injury-free."}
             </Text>
           ) : (
             <View style={{ gap: 14 }}>
@@ -1214,67 +1223,50 @@ function TotalMatchupView() {
   );
 }
 
-// One team's REAL recent combined-scoring form (its own games' final totals) vs
-// the line. Self-contained (own resolve + history queries) so the matchup view
-// can render two of these. Fail-closed: no real games → an honest empty note.
-function TeamTotalBlock({
-  roleLabel,
-  name,
-  sport,
-  line,
-}: {
-  roleLabel: string;
-  name: string;
-  sport: string;
-  line: number | null;
-}) {
-  const colors = useColors();
-
+// Resolve real history only when this team is needed by the selected market.
+// The parent observes the same data for the stats badge; no duplicate requests.
+function useTotalHistory(name: string, sport: string, enabled: boolean) {
   const resolveQ = useQuery({
     queryKey: ["team-resolve", sport, name],
-    enabled: !!sport && !!name,
+    enabled: enabled && !!sport && !!name,
     staleTime: 30 * 60_000,
     queryFn: async ({ signal }) => {
       const r = await searchTeam(name, signal);
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      return sportHits.find((t) => teamNameMatches(t.name, name)) ?? sportHits[0] ?? null;
+      return resolveBreakdownTeam(r.results, name, sport);
     },
   });
   const resolved = resolveQ.data ?? null;
 
   const historyQ = useQuery({
     queryKey: ["team-history", sport, resolved?.teamId],
-    enabled: !!sport && !!resolved?.teamId,
+    enabled: enabled && !!sport && !!resolved?.teamId,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
   });
   const history = historyQ.data ?? null;
 
-  const games = useMemo(() => {
-    return (history?.recent ?? [])
-      .filter((g) => g.pts != null && g.oppPts != null)
-      .slice(0, 10)
-      .map((g) => ({
-        total: (g.pts as number) + (g.oppPts as number),
-        date: g.date,
-        opp: g.opp,
-        home: g.home,
-      }));
-  }, [history]);
+  return { resolved, history, loading: enabled && (resolveQ.isLoading || historyQ.isLoading), errored: resolveQ.isError || historyQ.isError };
+}
 
+function TeamTotalBlock({ roleLabel, name, data, line, side, teamTotal }: {
+  roleLabel: string;
+  name: string;
+  data: ReturnType<typeof useTotalHistory>;
+  line: number | null;
+  side: "Over" | "Under" | null;
+  teamTotal: boolean;
+}) {
+  const colors = useColors();
+  const { resolved, history, loading, errored } = data;
+  const games = useMemo(() => totalHistoryRows(history?.recent ?? [], teamTotal), [history, teamTotal]);
   const n = games.length;
-  const overs = useMemo(
-    () => (line != null ? games.filter((g) => g.total > line).length : 0),
-    [games, line],
-  );
+  const { hits, pushes } = totalHistoryCounts(games, line, side);
   const avgTotal = n > 0 ? games.reduce((a, g) => a + g.total, 0) / n : null;
   const scale = useMemo(
     () => Math.max(1, ...games.map((g) => g.total), line ?? 0),
     [games, line],
   );
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
 
   return (
@@ -1295,30 +1287,30 @@ function TeamTotalBlock({
         <View style={{ gap: 10 }}>
           <BreakdownRow
             icon="arrow-up-circle"
-            label="Points per game"
+            label="Scoring per game"
             sub="Scored · allowed (last 10)"
             value={`${history?.last10.ptsFor?.toFixed(1) ?? "—"} · ${history?.last10.ptsAgainst?.toFixed(1) ?? "—"}`}
           />
           <BreakdownRow
             icon="activity"
-            label="Avg combined total"
-            sub="Both teams' points per game"
+            label={teamTotal ? "Avg team score" : "Avg combined total"}
+            sub={teamTotal ? "Selected team only" : "Both teams’ combined final score"}
             value={avgTotal != null ? avgTotal.toFixed(1) : "—"}
             last={line == null}
           />
-          {line != null ? (
+          {line != null && side ? (
             <BreakdownRow
               icon="bar-chart-2"
-              label={`Over ${line}`}
-              sub="Recent games clearing the line"
-              value={`${overs}/${n}`}
+              label={`${side} ${line}`}
+              sub={`Recent games · ${pushes} push${pushes === 1 ? "" : "es"}`}
+              value={`${hits}/${n}`}
               last
             />
           ) : null}
 
           <View style={{ gap: 8 }}>
             {games.map((g, i) => {
-              const over = line != null && g.total > line;
+              const over = line != null && side != null && (side === "Over" ? g.total > line : g.total < line);
               const w = `${Math.max(6, Math.round((g.total / scale) * 100))}%`;
               return (
                 <View key={i} style={{ gap: 3 }}>
