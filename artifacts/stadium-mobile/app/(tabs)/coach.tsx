@@ -272,8 +272,8 @@ export default function CoachScreen() {
             params: {
               id: `${total.away}-${total.home}-total`,
               kind: "total",
-              team: total.away,
-              opp: total.home,
+              away: total.away,
+              home: total.home,
               isHome: "0",
               sport: p.sport ?? "",
               market: p.market,
@@ -282,7 +282,7 @@ export default function CoachScreen() {
               game: p.game,
               startsAt: p.startsAt ?? "",
               pick: p.pick,
-              side: total.side,
+              totalSide: total.side,
             },
           });
         };
