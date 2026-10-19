@@ -802,6 +802,7 @@ export function PickCard({
    * fallback. Individual recommendation mode may pass true when slip UI is on.
    */
   allowSlipActions = true,
+  freeCoachPreview = false,
 }: {
   pick: ParsedPick;
   // When set, the card's header/info area becomes tappable (e.g. to open the
@@ -818,6 +819,8 @@ export function PickCard({
   badge?: { text: string; caption?: string; tone: "grade" | "upset" | "value" } | null;
   lockPickDetails?: boolean;
   allowSlipActions?: boolean;
+  /** Exactly-two-leg Coach preview; suppress contradictory reveal CTA only. */
+  freeCoachPreview?: boolean;
 }) {
   const colors = useColors();
   const sub = useSubscriptionOptional();
@@ -1120,6 +1123,7 @@ export function PickCard({
             }
           }
           variant="compact"
+          hideLockedTeaser={freeCoachPreview && !premiumLocked}
           pick={premiumLocked ? undefined : pick}
           propHolistic={
             premiumLocked
