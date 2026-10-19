@@ -1064,7 +1064,9 @@ export default function CoachScreen() {
         void send(ask);
       }
     }, 250);
-    return () => { clearTimeout(id); autoPreviewOnFocusRef.current = false; };
+    // Keep the once-per-thread latch through busy/subscription re-renders.
+    // Only a new explicit Home launch resets it.
+    return () => { clearTimeout(id); };
   }, [sub?.hydrated, coachPremiumUnlocked, busy, draft, attachedImages.length, send]));
 
   useEffect(() => {
