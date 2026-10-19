@@ -13,15 +13,13 @@ import { test } from "node:test";
 test("AccountScreen declares all useState hooks before the !isSignedIn early return", () => {
   const src = readFileSync(join(process.cwd(), "app/account.tsx"), "utf8");
 
-  const earlyReturnIdx = src.indexOf('if (!isSignedIn) return <Redirect href="/sign-in" />');
+  const earlyReturnIdx = src.indexOf(
+    'if (!isSignedIn) return <Redirect href="/sign-in" />',
+  );
   assert.ok(earlyReturnIdx > 0, "expected signed-out Redirect early return");
 
-  const copiedHookIdx = src.indexOf("const [copied, setCopied] = React.useState(false)");
-  assert.ok(copiedHookIdx > 0, "expected copied useState");
-  assert.ok(
-    copiedHookIdx < earlyReturnIdx,
-    "copied useState must run before !isSignedIn early return (hook-order crash)",
-  );
+  // Referral-local copied state lives in a separately mounted component.
+  assert.match(src, /<ReferralCard \/>/);
 
   // No useState / useEffect / useMemo / useCallback / useRef after the Redirect.
   const after = src.slice(earlyReturnIdx);
@@ -39,5 +37,8 @@ test("AccountScreen declares all useState hooks before the !isSignedIn early ret
 
 test("AccountScreen still redirects unsigned users to sign-in", () => {
   const src = readFileSync(join(process.cwd(), "app/account.tsx"), "utf8");
-  assert.match(src, /if\s*\(\s*!isSignedIn\s*\)\s*return\s*<Redirect\s+href="\/sign-in"\s*\/>/);
+  assert.match(
+    src,
+    /if\s*\(\s*!isSignedIn\s*\)\s*return\s*<Redirect\s+href="\/sign-in"\s*\/>/,
+  );
 });

@@ -3,6 +3,7 @@ import { getAuth, clerkClient } from "@clerk/express";
 import { eq } from "drizzle-orm";
 import {
   db,
+  pool,
   userSyncTable,
   pushTokensTable,
   notifLogTable,
@@ -11,6 +12,7 @@ import {
 } from "@workspace/db";
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
+import { referralStore } from "../lib/referralStore.js";
 
 // Permanent account deletion (App Store / Play Store compliance: a signed-in
 // user must be able to delete their account and all associated data from inside
@@ -58,6 +60,13 @@ router.delete("/account", deleteLimiter, async (req, res) => {
     await db
       .delete(subscriptionEventsTable)
       .where(eq(subscriptionEventsTable.userId, userId));
+
+    // Tables may not exist until the referral migration is applied.
+    try {
+      await referralStore(pool).removeAccount(userId);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "42P01") throw e;
+    }
 
     // 2. Delete the user from the authentication system. This also removes any
     //    linked Google / Apple / password identities, so it covers all sign-in

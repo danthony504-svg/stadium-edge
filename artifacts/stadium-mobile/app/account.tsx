@@ -1,6 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
-import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import React from "react";
 import {
@@ -8,7 +7,6 @@ import {
   Alert,
   Modal,
   Pressable,
-  Share,
   Switch,
   Text,
   View,
@@ -27,7 +25,7 @@ import {
 } from "@/lib/biometricLogin";
 import { deleteAccount } from "@/lib/api";
 import { unregisterCurrentPushToken } from "@/lib/notifications";
-import { buildReferralLink } from "@/lib/referral";
+import { ReferralCard } from "@/components/ReferralCard";
 
 export default function AccountScreen() {
   const colors = useColors();
@@ -45,10 +43,6 @@ export default function AccountScreen() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
-  // MUST stay above the !isSignedIn early return — otherwise sign-out flips
-  // hook count ("Rendered fewer hooks than expected", fp_a3422557).
-  const [copied, setCopied] = React.useState(false);
-
   const onConfirmDelete = async () => {
     setDeleting(true);
     setDeleteError(null);
@@ -105,29 +99,6 @@ export default function AccountScreen() {
     "Signed in";
   const initial = email.charAt(0).toUpperCase();
 
-  // Refer-a-friend: a shareable link unique to this account, derived from the
-  // real account id. We only render the card when we can build a real, openable
-  // URL (id + domain) — never a code-only or placeholder fallback.
-  const referralLink = buildReferralLink(user?.id, process.env.EXPO_PUBLIC_DOMAIN);
-
-  const onCopyReferral = async () => {
-    if (!referralLink) return;
-    await Clipboard.setStringAsync(referralLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-
-  const onShareReferral = async () => {
-    if (!referralLink) return;
-    try {
-      await Share.share({
-        message: `Join me on Stadium Edge for real betting edges — sign up with my link: ${referralLink}`,
-      });
-    } catch {
-      // User dismissed the share sheet — nothing to do.
-    }
-  };
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View
@@ -140,11 +111,19 @@ export default function AccountScreen() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ fontFamily: FONT.display, fontSize: 24, color: colors.foreground }}>
+        <Text
+          style={{
+            fontFamily: FONT.display,
+            fontSize: 24,
+            color: colors.foreground,
+          }}
+        >
           Account
         </Text>
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/")
+          }
           hitSlop={12}
           accessibilityLabel="Close"
           style={{
@@ -202,20 +181,33 @@ export default function AccountScreen() {
             }}
           >
             <Text
-              style={{ fontFamily: FONT.bold, fontSize: 22, color: colors.primaryForeground }}
+              style={{
+                fontFamily: FONT.bold,
+                fontSize: 22,
+                color: colors.primaryForeground,
+              }}
             >
               {initial}
             </Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text
-              style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 16,
+                color: colors.foreground,
+              }}
               numberOfLines={1}
             >
               {email}
             </Text>
             <Text
-              style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, marginTop: 2 }}
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 13,
+                color: colors.mutedForeground,
+                marginTop: 2,
+              }}
             >
               Your slips sync across devices
             </Text>
@@ -234,13 +226,23 @@ export default function AccountScreen() {
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Feather name="zap" size={18} color={colors.primary} />
-            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+            <Text
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 15,
+                color: colors.foreground,
+              }}
+            >
               Subscription
             </Text>
           </View>
           <View>
             <Text
-              style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 16,
+                color: colors.foreground,
+              }}
             >
               {entitlement.statusLabel}
             </Text>
@@ -304,100 +306,7 @@ export default function AccountScreen() {
           </Text>
         </View>
 
-        {referralLink ? (
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: colors.radius,
-              padding: 16,
-              gap: 12,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Feather name="gift" size={18} color={colors.primary} />
-              <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
-                Refer a friend
-              </Text>
-            </View>
-            <Text
-              style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground }}
-            >
-              Share your personal link and invite friends to Stadium Edge.
-            </Text>
-            <View
-              style={{
-                backgroundColor: colors.background,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 10,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-              }}
-            >
-              <Text
-                style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}
-                numberOfLines={1}
-              >
-                {referralLink}
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable
-                onPress={onCopyReferral}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 10,
-                  paddingVertical: 11,
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <Feather
-                  name={copied ? "check" : "copy"}
-                  size={16}
-                  color={copied ? colors.primary : colors.foreground}
-                />
-                <Text
-                  style={{
-                    fontFamily: FONT.semibold,
-                    fontSize: 14,
-                    color: copied ? colors.primary : colors.foreground,
-                  }}
-                >
-                  {copied ? "Copied" : "Copy"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={onShareReferral}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  backgroundColor: colors.primary,
-                  borderRadius: 10,
-                  paddingVertical: 11,
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <Feather name="share" size={16} color={colors.primaryForeground} />
-                <Text
-                  style={{ fontFamily: FONT.bold, fontSize: 14, color: colors.primaryForeground }}
-                >
-                  Share
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
+        <ReferralCard />
 
         {bioCap.supported || bioLoginEmail ? (
           <View
@@ -415,7 +324,11 @@ export default function AccountScreen() {
             <Feather name="user-check" size={18} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text
-                style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}
+                style={{
+                  fontFamily: FONT.semibold,
+                  fontSize: 15,
+                  color: colors.foreground,
+                }}
               >
                 Sign in with {bioCap.label}
               </Text>
@@ -465,7 +378,13 @@ export default function AccountScreen() {
           })}
         >
           <Feather name="log-out" size={18} color={colors.destructive} />
-          <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.destructive }}>
+          <Text
+            style={{
+              fontFamily: FONT.bold,
+              fontSize: 15,
+              color: colors.destructive,
+            }}
+          >
             Sign out
           </Text>
         </Pressable>
@@ -532,7 +451,9 @@ export default function AccountScreen() {
               gap: 14,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
+            >
               <View
                 style={{
                   width: 44,
@@ -545,7 +466,11 @@ export default function AccountScreen() {
                   borderColor: colors.destructive,
                 }}
               >
-                <Feather name="alert-triangle" size={22} color={colors.destructive} />
+                <Feather
+                  name="alert-triangle"
+                  size={22}
+                  color={colors.destructive}
+                />
               </View>
               <Text
                 style={{
@@ -615,7 +540,11 @@ export default function AccountScreen() {
                   <Feather name="trash-2" size={17} color="#ffffff" />
                 )}
                 <Text
-                  style={{ fontFamily: FONT.bold, fontSize: 15, color: "#ffffff" }}
+                  style={{
+                    fontFamily: FONT.bold,
+                    fontSize: 15,
+                    color: "#ffffff",
+                  }}
                 >
                   {deleting ? "Deleting…" : "Permanently delete"}
                 </Text>

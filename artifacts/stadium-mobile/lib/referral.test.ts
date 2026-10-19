@@ -1,42 +1,50 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-import { buildReferralLink, referralCodeFromUserId } from "./referral.ts";
-
-test("referralCodeFromUserId strips the user_ prefix and uppercases an 8-char tail", () => {
-  assert.equal(referralCodeFromUserId("user_2abcDEF901234567"), "01234567");
-  assert.equal(referralCodeFromUserId("user_abcd1234"), "ABCD1234");
-});
-
-test("referralCodeFromUserId is stable for the same id", () => {
-  const id = "user_2NkQ9xZ7pLmRtUvW";
-  assert.equal(referralCodeFromUserId(id), referralCodeFromUserId(id));
-});
-
-test("referralCodeFromUserId returns null for missing/empty ids (no fabrication)", () => {
-  assert.equal(referralCodeFromUserId(null), null);
-  assert.equal(referralCodeFromUserId(undefined), null);
-  assert.equal(referralCodeFromUserId(""), null);
-  assert.equal(referralCodeFromUserId("user_"), null);
-  assert.equal(referralCodeFromUserId("____"), null);
-});
-
-test("buildReferralLink builds an https link with the code as ?ref", () => {
+import {
+  buildReferralLink,
+  normalizeReferralCode,
+  validPendingInvite,
+} from "./referral.ts";
+import { resolvePostAuthHref } from "./pendingSubscriptionIntent.ts";
+test("server-issued invites use the real landing route", () => {
   assert.equal(
-    buildReferralLink("user_abcd1234", "stadium.example.com"),
-    "https://stadium.example.com/?ref=ABCD1234",
+    buildReferralLink("KKDECI4H", "stadium-edge.onrender.com"),
+    "https://stadium-edge.onrender.com/invite/KKDECI4H",
+  );
+  assert.equal(
+    buildReferralLink(" kkdeci4h ", "https://stadium-edge.onrender.com/"),
+    "https://stadium-edge.onrender.com/invite/KKDECI4H",
   );
 });
-
-test("buildReferralLink respects an explicit scheme and trims trailing slashes", () => {
-  assert.equal(
-    buildReferralLink("user_abcd1234", "https://stadium.example.com/"),
-    "https://stadium.example.com/?ref=ABCD1234",
-  );
+test("invalid hosts and raw account ids never become invite links", () => {
+  for (const host of [
+    null,
+    "",
+    "http://example.com",
+    "https://user:pass@example.com",
+    "https://example.com/path",
+    "https://example.com/?evil=1",
+  ])
+    assert.equal(buildReferralLink("ABCDEFGH", host), null);
+  for (const code of [null, [], "user_abcdefgh", "abc", "<script>"])
+    assert.equal(normalizeReferralCode(code), null);
 });
-
-test("buildReferralLink returns null without a real id or domain (never a placeholder URL)", () => {
-  assert.equal(buildReferralLink(null, "stadium.example.com"), null);
-  assert.equal(buildReferralLink("user_abcd1234", null), null);
-  assert.equal(buildReferralLink("user_abcd1234", "   "), null);
+test("pending invites survive auth for seven days and reject corrupted timestamps", () => {
+  const now = 2000000000;
+  assert.deepEqual(
+    validPendingInvite({ code: "abcdefgh", at: now - 100 }, now),
+    { code: "ABCDEFGH", at: now - 100 },
+  );
+  for (const at of [now + 1, now - 7 * 86400000, NaN, "100"])
+    assert.equal(validPendingInvite({ code: "ABCDEFGH", at }, now), null);
+});
+test("invited signup returns to Account without consuming an old purchase intent", () => {
+  assert.equal(
+    resolvePostAuthHref({
+      returnTo: "account",
+      stored: { intent: "purchase", planId: "pro" },
+    }),
+    "/account",
+  );
+  assert.equal(resolvePostAuthHref({ returnTo: "https://evil.example" }), "/");
 });
