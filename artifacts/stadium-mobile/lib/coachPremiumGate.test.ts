@@ -251,3 +251,14 @@ test("redacted locked 5-leg card preserves qualifying grade without requalifying
   assert.equal(lockedCoachGradeLabel({ finalAiScore: { grade: "Not Rec." } }), undefined);
   assert.equal(lockedCoachGradeLabel({ finalAiScore: { grade: "F" } }), undefined);
 });
+
+test("free Coach reveals must not render the misleading identity-hidden teaser or unrestricted composer", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const root = dirname(fileURLToPath(import.meta.url));
+  const card = readFileSync(join(root, "../components/PickCard.tsx"), "utf8");
+  const coach = readFileSync(join(root, "../app/(tabs)/coach.tsx"), "utf8");
+  assert.match(card, /hideLockedTeaser=\{!premiumLocked\}/);
+  assert.match(coach, /const showComposer = !!isSignedIn && coachPremiumUnlocked/);
+});
