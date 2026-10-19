@@ -1,3 +1,5 @@
+import { Redirect } from "expo-router";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -300,6 +302,8 @@ function ReportScreen() {
 }
 
 export default function ReportScreenGated() {
+  if (!SLIP_UI_ENABLED) return <Redirect href="/" />;
+
   return (
     <PremiumFeatureGate featureId="model_report">
       <ReportScreen />
