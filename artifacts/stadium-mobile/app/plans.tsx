@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { PAID_SUBSCRIPTION_PLANS, type PlanId } from "@/lib/entitlements";
 import {
   draftPlanFromReturnParams,
@@ -278,8 +279,8 @@ export default function PlansScreen() {
             }}
           >
             {anyFreeTrial
-              ? "Eligible App Store accounts may include a free trial when Apple shows an introductory offer. Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."
-              : "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."}
+              ? `Eligible App Store accounts may include a free trial when Apple shows an introductory offer. ${SLIP_UI_ENABLED ? "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan." : "Discover + Coach + Props stay free; Edge Lock, Steals, and Simulator need a plan."} Billed through Apple — manage under Settings → Subscriptions.`
+              : `${SLIP_UI_ENABLED ? "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan." : "Discover + Coach + Props stay free; Edge Lock, Steals, and Simulator need a plan."} Billed through Apple — manage under Settings → Subscriptions.`}
           </Text>
         </View>
 
