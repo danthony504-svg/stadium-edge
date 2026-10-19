@@ -265,3 +265,12 @@ export function freeCoachCardPresentation(requestedLegs: number | null | undefin
   const preview = isFreeTwoLegCoachPreview(requestedLegs);
   return { revealPick: premiumUnlocked || preview, showSubscribeToReveal: !premiumUnlocked && !preview, allowSlipActions: premiumUnlocked };
 }
+
+/** Locked Coach cards use the already validated, deliberately public grade slice.
+ * Re-running the recommendation gate on a redacted pick would evaluate odds=0
+ * and missing ticket role, falsely labelling qualifying seats "Not Rec.".
+ */
+export function lockedCoachGradeLabel(pick: { finalAiScore?: { grade?: string | null } | null; scores?: { grade?: string | null } | null }): string | undefined {
+  const grade = pick.finalAiScore?.grade ?? pick.scores?.grade;
+  return grade && /^[ABC][+-]?$/.test(grade) ? grade : undefined;
+}

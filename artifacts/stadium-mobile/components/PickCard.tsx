@@ -45,6 +45,7 @@ import {
   COACH_PREMIUM_FEATURE_LABEL,
   PREMIUM_VALUE_MASK,
   publicCoachPickSummary,
+  lockedCoachGradeLabel,
 } from "@/lib/coachPremiumGate";
 import { useSubscriptionOptional } from "@/context/SubscriptionContext";
 
@@ -1134,7 +1135,9 @@ export function PickCard({
             !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
           }
           gradeLabel={
-            marketSupportsSimulation(pick.market ?? "", pick)
+            premiumLocked
+              ? lockedCoachGradeLabel(pick)
+              : marketSupportsSimulation(pick.market ?? "", pick)
               ? pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
                 ? (pickGradeDisplayLabel(pick, pick.finalAiScore) ?? NOT_AI_RECOMMENDED)
                 : undefined

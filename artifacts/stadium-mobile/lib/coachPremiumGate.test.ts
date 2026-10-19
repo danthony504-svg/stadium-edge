@@ -17,6 +17,7 @@ import {
   resolveCoachAskAccess,
   isFreeTwoLegCoachPreview,
   freeCoachCardPresentation,
+  lockedCoachGradeLabel,
 } from "./coachPremiumGate.ts";
 
 const NOW = 1_700_000_000_000;
@@ -238,4 +239,15 @@ test("two-leg preview cards reveal without subscription CTA or slip actions", ()
   assert.deepEqual(freeCoachCardPresentation(3, false), { revealPick: false, showSubscribeToReveal: true, allowSlipActions: false });
   assert.deepEqual(freeCoachCardPresentation(15, false), { revealPick: false, showSubscribeToReveal: true, allowSlipActions: false });
   assert.deepEqual(freeCoachCardPresentation(2, true), { revealPick: true, showSubscribeToReveal: false, allowSlipActions: true });
+});
+
+test("redacted locked 5-leg card preserves qualifying grade without requalifying masked odds", () => {
+  const locked = redactPremiumPickFields({
+    game: "Team A @ Team B", pick: "Team A -1.5", market: "Alt Spread", odds: 100,
+    finalAiScore: { grade: "B", composite: 7.6, confidencePct: 76, edgePct: 29.6, simHit: 0.67 },
+  });
+  assert.equal(locked.odds, 0);
+  assert.equal(lockedCoachGradeLabel(locked), "B");
+  assert.equal(lockedCoachGradeLabel({ finalAiScore: { grade: "Not Rec." } }), undefined);
+  assert.equal(lockedCoachGradeLabel({ finalAiScore: { grade: "F" } }), undefined);
 });
