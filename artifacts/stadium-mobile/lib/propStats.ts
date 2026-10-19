@@ -320,7 +320,7 @@ export function gameValueForMarket(
     if (rush == null || rec == null) return null;
     return rush + rec + (kr ?? 0) + (pr ?? 0) + (ir ?? 0) + (fr ?? 0);
   }
-  if (market === "player_first_td") {
+  if (market === "player_first_td" || market === "player_1st_td" || market === "player_first_goal_scorer") {
     return null;
   }
 

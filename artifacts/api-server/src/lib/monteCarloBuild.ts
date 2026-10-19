@@ -2,7 +2,7 @@ import {
   computeAmbiguous,
   gameValueForMarket,
   isDiscreteCountMarket,
-  isFirstTdMarket,
+  isScoringOrderMarket,
 } from "./propStatValue.js";
 import {
   type PropSimulationContext,
@@ -174,7 +174,7 @@ export function diagnosePropSimNullReason(
   if (!history?.recent?.length) return "no_history";
   // First TD requires in-game scoring sequence across both teams — ESPN
   // athlete gamelog only has per-game TD totals, not order. Fail closed.
-  if (isFirstTdMarket(req.market)) return "missing_scoring_order";
+  if (isScoringOrderMarket(req.market)) return "missing_scoring_order";
   const labels = history.labels ?? [];
   const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length === 0) return "stat_mapping_failed";
@@ -189,7 +189,7 @@ export function buildPropSimulationContext(
 ): PropSimulationContext | null {
   if (!history?.recent?.length) return null;
   // Never build a First TD context from Anytime-rate proxies.
-  if (isFirstTdMarket(req.market)) return null;
+  if (isScoringOrderMarket(req.market)) return null;
   const labels = history.labels ?? [];
   const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length < 3) return null;

@@ -1,5 +1,7 @@
 import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
+import { isBinaryNullLineMarket } from "./binaryPropMarket.ts";
+import { findExactPropPoolRow } from "./propPoolIdentity.ts";
 import { filterPropsForGameTeams } from "./propGameTeamGate";
 import { resolveCoachGameTeamIds } from "./coachTeamIdResolve";
 import { propMarketsShareDistribution } from "./propSharedDistribution";
@@ -2197,6 +2199,7 @@ export async function fetchPropSimulations(
     propSide?: string;
     propMarketKey?: string;
     athleteId?: string | null;
+    eventId?: string | null;
     game?: string;
     sport?: string;
   }>,
@@ -2242,17 +2245,11 @@ export async function fetchPropSimulations(
     if (!p?.isProp || !p.player || p.propLine == null) continue;
     const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
     if (!side) continue;
-    const pool =
-      propPool.find(
-        (e) =>
-          e.player === p.player &&
-          e.side === side &&
-          e.line === p.propLine &&
-          (p.game ? e.game === p.game : true),
-      ) ?? propPool.find((e) => e.player === p.player && e.side === side);
+    const pool = findExactPropPoolRow(p, propPool);
     const market = p.propMarketKey ?? pool?.marketKey;
     if (!market) continue;
-    const sport = (p.sport ?? pool?.sport ?? picks.find((x) => x.sport)?.sport ?? "nba").toLowerCase();
+    const sport = (p.sport ?? pool?.sport ?? "").toLowerCase();
+    if (!sport) continue;
     const game = p.game ?? pool?.game ?? "";
     const dedupeKey = `${p.player}|${market}|${p.propLine}|${side}|${game}`;
     if (seenKeys.has(dedupeKey)) continue;
@@ -2264,6 +2261,10 @@ export async function fetchPropSimulations(
     for (const e of propPool) {
       if (e.player !== p.player) continue;
       if (game && e.game !== game) continue;
+      if (e.sport && e.sport.toLowerCase() !== sport) continue;
+      if (p.athleteId && e.athleteId && p.athleteId !== e.athleteId) continue;
+      const eventId = p.eventId ?? pool?.eventId;
+      if (eventId && e.eventId && eventId !== e.eventId) continue;
       if (!propMarketsShareDistribution(market, e.marketKey)) continue;
       if (e.line == null || e.line === p.propLine) continue;
       if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
@@ -4202,7 +4203,7 @@ async function buildLightParlayContext(
             sportsbook: p.overBook ?? null,
           });
         }
-        if (p.line != null && p.underPrice != null) {
+        if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.underPrice != null) {
           propPool.push({
             sport: g.sport,
             game,
@@ -5465,7 +5466,7 @@ export async function fetchFullBoardPropPool(
             out.push(row);
           }
         }
-        if (p.line != null && p.underPrice != null) {
+        if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.underPrice != null) {
           const row: PropPoolEntry = {
             ...base,
             side: "Under",

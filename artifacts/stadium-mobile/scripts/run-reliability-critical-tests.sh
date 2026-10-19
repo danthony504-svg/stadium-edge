@@ -49,6 +49,7 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/reliabilityPhaseASimPaths.test.ts \
     test/stage3TdSimMapping.test.ts \
     test/footballPropStatValue.test.ts \
+    test/propCatalogParity.test.ts \
     test/anytimeTdModel.test.ts \
     test/monteCarlo.test.ts \
     test/ncaafHistoricalAcceptance.test.ts \
@@ -72,6 +73,9 @@ echo "== Coach ticket qualification / staging / absolute budget =="
   export NODE_ENV=test
   node --import ./test/register-hooks.mjs --test \
     lib/coachFootballPropsOnly.test.ts \
+    lib/coachPropSimCoverage.test.ts \
+    lib/binaryPropMarket.test.ts \
+    lib/propPoolIdentity.test.ts \
     lib/coachAskMarketFilter.test.ts \
     lib/coachAskMarketFilter.extra.test.ts \
     lib/coachPropBoardCoverage.test.ts \

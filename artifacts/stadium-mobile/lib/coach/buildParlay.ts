@@ -858,7 +858,8 @@ async function buildCoachParlayImpl(opts: {
           ? recovered.picks.length < target
             ? lockedMarketQualityShortfallNote({
                 requestedLegs: target,
-                analyzed: built.propLegsScored,
+                analyzed: Math.max(built.propLegsScored, propsFailDiag?.graded ?? 0),
+                availableCandidates: propsFailDiag?.pool ?? propPoolSize,
                 qualified: picks.length,
                 marketLabel: lockedMarketLabel,
               })
@@ -920,7 +921,8 @@ async function buildCoachParlayImpl(opts: {
             softPicks.length < target
               ? lockedMarketQualityShortfallNote({
                   requestedLegs: target,
-                  analyzed: built.propLegsScored,
+                  analyzed: Math.max(built.propLegsScored, propsFailDiag?.graded ?? 0),
+                  availableCandidates: propsFailDiag?.pool ?? propPoolSize,
                   qualified: picks.length,
                   marketLabel: lockedMarketLabel,
                 })
@@ -937,7 +939,8 @@ async function buildCoachParlayImpl(opts: {
           recoveredNote = isMarketLocked
             ? lockedMarketQualityShortfallNote({
                 requestedLegs: target,
-                analyzed: built.propLegsScored,
+                analyzed: Math.max(built.propLegsScored, propsFailDiag?.graded ?? 0),
+                availableCandidates: propsFailDiag?.pool ?? propPoolSize,
                 qualified: 0,
                 marketLabel: lockedMarketLabel,
               })
@@ -975,7 +978,8 @@ async function buildCoachParlayImpl(opts: {
     if (isMarketLocked && picks.length < target) {
       const shortfallNote = lockedMarketQualityShortfallNote({
         requestedLegs: target,
-        analyzed: built.propLegsScored,
+        analyzed: Math.max(built.propLegsScored, propsFailDiag?.graded ?? 0),
+        availableCandidates: propsFailDiag?.pool ?? propPoolSize,
         qualified: picks.length,
         marketLabel: lockedMarketLabel,
       });
@@ -1006,7 +1010,8 @@ async function buildCoachParlayImpl(opts: {
       askText: opts.askText ?? "",
       requestedLegs: target,
       qualified: picks.length,
-      analyzed: built.propLegsScored,
+      analyzed: Math.max(built.propLegsScored, propsFailDiag?.graded ?? 0),
+      availableCandidates: propsFailDiag?.pool ?? propPoolSize,
       isMarketLocked,
     });
     const mismatchLead = coachPropsAskGameLineMismatchNote({

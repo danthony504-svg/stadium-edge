@@ -9,6 +9,9 @@ const MARKET_COMBO: Record<string, string[]> = {
   player_rebounds_assists: ["REB", "AST"],
   player_blocks_steals: ["BLK", "STL"],
   batter_hits_runs_rbis: ["H", "R", "RBI"],
+  player_pass_rush_yds: ["passingYards", "rushingYards"],
+  player_rush_reception_yds: ["rushingYards", "receivingYards"],
+  player_pass_rush_reception_yds: ["passingYards", "rushingYards", "receivingYards"],
 };
 
 const MARKET_SINGLE: Record<string, string[]> = {
@@ -21,6 +24,8 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_turnovers: ["TO"],
   batter_hits: ["H"],
   batter_home_runs: ["HR"],
+  batter_rbis: ["RBI"],
+  batter_runs: ["R"],
   batter_stolen_bases: ["SB"],
   batter_total_bases: ["TB"],
   player_sacks: ["SACK", "SACKS"],
@@ -55,6 +60,7 @@ const MARKET_SINGLE: Record<string, string[]> = {
   // Football TD component markets — unambiguous machine names only.
   player_rush_tds: ["rushingTouchdowns"],
   player_reception_tds: ["receivingTouchdowns"],
+  player_field_goals: ["fieldGoalsMade", "FG"],
 };
 
 /**
@@ -118,6 +124,10 @@ export function isFirstTdMarket(market: string | null | undefined): boolean {
   return /first\s*td|1st\s*td|first\s*touchdown/.test(m);
 }
 
+export function isScoringOrderMarket(market: string | null | undefined): boolean {
+  return isFirstTdMarket(market) || /^(?:player_)?first_goal_scorer(?:_alternate)?$/i.test(String(market ?? ""));
+}
+
 /** True when Over settlement requires ≥2 scoring TDs (not Anytime yes/no). */
 export function isMultiTdOverLine(line: number | null | undefined): boolean {
   return line != null && Number.isFinite(line) && line >= 1.5;
@@ -165,6 +175,23 @@ export function gameValueForMarket(
   // Genuine alt rungs share the same underlying stat as the main market key.
   if (market.endsWith("_alternate")) {
     return gameValueForMarket(market.slice(0, -"_alternate".length), stats, ambiguous);
+  }
+  if (isScoringOrderMarket(market)) return null;
+  if (market === "player_double_double") {
+    const values = ["PTS", "REB", "AST", "STL", "BLK"].map(label =>
+      ambiguous.has(label) ? null : num(stats, label));
+    if (values.some(v => v == null)) return null;
+    return values.filter(v => v != null && v >= 10).length >= 2 ? 1 : 0;
+  }
+  if (market === "pitcher_outs") {
+    if (!ambiguous.has("OUTS")) {
+      const outs = num(stats, "OUTS");
+      if (outs != null) return outs;
+    }
+    if (ambiguous.has("IP")) return null;
+    const m = String(stats.IP ?? "").trim().match(/^(\d+)(?:\.(\d))?$/);
+    if (!m || Number(m[2] ?? 0) > 2) return null;
+    return Number(m[1]) * 3 + Number(m[2] ?? 0);
   }
 
   if (market === "batter_total_bases") {

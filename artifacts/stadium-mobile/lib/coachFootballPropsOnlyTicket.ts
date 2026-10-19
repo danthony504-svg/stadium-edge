@@ -22,9 +22,10 @@ import {
   stageFootballPropsOnlyLegs,
   comparePropsOnlyLegsByReliableEv,
   takePropsOnlyStageAudit,
+  isFootballPropsOnlyCandidate,
 } from "./coachFootballPropsOnly.ts";
+import { postedPropCoverageForBatch } from "./coachPropSimCoverage.ts";
 import {
-  collapsePropsOnlyToBestEvSides,
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
   lookupPropsOnlyHitReliability,
@@ -712,6 +713,12 @@ export async function buildFootballPropsOnlyTicket(
     ? PROPS_ONLY_RECOVERY_ODDS_SLACK
     : PROPS_ONLY_ODDS_SLACK;
   const candidates = selectFootballPropsOnlyCandidates(scopedPool, opts.target);
+  const seedCount = candidates.length;
+  const coverageCandidates = scopedPool
+    .map(e => normalizePropsOnlyPick(parsedPickFromPoolEntry(e)))
+    .filter(isFootballPropsOnlyCandidate)
+    .filter(p => !!p.athleteId);
+  const selectedKeys = new Set(candidates.map(p => propsOnlySimLookupKey(p)));
   const emptyPerf = (): FootballPropsOnlyPerf => ({
     propSimMs: null,
     qualificationMs: null,
@@ -801,6 +808,7 @@ export async function buildFootballPropsOnlyTicket(
   });
   let propSimMs: number | null = null;
   let deepSimCompleted = 0;
+  const completedDeepKeys = new Set<string>();
   if (needsDeep.length && !opts.signal?.aborted) {
     opts.onStatus?.(
       `Scoring ${needsDeep.length} props via exact-market deep sim…`,
@@ -836,17 +844,16 @@ export async function buildFootballPropsOnlyTicket(
           }),
         ]);
         if (!serverRows || batchAbort.signal.aborted) continue;
-        deepSimCompleted += serverRows.hits.size;
+        const covered = postedPropCoverageForBatch(coverageCandidates, batch);
         for (const [k, v] of serverRows.hits) {
           deepSimMeta.set(k, v);
           const existing = propHits.get(k);
-          const sport =
-            batch.find((p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k)
-              ?.sport ?? existing?.probabilityProvenance?.sport;
+          const sport = covered.get(k)?.sport;
           const marketKey = v.market ?? existing?.probabilityProvenance?.marketKey;
-          const batchPick = batch.find(
-            (p) => propsOnlySimLookupKey(p, propsOnlyPoolRowForPick(p, scopedPool)) === k,
-          );
+          // Additional posted rungs use the same authorized 10k draw. Bind each
+          // to its own exact identity; never copy the seed's line or side.
+          const batchPick = covered.get(k);
+          if (!batchPick) continue;
           const poolRow = batchPick
             ? propsOnlyPoolRowForPick(batchPick, scopedPool)
             : undefined;
@@ -889,8 +896,14 @@ export async function buildFootballPropsOnlyTicket(
             hitReliability: existing?.hitReliability ?? null,
             probabilityProvenance: merged,
           } satisfies PropsOnlyHit);
+          if (propProvenanceAllowsSeating(merged, candidate)) completedDeepKeys.add(k);
+          deepSimCompleted = completedDeepKeys.size;
+          if (!selectedKeys.has(k)) {
+            selectedKeys.add(k);
+            candidates.push(batchPick);
+          }
         }
-        softClipPropsOnlyHits(batch, propHits, scopedPool);
+        softClipPropsOnlyHits([...covered.values()], propHits, scopedPool);
       } catch {
         /* keep existing provenance — do not invent hits */
       } finally {
@@ -1031,12 +1044,9 @@ export async function buildFootballPropsOnlyTicket(
     playerHistory: seededHistory,
   };
   const normalizedCandidates = candidates.map((c) => normalizePropsOnlyPick(c));
-  const bestSides = collapsePropsOnlyToBestEvSides(
-    candidates,
-    propHits,
-    scopedPool,
-    oddsSlack,
-  ).flatMap(
+  // Qualify every graded posted rung BEFORE staging dedupes ladders. Choosing
+  // the highest-EV rung first can erase a lower-EV rung that passes confidence.
+  const bestSides = normalizedCandidates.flatMap(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
       const sport = pick.sport ?? row?.sport;
@@ -1262,7 +1272,7 @@ export async function buildFootballPropsOnlyTicket(
       qualificationMs,
       candidatesPoolBefore,
       candidatesPoolAfter,
-      candidatesSelected: candidates.length,
+      candidatesSelected: seedCount,
       deepSimRequested: needsDeep.length,
       deepSimCompleted,
       qualifiedCount: picks.length,
