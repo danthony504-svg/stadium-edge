@@ -8,6 +8,7 @@ type RosterAthlete = {
   fullName?: string;
   displayName?: string;
   headshot?: { href?: string } | string;
+  position?: { abbreviation?: string };
 };
 type EspnRoster = {
   athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string }>;
@@ -18,6 +19,8 @@ export type RosterEntry = {
   athleteId: string | null;
   teamId: string;
   name: string;
+  /** Roster position is a role, never proof of starting status. */
+  position?: string | null;
 };
 
 export async function fetchGameRoster(
@@ -52,6 +55,7 @@ export async function fetchGameRoster(
       const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
       entries.push({
         name,
+        position: a.position?.abbreviation ?? null,
         headshot: href ?? null,
         athleteId: a.id != null ? String(a.id) : null,
         teamId,

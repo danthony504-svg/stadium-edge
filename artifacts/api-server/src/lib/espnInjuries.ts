@@ -35,7 +35,7 @@ export async function fetchEspnInjuries(sport: string): Promise<InjuryTeam[]> {
   try {
     const data = await cachedJson<RawInjuries>(`injuries:${path}`, 10 * 60 * 1000, async () => {
       const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/injuries`;
-      const r = await fetch(url);
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!r.ok) throw new Error(`ESPN injuries ${r.status}`);
       return (await r.json()) as RawInjuries;
     });

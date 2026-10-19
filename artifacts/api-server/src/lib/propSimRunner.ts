@@ -1,3 +1,5 @@
+import type { PreparedGameContext } from "./preparedGameContext.js";
+import { propHasConfirmedAbsence, propHasConfirmedNonstarter } from "./propAvailability.js";
 /**
  * Phase 2.1 prop simulation runner — shared by the HTTP route and benches.
  */
@@ -35,12 +37,17 @@ import { withInflightCoalesce } from "./propSimDedicatedStore.js";
 import { fetchEspnPlayerHistory } from "./espnPlayerHistory.js";
 import {
   loadAuthoritativePlayerHistory,
+  peekAuthoritativePlayerHistory,
+  toPropSimHistoryShape,
   toEnrichmentHistory,
   type PropSimEnrichmentHistory,
 } from "./authoritativePlayerHistory.js";
 
 import {
   buildOpportunityShiftForGame,
+  classifyVacancyConfirmation,
+  vacancyFractionForConfirmation,
+  teamMatch,
   deriveChannelUsageFromHistory,
   opportunityMarketFamily,
   type EspnInjuryTeamLike,
@@ -64,6 +71,7 @@ export type OpportunityShiftBuildInputs = {
 };
 
 export type PropSimGameContext = {
+  preparedContext?: PreparedGameContext | null;
   sport: string;
   oppPace: number | null;
   leaguePace: number | null;
@@ -275,11 +283,19 @@ export async function runPropSims(
   const distStats = emptyPropDistributionCacheStats();
 
   type Indexed = { index: number; prop: SimPropRequest; isHome: boolean | null };
-  const indexed: Indexed[] = props.map((prop, index) => ({
+  const allIndexed: Indexed[] = props.map((prop, index) => ({
     index,
     prop,
     isHome: resolveIsHome(prop, isHomeByPlayer),
   }));
+
+  const unavailableReasons = new Map<number, "confirmed_unavailable" | "confirmed_nonstarter">();
+  for (const { index, prop, isHome } of allIndexed) {
+    if (propHasConfirmedAbsence({ ...prop, isHome }, gameCtx.sport, gameCtx.opportunityShiftInputs)) unavailableReasons.set(index, "confirmed_unavailable");
+    else if (propHasConfirmedNonstarter({ ...prop, isHome }, gameCtx.sport, gameCtx.preparedContext)) unavailableReasons.set(index, "confirmed_nonstarter");
+  }
+  const unavailable = unavailableReasons;
+  const indexed = allIndexed.filter(item => !unavailable.has(item.index));
 
   // --- Wave 0: parallel history prefetch for unique athletes (no new I/O beyond
   // the same loads propsim already needs). Sync Opp Shift build uses this cache.
@@ -303,7 +319,18 @@ export async function runPropSims(
   // HTTP simulate + Coach in-process when opportunityShiftInputs is provided).
   if (gameCtx.opportunityShiftInputs) {
     const inputs = gameCtx.opportunityShiftInputs;
-    const playersWithUsage: PropPlayerLike[] = inputs.players.map((p) => {
+    // Vacant players may have no posted prop. Reuse only histories the cron /
+    // earlier requests already loaded; never add a history fetch to the build.
+    const sourcePlayers: PropPlayerLike[] = [...inputs.players];
+    for (const team of inputs.injuries) {
+      if (!teamMatch(team.team ?? "", inputs.homeTeam) && !teamMatch(team.team ?? "", inputs.awayTeam)) continue;
+      for (const entry of team.entries ?? []) {
+        if (vacancyFractionForConfirmation(classifyVacancyConfirmation(entry.status ?? "")) <= 0) continue;
+        if (!entry.athleteId || !entry.player || sourcePlayers.some(p => p.athleteId === entry.athleteId)) continue;
+        sourcePlayers.push({ player: entry.player, athleteId: entry.athleteId, team: team.team, position: entry.position });
+      }
+    }
+    const playersWithUsage: PropPlayerLike[] = sourcePlayers.map((p) => {
       const athleteId = String(p.athleteId ?? "").trim();
       const sportKey = String(gameCtx.sport ?? "").toLowerCase();
       // Any cached hist for this athlete (opponent suffix varies).
@@ -317,6 +344,8 @@ export async function runPropSims(
           }
         }
       }
+      const warm = athleteId ? peekAuthoritativePlayerHistory(sportKey, athleteId) : undefined;
+      if (!history && warm) history = toPropSimHistoryShape(warm);
       const derived = deriveChannelUsageFromHistory(history);
       return {
         ...p,
@@ -484,6 +513,17 @@ export async function runPropSims(
   const resolved: ResolvedGroup[] = resolvedPairs.map((p) => p.resolved);
 
   const rows: PropSimRow[] = new Array(props.length);
+  for (const { index, prop } of allIndexed) {
+    if (!unavailable.has(index)) continue;
+    rows[index] = {
+      key: `${prop.player}|${prop.market}|${prop.line}|${prop.side}`,
+      player: prop.player, market: prop.market, line: prop.line, side: prop.side,
+      simulations: 0, hitProbability: null, mostLikelyLine: null,
+      meanProjection: null, medianProjection: null, confidenceScore: null,
+      stdDev: null, sampleGames: 0, percentiles: null,
+      nullReason: unavailableReasons.get(index)!, tier, cached: false,
+    };
+  }
   const deepWarmProps: SimPropRequest[] = [];
 
   for (const rg of resolved) {
@@ -660,7 +700,7 @@ export async function runPropSims(
   let historyShared = 0;
   let historyCoalesced = 0;
   const athleteKeys = new Map<string, { sport: string; athleteId: string; opponentTeamId?: string }>();
-  for (const p of props) {
+  for (const { prop: p } of indexed) {
     const athleteId = String(p.athleteId ?? "").trim();
     if (!athleteId) continue;
     const sportKey = propSport(p, gameCtx);

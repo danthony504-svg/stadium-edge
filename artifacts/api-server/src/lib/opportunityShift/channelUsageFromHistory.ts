@@ -30,11 +30,12 @@ export type ChannelUsageDeriveResult = {
 
 type HistGame = { stats: Record<string, string> };
 
-function numStat(stats: Record<string, string>, labels: string[]): number | null {
+function numStat(stats: Record<string, string>, labels: string[], elapsed = false): number | null {
   for (const lab of labels) {
     const raw = stats[lab];
     if (raw == null || raw === "" || raw === "-") continue;
-    const n = Number(raw);
+    const time = elapsed ? raw.match(/^(\d+):(\d{2})$/) : null;
+    const n = time && Number(time[2]) < 60 ? Number(time[1]) + Number(time[2]) / 60 : Number(raw);
     if (Number.isFinite(n) && n >= 0) return n;
   }
   return null;
@@ -85,10 +86,10 @@ export function groundedUsageFromSeries(raw: number[]): {
   return { usage: mean(w), sampleSize: n };
 }
 
-function seriesForLabels(games: HistGame[], labels: string[]): number[] {
+function seriesForLabels(games: HistGame[], labels: string[], elapsed = false): number[] {
   const out: number[] = [];
   for (const g of games) {
-    const v = numStat(g.stats ?? {}, labels);
+    const v = numStat(g.stats ?? {}, labels, elapsed);
     if (v != null) out.push(v);
   }
   return out;
@@ -98,61 +99,27 @@ function seriesForLabels(games: HistGame[], labels: string[]): number[] {
 const CHANNEL_STAT_LABELS: Partial<Record<WorkloadChannel, string[]>> = {
   carries: ["rushingAttempts", "CAR"],
   targets: ["receivingTargets", "TGTS", "targets"],
-  routes: ["routes", "receivingTargets", "TGTS"],
+  routes: ["routes", "routesRun"],
+  rz_carries: ["redZoneRushingAttempts"],
+  gl_carries: ["goalLineRushingAttempts"],
   pass_attempts: ["passingAttempts"],
-  designed_runs: ["rushingAttempts", "CAR"],
+  designed_runs: ["designedRushingAttempts"],
   minutes: ["MIN", "minutes"],
   fga: ["FGA", "fieldGoalsAttempted"],
-  reb_opps: ["REB", "rebounds"],
-  ast_opps: ["AST", "A", "assists"],
+  reb_opps: ["reboundChances"],
+  ast_opps: ["potentialAssists"],
   usage: ["USG%", "usage"],
-  pa: ["PA", "plateAppearances", "AB"],
-  rbi_opps: ["RBI", "rbi"],
-  run_opps: ["R", "runs"],
-  sb_opps: ["SB", "stolenBases"],
+  pa: ["PA", "plateAppearances"],
+  rbi_opps: ["rbiOpportunities"],
+  run_opps: ["runScoringOpportunities"],
+  sb_opps: ["stolenBaseOpportunities"],
   toi: ["TOI", "timeOnIce"],
   pp_toi: ["PPTOI", "powerPlayTimeOnIce"],
   shot_share: ["SH", "S", "SOG", "shots", "shotsOnGoal"],
-  point_opps: ["P", "points"],
+  point_opps: ["pointOpportunities"],
   shot_opps: ["SH", "S", "shots"],
   sot_opps: ["SOT", "shotsOnTarget"],
 };
-
-/**
- * Soft proxies when primary label missing but a related volume series exists.
- * Never invent from name — only from stats already on the game log.
- */
-function proxySeries(
-  channel: WorkloadChannel,
-  games: HistGame[],
-): number[] | null {
-  if (channel === "rz_carries" || channel === "gl_carries") {
-    const carries = seriesForLabels(games, CHANNEL_STAT_LABELS.carries!);
-    if (carries.length < USAGE_MIN_GAMES) return null;
-    const frac = channel === "rz_carries" ? 0.18 : 0.08;
-    return carries.map((c) => c * frac);
-  }
-  if (channel === "routes") {
-    const tgts = seriesForLabels(games, ["receivingTargets", "TGTS", "targets"]);
-    if (tgts.length >= USAGE_MIN_GAMES) return tgts.map((t) => t * 3.2);
-  }
-  if (channel === "pa") {
-    // Lineup activity proxy: AB + BB when PA absent.
-    const out: number[] = [];
-    for (const g of games) {
-      const pa = numStat(g.stats ?? {}, ["PA", "plateAppearances"]);
-      if (pa != null) {
-        out.push(pa);
-        continue;
-      }
-      const ab = numStat(g.stats ?? {}, ["AB"]);
-      const bb = numStat(g.stats ?? {}, ["BB"]) ?? 0;
-      if (ab != null) out.push(ab + bb);
-    }
-    return out.length ? out : null;
-  }
-  return null;
-}
 
 export function deriveChannelUsageFromHistory(
   history: PlayerHistoryShape | null | undefined,
@@ -169,19 +136,11 @@ export function deriveChannelUsageFromHistory(
   const channelUsageSamples: Partial<Record<WorkloadChannel, number>> = {};
 
   const channels = Object.keys(CHANNEL_STAT_LABELS) as WorkloadChannel[];
-  // Also evaluate soft proxies.
-  const extra: WorkloadChannel[] = ["rz_carries", "gl_carries"];
-  const all = [...new Set([...channels, ...extra])];
-
-  for (const ch of all) {
-    const labels = CHANNEL_STAT_LABELS[ch];
-    let series = labels ? seriesForLabels(games, labels) : [];
-    if (series.length < USAGE_MIN_GAMES) {
-      const prox = proxySeries(ch, games);
-      if (prox) series = prox;
-    }
+  for (const ch of channels) {
+    const labels = CHANNEL_STAT_LABELS[ch]!;
+    const series = seriesForLabels(games, labels, ["minutes", "toi", "pp_toi"].includes(ch));
     const { usage, sampleSize } = groundedUsageFromSeries(series);
-    if (usage != null && usage > 0) {
+    if (usage != null && usage >= 0) {
       channelUsage[ch] = usage;
       channelUsageSamples[ch] = sampleSize;
     }
@@ -221,7 +180,7 @@ export function normalizeUsageWeights(
 
   const raw = new Map<string, number>();
   for (const u of usages) {
-    if (u.usage != null && u.usage > 0 && u.sampleSize >= USAGE_MIN_GAMES) {
+    if (u.usage != null && u.usage >= 0 && u.sampleSize >= USAGE_MIN_GAMES) {
       raw.set(u.id, u.usage);
     } else {
       raw.set(u.id, meanReliable * USAGE_MISSING_PRIOR_FRAC);

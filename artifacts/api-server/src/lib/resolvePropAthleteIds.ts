@@ -219,7 +219,7 @@ export async function resolvePropAthleteIdsDetailed(
   const awayTeam = String(opts?.awayTeam ?? "").trim();
 
   // Request-local roster map shared across concurrent workers (coalesced fetch).
-  const rosterByGame = new Map<string, Map<string, { athleteId: string; teamId: string }>>();
+  const rosterByGame = new Map<string, Map<string, { athleteId: string; teamId: string; position?: string | null }>>();
 
   async function loadRosterMap(homeTeamId: string, awayTeamId: string) {
     const gameKey = `${sport}:${homeTeamId}:${awayTeamId}`;
@@ -230,10 +230,10 @@ export async function resolvePropAthleteIdsDetailed(
       stats.rosterCalls += 1;
       stats.providerCalls += 1;
       const roster = await fetchGameRoster(sport, homeTeamId, awayTeamId);
-      const byName = new Map<string, { athleteId: string; teamId: string }>();
+      const byName = new Map<string, { athleteId: string; teamId: string; position?: string | null }>();
       for (const r of roster) {
         if (!r.athleteId) continue;
-        byName.set(normalizePlayerName(r.name), { athleteId: r.athleteId, teamId: r.teamId });
+        byName.set(normalizePlayerName(r.name), { athleteId: r.athleteId, teamId: r.teamId, position: r.position });
       }
       return byName;
     });
@@ -372,7 +372,7 @@ async function stampSideContextFromRoster(
   loadRosterMap: (
     homeTeamId: string,
     awayTeamId: string,
-  ) => Promise<Map<string, { athleteId: string; teamId: string }>>,
+  ) => Promise<Map<string, { athleteId: string; teamId: string; position?: string | null }>>,
 ): Promise<SimPropRequest[]> {
   // Group by game team-id pair so we load each roster at most once.
   const byGame = new Map<string, SimPropRequest[]>();
@@ -392,11 +392,11 @@ async function stampSideContextFromRoster(
       out.push(...group.map((p) => stampPropSideContext(p, home || null, away || null)));
       continue;
     }
-    let byAthlete = new Map<string, string>();
+    let byAthlete = new Map<string, { teamId: string; position?: string | null }>();
     try {
       const byName = await loadRosterMap(home, away);
       for (const v of byName.values()) {
-        if (v.athleteId) byAthlete.set(v.athleteId, v.teamId);
+        if (v.athleteId) byAthlete.set(v.athleteId, v);
       }
     } catch {
       byAthlete = new Map();
@@ -404,8 +404,8 @@ async function stampSideContextFromRoster(
     for (const p of group) {
       const athleteId = String(p.athleteId ?? "").trim();
       const fromRoster = athleteId ? byAthlete.get(athleteId) ?? null : null;
-      const playerTeamId = p.playerTeamId ?? fromRoster;
-      out.push(stampPropSideContext(p, home, away, playerTeamId));
+      const playerTeamId = p.playerTeamId ?? fromRoster?.teamId;
+      out.push(stampPropSideContext({ ...p, position: fromRoster?.position ?? null }, home, away, playerTeamId));
     }
   }
   return out;

@@ -113,7 +113,7 @@ const MATCHUP_TTL = 10 * 60 * 1000;
 const TOURS = ["atp", "wta"] as const;
 
 async function fetchJson(url: string): Promise<any> {
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
   if (!r.ok) throw new Error(`ESPN ${r.status} ${url}`);
   return r.json();
 }
@@ -253,6 +253,7 @@ export async function loadTennisFlags(): Promise<Record<string, TennisFlagEntry>
 
 /** ESPN scoreboard row normalized to the app's standard game shape. */
 export type TennisGameRow = {
+  contextSeed?: { observedAtMs: number; state: string | null; venue: { fullName: string; indoor?: boolean; address: { city: string; country: string } } };
   id: string;
   sport: "tennis";
   name: string;
@@ -308,6 +309,7 @@ export async function loadTennisGames(): Promise<TennisGameRow[]> {
   const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
 
   return cachedJson<TennisGameRow[]>(`tennis:games:${dateRange}`, SCORE_TTL, async () => {
+    const observedAtMs = Date.now();
     const out: TennisGameRow[] = [];
     const seen = new Set<string>();
     for (const tour of TOURS) {
@@ -331,7 +333,11 @@ export async function loadTennisGames(): Promise<TennisGameRow[]> {
               const state = statusObj?.type?.state ?? null;
               const homeSets = setsWon(homeC);
               const awaySets = setsWon(awayC);
+              const venueLabel = String(c?.venue?.fullName ?? e?.venue?.displayName ?? "");
+              const venueParts = venueLabel.split(",").map((part: string) => part.trim());
+              const indoor = typeof c?.venue?.indoor === "boolean" ? c.venue.indoor : typeof e?.venue?.indoor === "boolean" ? e.venue.indoor : undefined;
               out.push({
+                ...(venueParts.length === 2 && venueParts.every(Boolean) ? { contextSeed: { observedAtMs, state, venue: { fullName: venueLabel, indoor, address: { city: venueParts[0]!, country: venueParts[1]! } } } } : {}),
                 id,
                 sport: "tennis",
                 name: `${away.name} vs ${home.name}`,

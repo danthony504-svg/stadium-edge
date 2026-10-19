@@ -128,6 +128,7 @@ export type MlbPlatoonSlice = {
 };
 
 export type MlbGameEnvSlice = {
+  exposure?: "outdoor" | "indoors" | "unknown";
   park?: { hrIndex?: number | null; dome?: boolean; surface?: "turf" | "grass" | null } | null;
   weather?: {
     tempF?: number | null;
@@ -178,7 +179,7 @@ export type PropHolisticContext = {
 
 function weatherApplicable(sport: string): boolean {
   const s = sport.toLowerCase();
-  return s === "mlb" || s === "nfl" || s === "ncaaf";
+  return ["mlb", "nfl", "ncaaf", "soccer", "tennis"].includes(s);
 }
 
 function playingTimeApplicable(sport: string): boolean {
@@ -252,7 +253,7 @@ function scoreWeather(
   side: string | null | undefined,
   sport?: string | null,
 ): { score: number | null; display?: string } {
-  if (!env) return { score: null };
+  if (!env || env.exposure === "unknown") return { score: null };
   const dome = env.climateControlled === true || env.park?.dome === true;
   if (dome) {
     const surface = env.park?.surface;
@@ -262,6 +263,12 @@ function scoreWeather(
     };
   }
   const w = env.weather;
+  // Collect outdoor context for every applicable sport. New sports remain
+  // unweighted until their market-specific effects are validated.
+  if (sport === "soccer" || sport === "tennis") {
+    const readings = [w?.tempF != null ? `${w.tempF}°F` : null, w?.windMph != null ? `wind ${w.windMph} mph` : null, w?.precipChancePct != null ? `precip ${w.precipChancePct}%` : null].filter(Boolean);
+    return { score: null, display: readings.length ? readings.join(", ") : undefined };
+  }
   const hrIndex = env.park?.hrIndex;
   const mk = marketKey.toLowerCase();
   const isHr = /home ?run|\bhr\b|to hit a hr/.test(mk);
@@ -275,34 +282,34 @@ function scoreWeather(
   let favor = 0;
   const bits: string[] = [];
   if (hrIndex != null) {
-    favor += favorFrom01(lin01(hrIndex, 90, 115), over || isHr);
+    favor += favorFrom01(lin01(hrIndex, 90, 115), true);
     bits.push(`HR index ${hrIndex}`);
   }
   if (w?.tempF != null) {
     // Cold suppresses offense (passing/totals more than pure rush).
     const tempWeight = isFootball && isPass ? 0.55 : isFootball ? 0.45 : 0.4;
-    favor += favorFrom01(lin01(w.tempF, 45, 80), over || isHr) * tempWeight;
+    favor += favorFrom01(lin01(w.tempF, 45, 80), true) * tempWeight;
     bits.push(`${w.tempF}°F`);
   }
   if (w?.windMph != null && w.windMph >= 8) {
     // High wind is a pass/over suppressor for football; MLB still temp-amplifier only.
     if (isFootball && (isPass || (!isRush && !isHr))) {
-      favor += favorFrom01(1 - lin01(w.windMph, 8, 22), over) * 0.4;
-    } else if (!isFootball) {
-      favor += favorFrom01(lin01(w.windMph, 8, 18), over || isHr) * 0.35;
+      favor += favorFrom01(1 - lin01(w.windMph, 8, 22), true) * 0.4;
     }
+    // Baseball wind speed alone gives no direction relative to the field.
+    // Do not turn an unknown wind direction into an Over advantage.
     bits.push(`wind ${w.windMph} mph`);
   }
-  if (isFootball && w?.precipChancePct != null && w.precipChancePct >= 40) {
+  if (isFootball && !isRush && w?.precipChancePct != null && w.precipChancePct >= 40) {
     // Real precip chance — wet fields suppress passing overs / support unders.
-    favor += favorFrom01(1 - lin01(w.precipChancePct, 40, 90), over) * 0.35;
+    favor += favorFrom01(1 - lin01(w.precipChancePct, 40, 90), true) * 0.35;
     bits.push(`precip ${w.precipChancePct}%`);
   }
   if (env.park?.surface) {
     bits.push(env.park.surface);
   }
   if (!bits.length) return { score: null };
-  if (under && !isHr) favor = -favor;
+  if (under) favor = -favor;
   return { score: scoreTrend(clamp(favor, -1, 1)), display: bits.join(", ") };
 }
 

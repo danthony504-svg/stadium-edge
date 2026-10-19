@@ -21,6 +21,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { CoachContextWarmup } from "@/components/CoachContextWarmup";
 import { DeferredOtaRuntime } from "@/components/DeferredOtaRuntime";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MinVersionGate } from "@/components/MinVersionGate";
@@ -180,6 +181,7 @@ function AppShell() {
     <QueryClientProvider client={queryClient}>
       <AuthTokenBridge />
       <PushNotificationsBridge />
+      <CoachContextWarmup />
       <SubscriptionProvider>
         <BetSlipProvider>
           <PickTrackerProvider>

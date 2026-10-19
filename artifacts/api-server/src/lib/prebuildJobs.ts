@@ -1,3 +1,8 @@
+import { warmPreparedGameContexts } from "./preparedGameContext.js";
+import { loadAuthoritativePlayerHistory } from "./authoritativePlayerHistory";
+import { fetchEspnInjuries } from "./espnInjuries";
+import { classifyVacancyConfirmation, teamMatch } from "./opportunityShift/index";
+import { withInflightCoalesce } from "./propSimDedicatedStore";
 import { logger } from "./logger";
 import { MARKETS_BY_SPORT } from "../routes/props";
 
@@ -25,7 +30,7 @@ import { MARKETS_BY_SPORT } from "../routes/props";
 // PROPS sports drive both prop warming AND odds/games warming — these are the
 // leagues the Props tab loads. Derived from the same source of truth the props
 // route uses, so adding a sport there automatically warms it here.
-const PROPS_SPORTS = Object.keys(MARKETS_BY_SPORT);
+const PROPS_SPORTS = [...new Set([...Object.keys(MARKETS_BY_SPORT), "tennis"])];
 
 // How many of the soonest games per sport to warm props for. The client loads
 // props in small batches and the chat context uses the soonest games first, so
@@ -57,6 +62,7 @@ async function warmGet<T>(path: string, attempts = 3): Promise<T | null> {
     try {
       const r = await fetch(`${apiBase()}${path}`, {
         headers: { "x-internal-call": "1" },
+        signal: AbortSignal.timeout(5000),
       });
       if (r.ok) return (await r.json()) as T;
       // Only transient upstream failures are worth retrying; a 4xx is a bad
@@ -101,17 +107,20 @@ type GameRow = {
   awayTeam: string | null;
   homeTeamId?: string | null;
   awayTeamId?: string | null;
+  homeAbbr?: string | null;
+  venue?: string | null;
 };
 
 // Warm one sport: its bulk odds slate, its ESPN game list, and per-event props
 // for the soonest games. Returns a small per-sport tally for the run summary.
 async function warmSport(
   sport: string,
-): Promise<{ sport: string; odds: boolean; games: number; props: number }> {
+): Promise<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }> {
   // Odds + games in parallel — independent caches.
-  const [odds, games] = await Promise.all([
+  const [odds, games, injuries] = await Promise.all([
     warmGet<unknown[]>(`/sports/odds?sport=${sport}`),
     warmGet<GameRow[]>(`/sports/games?sport=${sport}`),
+    fetchEspnInjuries(sport),
   ]);
   const oddsOk = odds != null;
 
@@ -129,9 +138,20 @@ async function warmSport(
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
     .slice(0, PROPS_GAMES_PER_SPORT);
 
+  // Precompute reusable source data, not frozen tickets. This job is server-side
+  // so it can run while phones are closed; never invoke it from a public GET.
+  const historyIds = new Set<string>();
+  for (const team of injuries) {
+    if (!upcoming.some(g => teamMatch(team.team ?? "", g.homeTeam ?? "") || teamMatch(team.team ?? "", g.awayTeam ?? ""))) continue;
+    for (const entry of team.entries ?? []) {
+      if (entry.athleteId && classifyVacancyConfirmation(entry.status ?? "") === "out" && historyIds.size < 8) {
+        historyIds.add(entry.athleteId);
+      }
+    }
+  }
   let propCount = 0;
   await pooled(upcoming, PROPS_CONCURRENCY, async (g) => {
-    if (!g.homeTeam || !g.awayTeam) return;
+    if (!MARKETS_BY_SPORT[sport] || !g.homeTeam || !g.awayTeam) return;
     const q = new URLSearchParams({ sport, eventId: g.id });
     q.set("home", g.homeTeam);
     q.set("away", g.awayTeam);
@@ -140,19 +160,28 @@ async function warmSport(
     if (g.startsAt) q.set("startsAt", g.startsAt);
     if (g.homeTeamId) q.set("homeTeamId", g.homeTeamId);
     if (g.awayTeamId) q.set("awayTeamId", g.awayTeamId);
-    const r = await warmGet<unknown>(`/sports/props?${q.toString()}`);
+    const r = await warmGet<{ props?: Array<{ athleteId?: string | null }> }>(`/sports/props?${q.toString()}`);
     if (r) propCount++;
+    for (const row of r?.props ?? []) {
+      if (row.athleteId && historyIds.size < 16) historyIds.add(row.athleteId);
+    }
   });
 
-  return { sport, odds: oddsOk, games: rows.length, props: propCount };
+  let histories = 0;
+  await pooled([...historyIds], 2, async athleteId => {
+    const result = await loadAuthoritativePlayerHistory(sport, athleteId).catch(() => null);
+    if (result?.history) histories++;
+  });
+  const contexts = await warmPreparedGameContexts(sport, upcoming);
+  return { sport, odds: oddsOk, games: rows.length, props: propCount, histories, contexts };
 }
 
-export async function runPrebuildJobs(): Promise<{
+async function runPrebuildJobsBody(): Promise<{
   ok: true;
-  summary: { sports: number; gamesWarmed: number; propsWarmed: number };
-  perSport: Array<{ sport: string; odds: boolean; games: number; props: number }>;
+  summary: { sports: number; gamesWarmed: number; propsWarmed: number; historiesWarmed: number; contextsWarmed: number };
+  perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }>;
 }> {
-  const perSport: Array<{ sport: string; odds: boolean; games: number; props: number }> = [];
+  const perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }> = [];
 
   // Warm sports in small staggered batches so upstream bursts stay bounded.
   for (let i = 0; i < PROPS_SPORTS.length; i += SPORT_CONCURRENCY) {
@@ -166,7 +195,14 @@ export async function runPrebuildJobs(): Promise<{
     sports: perSport.length,
     gamesWarmed: perSport.reduce((n, s) => n + s.games, 0),
     propsWarmed: perSport.reduce((n, s) => n + s.props, 0),
+    historiesWarmed: perSport.reduce((n, s) => n + s.histories, 0),
+    contextsWarmed: perSport.reduce((n, s) => n + s.contexts, 0),
   };
   logger.info({ summary }, "prebuild cron run");
   return { ok: true, summary, perSport };
+}
+
+/** Coalesce overlapping scheduled runs; there is no app-open cron trigger. */
+export async function runPrebuildJobs() {
+  return (await withInflightCoalesce("prebuild-context", runPrebuildJobsBody)).value;
 }

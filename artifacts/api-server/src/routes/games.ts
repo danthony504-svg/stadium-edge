@@ -1,3 +1,4 @@
+import { attachPreparedGameContexts, schedulePreparedGameContexts } from "../lib/preparedGameContext.js";
 import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
 import {
@@ -173,7 +174,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     try {
       let rows = await loadUfcSlateGames();
       if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
-      res.json(GetGamesResponse.parse(rows));
+      res.json(await attachPreparedGameContexts(sportId, GetGamesResponse.parse(rows)));
+      schedulePreparedGameContexts(sportId, rows);
     } catch (err) {
       req.log.error({ err }, "Failed to fetch UFC games");
       res.json([]);
@@ -186,7 +188,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     try {
       let rows = await loadTennisGames();
       if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
-      res.json(GetGamesResponse.parse(rows));
+      res.json(await attachPreparedGameContexts(sportId, GetGamesResponse.parse(rows)));
+      schedulePreparedGameContexts(sportId, rows);
     } catch (err) {
       req.log.error({ err }, "Failed to fetch tennis games");
       res.json([]);
@@ -200,7 +203,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     try {
       let rows = await loadOddsSlateGames(sportId);
       if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
-      res.json(GetGamesResponse.parse(rows));
+      res.json(await attachPreparedGameContexts(sportId, GetGamesResponse.parse(rows)));
+      schedulePreparedGameContexts(sportId, rows);
     } catch (err) {
       req.log.error({ err }, `Failed to fetch ${sportId} odds-slate games`);
       res.json([]);
@@ -277,7 +281,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     const out = (data.events ?? []).flatMap((e) => mapEspnEventToGames(e, sportId, mma));
 
     const filtered = simulatorOnly ? out.filter((g) => isSimulatorPregame(g)) : out;
-    res.json(GetGamesResponse.parse(filtered));
+    res.json(await attachPreparedGameContexts(sportId, GetGamesResponse.parse(filtered)));
+    schedulePreparedGameContexts(sportId, out);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch games");
     res.json([]);

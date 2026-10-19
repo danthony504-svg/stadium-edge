@@ -1,3 +1,4 @@
+import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
 import { filterPropsForGameTeams } from "./propGameTeamGate";
 import { resolveCoachGameTeamIds } from "./coachTeamIdResolve";
@@ -149,6 +150,7 @@ export type OddsGame = {
 };
 
 export type EspnGame = {
+  preparedContext?: PreparedCoachGameContext;
   id: string;
   sport: string;
   name: string;
@@ -2110,6 +2112,8 @@ export type PropSimulationResult = {
   };
   /** Present when hitProbability is null — explains why MC could not grade. */
   nullReason?:
+    | "confirmed_unavailable"
+    | "confirmed_nonstarter"
     | "missing_athlete_id"
     | "no_history"
     | "insufficient_sample"
@@ -2204,6 +2208,7 @@ export async function fetchPropSimulations(
     awayTeamId?: string | null;
     /** ESPN team ids keyed by "Away @ Home" (and nickname fallback). */
     teamIdsByGame?: Map<string, PropSimTeamIds>;
+    startsAt?: string;
     weatherImpact?: number | null;
     tier?: "quick" | "deep";
     simulations?: number;
@@ -2215,6 +2220,7 @@ export async function fetchPropSimulations(
   let historyShared = 0;
   let historyCoalesced = 0;
   type BuiltProp = {
+    startsAt?: string | null;
     player: string;
     market: string;
     line: number;
@@ -2270,6 +2276,7 @@ export async function fetchPropSimulations(
       side,
       athleteId: p.athleteId ?? pool?.athleteId,
       playerTeamId: pool?.playerTeamId ?? null,
+      startsAt: pool?.startsAt ?? null,
       sport,
       game,
       ...(additionalLines.length ? { additionalLines } : {}),
@@ -2314,7 +2321,9 @@ export async function fetchPropSimulations(
         homeTeam = parts[1]?.trim() ?? "";
       }
 
+      const eventTimes = [...new Set(rows.map(r => r.startsAt).filter((v): v is string => !!v))];
       const batchOpts = {
+        startsAt: eventTimes.length === 1 ? eventTimes[0] : undefined,
         homeTeam,
         awayTeam,
         homeTeamId,
@@ -2605,6 +2614,7 @@ export async function fetchPropSimulationsBatch(
     awayTeam?: string;
     homeTeamId?: string | null;
     awayTeamId?: string | null;
+    startsAt?: string;
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";
@@ -2644,6 +2654,7 @@ async function fetchPropSimulationsBatchUnlim(
     awayTeam?: string;
     homeTeamId?: string | null;
     awayTeamId?: string | null;
+    startsAt?: string;
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";
