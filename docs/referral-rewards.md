@@ -30,7 +30,7 @@ Milestones approved for this release: 3 verified new accounts → one free week;
 
 Local integration tests require an explicit localhost TEST_DATABASE_URL. They create/drop only a dedicated test schema. With no test DB the integration suite is skipped, not claimed as a pass.
 
-Account deletion removes the referral profile, rewards and direct account references. Used/reserved offers are never recycled. A keyed email fingerprint is retained for at most 90 days after referred-account deletion solely to prevent immediate delete/recreate abuse; the next attribution transaction clears expired fingerprints. Conversion counts remain aggregate history. Include this purpose and retention period in the deployed Privacy Policy before activation.
+Account deletion removes the referral profile, rewards and direct account references. Used/reserved offers are never recycled. A keyed email fingerprint blocks reuse for 90 days after referred-account deletion to prevent immediate delete/recreate abuse. Expired fingerprints are cleared by the next attribution transaction; there is no background purge in this change, so an idle program can retain them longer. For a strict 90-day storage limit, configure a scheduled purge before activation. Conversion counts remain aggregate history. Include this purpose and retention period in the deployed Privacy Policy before activation.
 
 Monitor stock in `referral_offer_codes` by milestone and expiry. Import new batches before they run out. A user with an already assigned expired code is directed to support; replace that reward's assignment transactionally with a fresh code rather than changing reward eligibility or recycling used inventory.
 
