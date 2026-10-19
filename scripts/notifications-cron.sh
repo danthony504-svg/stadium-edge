@@ -25,7 +25,7 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-URL="${NOTIFY_CRON_URL:-https://stadium-edge-1.replit.app/api/notifications/cron}"
+URL="${NOTIFY_CRON_URL:-https://stadium-edge.onrender.com/api/notifications/cron}"
 KEY="${NOTIFY_CRON_KEY:-}"
 
 if [ -z "$KEY" ]; then
