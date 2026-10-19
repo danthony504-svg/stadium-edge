@@ -22,7 +22,7 @@ test("four Home tiles request distinct real-odds two-leg Coach builds", () => {
     assert.match(ask, /real sportsbook odds/);
     assert.match(ask, /qualified simulated picks/);
   }
-  assert.match(asks[1], /higher estimated hit probability/);
+  assert.match(asks[1], /higher estimated success probability/);
   assert.match(asks[2], /positive expected value/);
   assert.match(asks[3], /never add weak or unqualified legs/);
 });
@@ -37,4 +37,10 @@ test("free preview does not force today-only slate when the next posted games ar
     assert.match(ask, /next available upcoming games/);
     assert.doesNotMatch(ask, /today|tonight|tomorrow/i);
   }
+});
+
+test("Easy Money free Coach request must not name the MLB hits market", () => {
+  const ask = freeCoachAskForStyle("easy");
+  assert.doesNotMatch(ask, /\bhits?\b/i);
+  assert.match(ask, /success probability/);
 });
