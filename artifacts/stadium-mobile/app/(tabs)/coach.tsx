@@ -89,7 +89,7 @@ import { propsOnlySportLabelFromAsk } from "@/lib/boardScanPropDelivery";
 import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { useFocusEffect, useRouter } from "expo-router";
-import { AUTO_FREE_COACH_ASK, shouldAutoBuildFreeCoachPreview } from "@/lib/coachAutoFreePreview";
+import { AUTO_FREE_COACH_ASK, freeCoachAskForStyle, shouldAutoBuildFreeCoachPreview, type FreeCoachStyle } from "@/lib/coachAutoFreePreview";
 
 type Role = "user" | "assistant";
 
@@ -1034,7 +1034,19 @@ export default function CoachScreen() {
   );
 
   const autoPreviewOnFocusRef = useRef(false);
+  const autoPreviewStyleRef = useRef<FreeCoachStyle | undefined>(undefined);
   useFocusEffect(useCallback(() => {
+    const launch = takeCoachLaunch();
+    if (launch?.freshThread && sessionRef.current.outcome !== "open") {
+      const welcome: CoachMessage = {
+        id: "welcome", role: "assistant",
+        text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
+      };
+      messagesRef.current = [welcome];
+      setMessages([welcome]);
+      autoPreviewOnFocusRef.current = false;
+      autoPreviewStyleRef.current = launch.freePreviewStyle;
+    }
     const id = setTimeout(() => {
       if (shouldAutoBuildFreeCoachPreview({
         subscriptionHydrated: !!sub?.hydrated,
@@ -1045,24 +1057,15 @@ export default function CoachScreen() {
         pendingLaunch: !!(draft.trim() || attachedImages.length),
       })) {
         autoPreviewOnFocusRef.current = true;
-        void send(AUTO_FREE_COACH_ASK);
+        const ask = autoPreviewStyleRef.current
+          ? freeCoachAskForStyle(autoPreviewStyleRef.current)
+          : AUTO_FREE_COACH_ASK;
+        autoPreviewStyleRef.current = undefined;
+        void send(ask);
       }
     }, 250);
     return () => { clearTimeout(id); autoPreviewOnFocusRef.current = false; };
   }, [sub?.hydrated, coachPremiumUnlocked, busy, draft, attachedImages.length, send]));
-
-  useEffect(() => {
-    const launch = takeCoachLaunch();
-    if (launch?.freshThread) {
-      setMessages([
-        {
-          id: "welcome",
-          role: "assistant",
-          text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
-        },
-      ]);
-    }
-  }, []);
 
   useEffect(() => {
     return () => {
