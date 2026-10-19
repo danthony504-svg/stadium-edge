@@ -92,3 +92,12 @@ test("propPoolCoversPostedPropSports fails when a posted prop sport is missing f
     false,
   );
 });
+
+test("bare rushing/receiving loads the NFL board before props fetch, preserving named leagues", () => {
+  assert.deepEqual(coachBoardSportsForAsk("10 leg rushing and receiving", 10, ALL), ["nfl"]);
+  assert.deepEqual(coachBoardSportsForAsk("10 leg rushing and receiving yards", 10, ALL), ["nfl"]);
+  assert.deepEqual(coachBoardSportsForAsk("10 leg college rushing and receiving", 10, ALL), ["ncaaf"]);
+  assert.deepEqual(coachBoardSportsForAsk("10 leg NFL rushing and receiving", 10, ALL), ["nfl"]);
+  assert.deepEqual(coachBoardSportsForAsk("10 leg NBA and NFL player props", 10, ALL).sort(), ["nba", "nfl"]);
+  assert.ok(coachBoardSportsForAsk("10 leg mixed sports", 10, ALL).includes("nba"));
+});

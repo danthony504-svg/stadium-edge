@@ -8,6 +8,7 @@
 
 import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 
 /**
  * Resolve the canonical lock label for an ask, or null when unlocked.
@@ -17,7 +18,15 @@ export function lockedMarketLabelForAsk(
   ask: string | null | undefined,
 ): string | null {
   const labels = matchExplicitMarketLocks(ask)?.labels;
-  if (!labels?.length) return null;
+  if (!labels?.length) {
+    const families = footballSkillPropFamilies(String(ask ?? ""));
+    if (!families) return null;
+    return [
+      families.rush ? "rushing" : null,
+      families.rec ? "receiving" : null,
+      families.pass ? "passing" : null,
+    ].filter(Boolean).join(" and ");
+  }
   const label = String(labels[0] ?? "").trim();
   return label || null;
 }
