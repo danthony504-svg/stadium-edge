@@ -1,0 +1,21 @@
+name: Notifications cron
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: notifications-cron
+  cancel-in-progress: false
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send eligible real-data notifications
+        env:
+          NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
+          NOTIFY_CRON_URL: ${{ vars.NOTIFY_CRON_URL }}
+        run: bash scripts/notifications-cron.sh
