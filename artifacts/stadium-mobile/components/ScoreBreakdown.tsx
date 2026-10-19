@@ -335,6 +335,7 @@ function FactorBar({
 export function ScoreBreakdown({
   data,
   variant = "full",
+  hideLockedTeaser = false,
   title,
   note,
   simulationPending,
@@ -346,6 +347,8 @@ export function ScoreBreakdown({
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
+  /** Free Coach cards reveal picks, but premium factor details remain gated. */
+  hideLockedTeaser?: boolean;
   title?: string;
   note?: string;
   simulationPending?: boolean;
@@ -426,7 +429,7 @@ export function ScoreBreakdown({
           </Text>
         ) : null}
         {holisticDisplay && !metricsLocked ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
-        {metricsLocked ? <LockedAiMetricsTeaser dense /> : null}
+        {metricsLocked && !hideLockedTeaser ? <LockedAiMetricsTeaser dense /> : null}
       </View>
     );
   }
