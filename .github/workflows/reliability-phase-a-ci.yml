@@ -51,6 +51,7 @@ on:
       - "artifacts/stadium-mobile/lib/coachPropSimProvenance.contract*"
       - "artifacts/stadium-mobile/lib/boardFootballMixSim*"
       - "artifacts/stadium-mobile/lib/coach/buildParlay.ts"
+      - "artifacts/stadium-mobile/lib/coachAutoFreePreview*"
       - "artifacts/stadium-mobile/lib/coachFootballPropsOnly.ts"
       - "artifacts/stadium-mobile/lib/coachFootballPropsOnly.test.ts"
       - "artifacts/stadium-mobile/lib/coachFootballPropsOnlyTicket.ts"
