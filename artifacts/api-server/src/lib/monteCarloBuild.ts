@@ -1,3 +1,4 @@
+import { scoringSignalKey, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import {
   computeAmbiguous,
   gameValueForMarket,
@@ -91,6 +92,7 @@ export type PlayerHistoryShape = {
 };
 
 export type GameSimContext = {
+  footballTdSignals?: Record<string, FootballTdSignal>;
   sport: string;
   oppPace?: number | null;
   leaguePace?: number | null;
@@ -113,6 +115,7 @@ export type GameSimContext = {
 
 /** Minimal game/context fields required to decide distribution sharing. */
 export type SharedDistGameContext = {
+  footballTdSignals?: Record<string, FootballTdSignal>;
   sport: string;
   oppPace?: number | null;
   leaguePace?: number | null;
@@ -282,6 +285,7 @@ export function buildPropSimulationContext(
     oppKeyInjuries: game.oppKeyInjuries ?? 0,
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
+    footballTdSignal: game.footballTdSignals?.[scoringSignalKey(req)] ?? null,
     discrete: isDiscreteCountMarket(req.market),
     additionalLines: req.additionalLines,
     opportunityFamilyMult: pre.opportunityShift,
@@ -369,9 +373,9 @@ export function sharedDistributionPartsForProp(
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
     opportunityShiftFingerprint:
-      game.opportunityShiftFingerprint ??
-      game.opportunityShift?.tableFingerprint ??
-      null,
+      game.footballTdSignals?.[scoringSignalKey(req)]
+        ? `${game.opportunityShiftFingerprint ?? game.opportunityShift?.tableFingerprint ?? ""}|${game.footballTdSignals[scoringSignalKey(req)]!.fingerprint}`
+        : game.opportunityShiftFingerprint ?? game.opportunityShift?.tableFingerprint ?? null,
   };
 }
 

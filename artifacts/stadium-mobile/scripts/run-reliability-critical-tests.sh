@@ -49,6 +49,7 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/reliabilityPhaseASimPaths.test.ts \
     test/stage3TdSimMapping.test.ts \
     test/footballPropStatValue.test.ts \
+    test/footballScoringOpportunities.test.ts \
     test/propCatalogParity.test.ts \
     test/anytimeTdModel.test.ts \
     test/monteCarlo.test.ts \

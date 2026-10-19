@@ -1,3 +1,4 @@
+import { warmScoringSnapshot } from "./footballScoringOpportunities.js";
 import { logger } from "./logger.js";
 import { runPrebuildJobs } from "./prebuildJobs.js";
 import { buildServerCompactParlayContext } from "./coachSlateContext.js";
@@ -79,6 +80,12 @@ async function runCoachSlateJobBody(started: number): Promise<{
 
   t = Date.now();
   const built = await buildServerCompactParlayContext();
+  // Off-request worker warm: populate ID-bound football summaries before sim scoring.
+  const scoringTeams = new Map<string, { sport: string; teamId: string }>();
+  for (const p of built.propPool) if (["nfl", "ncaaf"].includes(p.sport ?? "") && p.playerTeamId) {
+    scoringTeams.set(`${p.sport}:${p.playerTeamId}`, { sport: p.sport!, teamId: String(p.playerTeamId) });
+  }
+  await Promise.all([...scoringTeams.values()].slice(0, 12).map(p => warmScoringSnapshot(p.sport, p.teamId)));
   const fingerprint = computeSlateFingerprint(built);
   const activeSports = built.context.selectedSports ?? [];
   logCoachSlatePhase("context_build", t, {

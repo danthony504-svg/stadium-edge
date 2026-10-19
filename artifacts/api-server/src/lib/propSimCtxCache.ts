@@ -1,3 +1,4 @@
+import { scoringSignalKey, type FootballTdSignal } from "./footballScoringOpportunities.js";
 /**
  * Phase 2.1 — propsim-ctx cache.
  * Stores the minimal material needed to reconstruct the history fingerprint
@@ -116,8 +117,11 @@ export function propSimulationContextFromCached(
     additionalLines?: number[];
     player?: string;
     athleteId?: string | null;
+    playerTeamId?: string | null;
+    opponentTeamId?: string | null;
   },
   game: {
+    footballTdSignals?: Record<string, FootballTdSignal>;
     oppPace?: number | null;
     leaguePace?: number | null;
     oppKeyInjuries?: number;
@@ -183,6 +187,7 @@ export function propSimulationContextFromCached(
     oppKeyInjuries: game.oppKeyInjuries ?? 0,
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
+    footballTdSignal: game.footballTdSignals?.[scoringSignalKey(req)] ?? null,
     discrete: cached.discrete,
     additionalLines: req.additionalLines,
     opportunityFamilyMult: pre.opportunityShift,
