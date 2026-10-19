@@ -12,6 +12,7 @@ import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   PREMIUM_FEATURES,
   premiumFeatureForRoute,
@@ -52,7 +53,7 @@ export function NavMenu() {
   const pathname = usePathname();
   const { legs } = useBetSlip();
   const { isSignedIn } = useAuth();
-  const { entitlement, requirePro } = useSubscription();
+  const { entitlement, requirePro, coachPremiumUnlocked } = useSubscription();
   const [open, setOpen] = useState(false);
   const [tourFocus, setTourFocus] = useState<TourMenuFocus | null>(null);
   const menuScrollRef = useRef<ScrollView>(null);
@@ -101,6 +102,9 @@ export function NavMenu() {
       requirePro(PREMIUM_FEATURES[premiumId].label);
     }
     if (!isActive(pathname, route)) {
+      // Guests and unsubscribed users should see a fresh two-leg Coach preview
+      // when choosing Coach in the hamburger menu, not a stale locked ticket.
+      if (route === "/coach" && !coachPremiumUnlocked) markCoachHomeLaunch();
       router.navigate(route as any);
     }
   };
