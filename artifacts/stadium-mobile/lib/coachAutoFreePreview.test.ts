@@ -31,3 +31,10 @@ test("new Coach session has open outcome but should still auto-build when UI is 
   assert.equal(createCoachSession().outcome, "open");
   assert.equal(shouldAutoBuildFreeCoachPreview({...base, busy: false}), true);
 });
+
+test("free preview does not force today-only slate when the next posted games are tomorrow", () => {
+  for (const ask of [AUTO_FREE_COACH_ASK, ...(["hot","easy","value","longshot"] as const).map(freeCoachAskForStyle)]) {
+    assert.match(ask, /next available upcoming games/);
+    assert.doesNotMatch(ask, /today|tonight|tomorrow/i);
+  }
+});
