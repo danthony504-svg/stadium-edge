@@ -6,6 +6,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry } from "./api.ts";
 import { sportsFromAskTeamNicknames } from "./coachAskTeamScope.ts";
+import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 
 // Sport keywords used to focus the chat realOdds context on the league(s) the
 // user named. Only unambiguous terms — "football" is omitted because it spans
@@ -115,6 +116,16 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   ) {
     out.add("nfl");
     out.add("ncaaf");
+  }
+  // Bare skill-family requests mean NFL unless a league/team already scoped
+  // them. Resolve this before board loading, not after fetching every sport.
+  if (
+    out.size === 0 &&
+    footballSkillPropFamilies(t) &&
+    !isNegatedSportKeyword(t, "nfl") &&
+    !isNegatedSportKeyword(t, "football")
+  ) {
+    out.add("nfl");
   }
   return out;
 }

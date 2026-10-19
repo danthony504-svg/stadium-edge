@@ -187,7 +187,7 @@ test("every EXPLICIT_MARKET_LOCK_RULES label: analyzed=0, 0/N, partial, N/N", ()
     assert.match(phrase, /picks$/);
 
     // Only TD lock rules may mention touchdown/TD in the phrase — others must not.
-    if (rule.id === "fb_touchdowns" || rule.id === "fb_first_td") {
+    if (["fb_touchdowns", "fb_first_td", "fb_anytime_td"].includes(rule.id)) {
       assert.match(phrase, /td|touchdown/i);
     } else {
       assert.doesNotMatch(
@@ -683,4 +683,19 @@ test("analyzed count source is lock-scoped (HR excludes hits/TB/Ks; other locks 
     assert.doesNotMatch(note, /home run|touchdown|analyzed/i);
     assert.doesNotMatch(note, /\*\*/);
   }
+});
+
+test("bare football-family shortfalls distinguish zero analyzed from quality failures", () => {
+  const askText = "10 leg rushing and receiving";
+  assert.equal(lockedMarketLabelForAsk(askText), "rushing and receiving");
+  const base = { askText, requestedLegs: 10, qualified: 0, isMarketLocked: true };
+  const unavailable = resolveCoachParlayShortfallLead({ ...base, analyzed: 0 });
+  assert.match(unavailable, /rushing and receiving/);
+  assert.doesNotMatch(unavailable, /quality standards|quality bar/);
+  const rejected = resolveCoachParlayShortfallLead({ ...base, analyzed: 42 });
+  assert.match(rejected, /analyzed 42 rushing and receiving/);
+  assert.match(rejected, /none met/);
+  const partial = resolveCoachParlayShortfallLead({ ...base, analyzed: 42, qualified: 1 });
+  assert.match(partial, /showing 1/);
+  assert.doesNotMatch(partial, /10 market picks/);
 });
