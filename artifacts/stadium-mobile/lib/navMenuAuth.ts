@@ -31,8 +31,8 @@ export function plansMenuItem(): {
  * installed binary can report runtime/updateId without a native rebuild.
  * Revert to `return isDev` after the stale-Coach investigation.
  */
-export function shouldShowOtaDiagnosticsMenuItem(_isDev: boolean): boolean {
-  return true;
+export function shouldShowOtaDiagnosticsMenuItem(isDev: boolean, channel?: string | null): boolean {
+  return shouldShowOtaHomeDiagnostics(channel, isDev);
 }
 
 /** Home diagnostics are test-only; production always stays hidden. */

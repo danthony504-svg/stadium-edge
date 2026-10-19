@@ -8,6 +8,7 @@ import { setTourMenuFocus, subscribeTourMenuFocus, type TourMenuFocus } from "@/
 import { Dimensions, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -77,7 +78,7 @@ export function NavMenu() {
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
   const plans = plansMenuItem();
-  const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
+  const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__, tryGetExpoUpdates()?.channel);
 
   const close = () => {
     if (tourFocus) tourFocus.onSkip();

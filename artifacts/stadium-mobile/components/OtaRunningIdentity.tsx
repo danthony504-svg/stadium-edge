@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
+import { shouldShowOtaHomeDiagnostics } from "@/lib/navMenuAuth";
 import { FONT } from "@/components/ui";
 import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
 import { peekOtaController } from "@/lib/ota";
@@ -70,7 +71,6 @@ export function OtaRunningIdentity({
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (typeof __DEV__ !== "undefined" && __DEV__) return;
     let cancelled = false;
     const tick = () => {
       if (cancelled) return;
@@ -88,8 +88,7 @@ export function OtaRunningIdentity({
     };
   }, []);
 
-  if (typeof __DEV__ !== "undefined" && __DEV__) return null;
-  if (!id) return null;
+  if (!id || !shouldShowOtaHomeDiagnostics(id.channel, typeof __DEV__ !== "undefined" && __DEV__)) return null;
 
   const border =
     id.launchOutcome === "launch_failed" || id.launchOutcome === "selection_failed"

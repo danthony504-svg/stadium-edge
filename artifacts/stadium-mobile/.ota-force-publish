@@ -1,1 +1,1 @@
-Build 78 runtime 1.1.0 — hide Home Device attestation on production; keep preview/development diagnostics. UI visibility only. Existing critical CI and iOS export required before production publish.
+Build 78 runtime 1.1.0 — hide shared Running update / Open diagnostics panels and OTA diagnostics menu in production; retain preview/development. Preserve OTA delivery and recovery. Require existing CI and iOS export.
