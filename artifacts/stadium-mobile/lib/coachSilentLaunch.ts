@@ -2,12 +2,13 @@
 export type CoachLaunchOpts = {
   hideBubble: boolean;
   freshThread: boolean;
+  freePreviewStyle?: "hot" | "easy" | "value" | "longshot";
 };
 
 let pendingLaunch: CoachLaunchOpts | null = null;
 
-export function markCoachHomeLaunch(): void {
-  pendingLaunch = { hideBubble: true, freshThread: true };
+export function markCoachHomeLaunch(freePreviewStyle?: CoachLaunchOpts["freePreviewStyle"]): void {
+  pendingLaunch = { hideBubble: true, freshThread: true, freePreviewStyle };
 }
 
 export function takeCoachLaunch(): CoachLaunchOpts | null {
