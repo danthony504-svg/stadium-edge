@@ -72,6 +72,8 @@ echo "== Coach ticket qualification / staging / absolute budget =="
   export NODE_ENV=test
   node --import ./test/register-hooks.mjs --test \
     lib/coachFootballPropsOnly.test.ts \
+    lib/coachAskMarketFilter.test.ts \
+    lib/coachAskMarketFilter.extra.test.ts \
     lib/coach/session.test.ts \
     lib/coach/scanCleanupContract.test.ts \
     lib/coachAskTeamScope.test.ts \

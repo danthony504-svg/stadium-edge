@@ -304,3 +304,28 @@ test("grounding refill must never reintroduce started or weak qualified backups"
   });
   assert.deepEqual(result.map((p) => p.id), ["good", "good-backup"]);
 });
+
+test("rushing/receiving stop and budget flush reject unrelated markets including refill", () => {
+  const rush = { id: "rush", isProp: true, propMarketKey: "player_rush_yds", grade: "B", confidencePct: 65 };
+  const rec = { id: "rec", isProp: true, propMarketKey: "player_receptions", grade: "B", confidencePct: 65 };
+  const unrelated = [
+    { id: "wnba", isProp: false, market: "Spread" },
+    { id: "nba", isProp: true, propMarketKey: "player_assists" },
+    { id: "nhl", isProp: true, propMarketKey: "player_shots_on_goal" },
+    { id: "unknown", isProp: true },
+  ];
+  for (const requestedLegs of [2, 10]) {
+    for (const propPhaseIncomplete of [true, false]) {
+      for (const messageFallback of [true, false]) {
+        const picks = [rush, rec, ...unrelated];
+        const result = resolveCoachTerminalPicks({
+          askText: "10 leg rushing and receiving", requestedLegs, propPhaseIncomplete,
+          bufferedPicks: messageFallback ? [] : picks,
+          messagePicks: messageFallback ? picks : [],
+          qualifiedCandidates: unrelated,
+        });
+        assert.deepEqual(result.map(p => p.id), ["rush", "rec"]);
+      }
+    }
+  }
+});

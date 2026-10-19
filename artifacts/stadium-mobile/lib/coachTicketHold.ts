@@ -26,6 +26,10 @@ import {
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
 import { meetsCoachSimQualityFloor } from "./gameSimQualityGates.ts";
 import { isPregameBettableForSport } from "./slate.ts";
+import {
+  filterPicksByAskMarketConstraint,
+  parseCoachAskMarketConstraint,
+} from "./coachAskMarketFilter.ts";
 
 export type CoachTicketPublishPhase = "building" | "terminal";
 
@@ -180,7 +184,7 @@ export function coachTerminalTicketIsComplete(opts: {
 export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
   bufferedPicks: readonly T[] | null | undefined;
   messagePicks: readonly T[] | null | undefined;
-  /** User ask text — used to detect football prop-mix. */
+  /** User ask text — market constraints apply to stop, error, and budget flushes too. */
   askText?: string | null;
   requestedLegs?: number;
   /** True when prop scoring was cut short / still pending at flush. */
@@ -197,11 +201,20 @@ export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
   if (!picks.length) return picks;
 
   const target = opts.requestedLegs ?? picks.length;
+  const constraint = parseCoachAskMarketConstraint(opts.askText);
+  picks = filterPicksByAskMarketConstraint(picks, constraint);
+  const qualifiedCandidates = filterPicksByAskMarketConstraint(
+    [...(opts.qualifiedCandidates ?? [])],
+    constraint,
+  );
   if (target < 3) {
-    return revalidateCoachTerminalDeliveryPicks(picks, {
-      target: picks.length,
-      qualifiedCandidates: opts.qualifiedCandidates,
-    });
+    return filterPicksByAskMarketConstraint(
+      revalidateCoachTerminalDeliveryPicks(picks, {
+        target: picks.length,
+        qualifiedCandidates,
+      }),
+      constraint,
+    );
   }
 
   const requirePropMix = askRequiresFootballPropMix(opts.askText);
@@ -213,8 +226,8 @@ export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
     picks = finalizeGeneralPropMixPicks(picks, target);
   }
 
-  return revalidateCoachTerminalDeliveryPicks(picks, {
-    target,
-    qualifiedCandidates: opts.qualifiedCandidates,
-  });
+  return filterPicksByAskMarketConstraint(
+    revalidateCoachTerminalDeliveryPicks(picks, { target, qualifiedCandidates }),
+    constraint,
+  );
 }

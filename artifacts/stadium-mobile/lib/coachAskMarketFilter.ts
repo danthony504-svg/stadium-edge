@@ -14,6 +14,7 @@ import {
   askIsCollegeFootballOnly,
 } from "./boardScanPropDelivery.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
@@ -204,19 +205,14 @@ function hasPassYardsAsk(t: string): boolean {
 
 /**
  * "rushing receiving and passing props" / "pass + rush props" — skill families
- * named with an explicit props ask. Does not fire on generic "5 leg NFL parlay".
+ * including bare "10 leg rushing and receiving". Does not fire on generic NFL asks.
  */
 function skillPropFamilyFlags(t: string): {
   rush: boolean;
   pass: boolean;
   rec: boolean;
 } | null {
-  if (!/\bprops?\b/i.test(t)) return null;
-  const rush = /\brush(?:ing)?\b/i.test(t);
-  const pass = /\bpass(?:ing)?\b/i.test(t);
-  const rec = /\breceiv(?:ing|e|er)?\b|\breceptions?\b/i.test(t);
-  if (!rush && !pass && !rec) return null;
-  return { rush, pass, rec };
+  return footballSkillPropFamilies(t);
 }
 
 /**

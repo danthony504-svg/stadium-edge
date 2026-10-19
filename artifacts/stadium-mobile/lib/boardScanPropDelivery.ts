@@ -15,6 +15,7 @@ import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
 import { resolvePropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 
@@ -258,7 +259,7 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
-  if (/\b(?:passing|rushing|receiving)\s+yards?\b/.test(t)) return true;
+  if (footballSkillPropFamilies(t)) return true;
   if (/\b(?:pass|rush|rec)\s+yds?\b/.test(t)) return true;
   if (/\banytime\s+(?:td|touchdown)\b/.test(t)) return true;
   if (/\b(?:first|1st)\s+(?:td|touchdown)\b/.test(t)) return true;
