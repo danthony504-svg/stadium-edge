@@ -73,3 +73,15 @@ test("shared-draw coverage qualifies every posted rung before ladder seating wit
     }
   } finally { globalThis.fetch = oldFetch; }
 });
+
+test("direct/recovery scorer builder rejects passing TD and No sides before any network work", async () => {
+  const oldFetch=globalThis.fetch;
+  globalThis.fetch=async () => { throw new Error("out-of-scope picks must never fetch"); };
+  try {
+    const base={sport:"nfl",eventId:"event",athleteId:"id",playerTeamId:"25",teamAbbr:"SF",game:"Washington Commanders @ San Francisco 49ers",player:"QB",line:0.5,odds:-110,alt:false};
+    const pool=[{...base,marketLabel:"Pass TDs",marketKey:"player_pass_tds",side:"Over" as const},{...base,marketLabel:"Anytime TD",marketKey:"player_anytime_td",side:"Under" as const}];
+    const result=await buildFootballPropsOnlyTicket({target:5,pool,realOdds:[],teamIdMap:new Map(),allowedSports:["nfl"],askText:"5 leg touchdown",recoveryFill:true,signal:AbortSignal.timeout(1000)});
+    assert.equal(result.picks.length,0);
+    assert.equal(result.perf?.candidatesSelected,0);
+  } finally { globalThis.fetch=oldFetch; }
+});

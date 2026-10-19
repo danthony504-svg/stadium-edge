@@ -68,12 +68,12 @@ const EXAMPLE_ASKS: ReadonlyArray<{
     expectPhrase: "reception picks",
     legs: 3,
   },
-  // No dedicated passing-TD lock — TD token locks the touchdowns family.
+  // Passing TD is distinct from an anytime scorer.
   {
     ask: "3 passing TD picks tonight",
-    expectId: "fb_touchdowns",
-    expectLabel: "touchdowns",
-    expectPhrase: "touchdown picks",
+    expectId: "fb_pass_tds",
+    expectLabel: "passing TDs",
+    expectPhrase: "passing TD picks",
     legs: 3,
   },
   {
@@ -187,7 +187,7 @@ test("every EXPLICIT_MARKET_LOCK_RULES label: analyzed=0, 0/N, partial, N/N", ()
     assert.match(phrase, /picks$/);
 
     // Only TD lock rules may mention touchdown/TD in the phrase — others must not.
-    if (["fb_touchdowns", "fb_first_td", "fb_anytime_td"].includes(rule.id)) {
+    if (["fb_touchdowns", "fb_first_td", "fb_anytime_td", "fb_pass_tds", "fb_rush_tds", "fb_receiving_tds"].includes(rule.id)) {
       assert.match(phrase, /td|touchdown/i);
     } else {
       assert.doesNotMatch(
@@ -547,10 +547,6 @@ test("analyzed count source is lock-scoped (HR excludes hits/TB/Ks; other locks 
       ask: "5 leg touchdown",
       expectKeys: [
         "player_anytime_td",
-        "player_first_td",
-        "player_rush_tds",
-        "player_reception_tds",
-        "player_pass_tds",
       ],
       hrBoardAsk: false,
       banned: /home_runs|hits|pass_yds|assists/,
