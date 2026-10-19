@@ -7,6 +7,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry } from "./api.ts";
 import { sportsFromAskTeamNicknames } from "./coachAskTeamScope.ts";
 import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
+import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
 // Sport keywords used to focus the chat realOdds context on the league(s) the
 // user named. Only unambiguous terms — "football" is omitted because it spans
@@ -121,7 +122,8 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   // them. Resolve this before board loading, not after fetching every sport.
   if (
     out.size === 0 &&
-    footballSkillPropFamilies(t) &&
+    (footballSkillPropFamilies(t) ||
+      matchExplicitMarketLocks(t)?.ids.every(id => id.startsWith("fb_"))) &&
     !isNegatedSportKeyword(t, "nfl") &&
     !isNegatedSportKeyword(t, "football")
   ) {

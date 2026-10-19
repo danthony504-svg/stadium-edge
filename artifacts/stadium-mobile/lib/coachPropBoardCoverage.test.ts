@@ -101,3 +101,10 @@ test("bare rushing/receiving loads the NFL board before props fetch, preserving 
   assert.deepEqual(coachBoardSportsForAsk("10 leg NBA and NFL player props", 10, ALL).sort(), ["nba", "nfl"]);
   assert.ok(coachBoardSportsForAsk("10 leg mixed sports", 10, ALL).includes("nba"));
 });
+
+test("bare touchdown, longest rush and receptions requests focus football before loading", () => {
+  for (const ask of ["5 leg touchdown", "5 first touchdown", "5 leg longest rush", "5 leg receptions"]) {
+    assert.deepEqual(coachBoardSportsForAsk(ask, 5, ALL), ["nfl"]);
+  }
+  assert.deepEqual(coachBoardSportsForAsk("5 leg college touchdown", 5, ALL), ["ncaaf"]);
+});

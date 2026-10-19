@@ -41,6 +41,8 @@ import {
   isAnytimeTdPropMarket,
 } from "./anytimeTdPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
+import { distinctPropSimSeeds } from "./coachPropSimCoverage.ts";
+import { requiresScoringOrder } from "./binaryPropMarket.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
 export const FOOTBALL_PROPS_ONLY_BATCH = 8;
@@ -98,6 +100,7 @@ export function shouldUseFootballPropsOnlySkillMix(opts: {
  */
 export function isFootballPropsOnlyCandidate(pick: ParsedPick): boolean {
   if (!pick.isProp) return false;
+  if (requiresScoringOrder(pick.propMarketKey)) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
   const norm = normalizePropsOnlyPick(pick);
   const line = propsOnlyEffectiveLine(norm);
@@ -134,14 +137,15 @@ export function selectFootballPropsOnlyFromPicks(
         footballSkillPropRank(a.propMarketKey ?? a.market)
       );
     });
+  const seeds = distinctPropSimSeeds(ranked);
   const max = footballPropsOnlyMaxCandidates(targetLegs, ranked.length);
   const footballHeavy =
     poolSports != null ? poolIsFootballHeavy(poolSports) : poolIsFootballHeavy(ranked);
   if (footballHeavy) {
-    const { selected } = selectFootballMixPropSimCandidates(ranked, max);
+    const { selected } = selectFootballMixPropSimCandidates(seeds, max);
     return selected;
   }
-  const { selected } = selectBoardPropSimCandidates(ranked, max);
+  const { selected } = selectBoardPropSimCandidates(seeds, max);
   return selected;
 }
 

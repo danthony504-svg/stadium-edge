@@ -11,6 +11,9 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { isBinaryNullLineMarket } from "./binaryPropMarket.ts";
+import { findExactPropPoolRow } from "./propPoolIdentity.ts";
+export { isBinaryNullLineMarket } from "./binaryPropMarket.ts";
 import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import {
@@ -74,11 +77,6 @@ type PoolRow = {
 };
 
 /** Yes/No skill markets the Odds API often posts with point=null. */
-const BINARY_NULL_LINE_MARKETS = new Set([
-  "player_anytime_td",
-  "player_first_td",
-  "player_double_double",
-]);
 
 /** Map Odds API / feed sport keys to ESPN player-history sport ids. */
 export function normalizeHistorySport(sport: string | null | undefined): string {
@@ -97,13 +95,6 @@ export function normalizeHistorySport(sport: string | null | undefined): string 
   return n;
 }
 
-export function isBinaryNullLineMarket(market: string | null | undefined): boolean {
-  const m = String(market ?? "")
-    .toLowerCase()
-    .trim();
-  if (BINARY_NULL_LINE_MARKETS.has(m)) return true;
-  return /\banytime_td\b|\bfirst_td\b|\banytime\s*td\b|\btouchdown\b/.test(m);
-}
 
 /** Prior ESPN season year for thin current logs (NFL 2026 week 3 → 2025). */
 export function propsOnlyPriorSeasonYear(
@@ -294,24 +285,7 @@ export function propsOnlyPoolRowForPick(pick: ParsedPick, pool: PoolRow[]): Pool
   const side = norm.propSide === "Under" ? "Under" : norm.propSide === "Over" ? "Over" : null;
   const line = propsOnlyEffectiveLine(norm);
   if (!side || line == null) return undefined;
-  return (
-    pool.find(
-      (e) =>
-        e.player === norm.player &&
-        e.side === side &&
-        (e.line === line ||
-          e.line === pick.propLine ||
-          (e.line == null && isBinaryNullLineMarket(norm.propMarketKey ?? norm.market))) &&
-        (norm.game ? e.game === norm.game : true),
-    ) ??
-    pool.find((e) => e.player === norm.player && e.side === side) ??
-    pool.find(
-      (e) =>
-        e.player === norm.player &&
-        (e.line === line || e.line == null) &&
-        (norm.game ? e.game === norm.game : true),
-    )
-  );
+  return findExactPropPoolRow(norm, pool);
 }
 
 function historyValuesForMarket(

@@ -60,6 +60,8 @@ export type LockedMarketQualityShortfallOpts = {
   requestedLegs: number;
   /** Props graded/analyzed in the locked market. */
   analyzed: number;
+  /** Matching posted sides exist, even when exact evidence could not be produced. */
+  availableCandidates?: number;
   /** Legs that cleared quality and are shown. */
   qualified: number;
   /** Human lock label from ExplicitMarketLockRule (e.g. "touchdowns"). */
@@ -82,9 +84,23 @@ export function lockedMarketQualityShortfallNote(
   const phrase = lockedMarketPickPhrase(opts.marketLabel);
 
   if (analyzed <= 0) {
+    if ((opts.availableCandidates ?? 0) > 0) {
+      return (
+        `I found matching posted ${phrase}, but couldn't complete the required history and exact-market simulation checks. ` +
+        `I won't substitute another market just to fill your ${requested}-leg request.`
+      );
+    }
     return (
       `I couldn't find any available ${phrase} for tonight that I could grade. ` +
       `I won't substitute another market just to fill your ${requested}-leg request.`
+    );
+  }
+
+  if ((opts.availableCandidates ?? 0) > analyzed) {
+    return (
+      `You asked for ${requested} ${phrase}. I could grade ${analyzed} matching posted lines; ` +
+      `${qualified} met Stadium Edge's quality standards. ` +
+      `Additional posted lines remain ungraded, so I won't add them without the required checks.`
     );
   }
 
@@ -117,6 +133,7 @@ export type ResolveCoachParlayShortfallLeadOpts = {
    * props-only propLegsScored for the already-allowlisted pool.
    */
   analyzed: number;
+  availableCandidates?: number;
   isMarketLocked: boolean;
   /** Incomplete prop scoring — prefer pending copy over quality shortfall. */
   propsPending?: boolean;
@@ -166,6 +183,7 @@ export function resolveCoachParlayShortfallLead(
       return lockedMarketQualityShortfallNote({
         requestedLegs: requested,
         analyzed: Math.max(0, Math.floor(opts.analyzed)),
+        availableCandidates: opts.availableCandidates,
         qualified,
         marketLabel: label,
       });

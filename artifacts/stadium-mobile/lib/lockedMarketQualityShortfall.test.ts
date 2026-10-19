@@ -699,3 +699,20 @@ test("bare football-family shortfalls distinguish zero analyzed from quality fai
   assert.match(partial, /showing 1/);
   assert.doesNotMatch(partial, /10 market picks/);
 });
+
+test("posted but ungradable touchdown candidates are not reported as unavailable", () => {
+  const note = resolveCoachParlayShortfallLead({ askText: "5 leg touchdown", requestedLegs: 5,
+    qualified: 0, analyzed: 0, availableCandidates: 58, isMarketLocked: true });
+  assert.match(note, /found matching posted touchdown picks/);
+  assert.match(note, /history and exact-market simulation checks/);
+  assert.doesNotMatch(note, /couldn't find any available|none met.*quality/);
+});
+
+test("partial coverage never claims ungraded lines were weaker or failed quality", () => {
+  const note = resolveCoachParlayShortfallLead({ askText: "10 leg rushing and receiving", requestedLegs: 10,
+    qualified: 2, analyzed: 42, availableCandidates: 453, isMarketLocked: true });
+  assert.match(note, /grade 42 matching posted lines/);
+  assert.match(note, /2 met/);
+  assert.match(note, /Additional posted lines remain ungraded/);
+  assert.doesNotMatch(note, /instead of adding weaker/);
+});
