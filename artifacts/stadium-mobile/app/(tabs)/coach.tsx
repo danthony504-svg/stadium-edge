@@ -1223,6 +1223,26 @@ export default function CoachScreen() {
                     </View>
                   );
                 })}
+                {!item.building && !coachPremiumUnlocked && isFreeTwoLegCoachPreview(item.requestedLegs) && (item.picks?.length ?? 0) > 0 ? (
+                  <View style={{ marginHorizontal: 12, marginTop: 8, padding: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.card, gap: 10 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>Want more than 2 picks?</Text>
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 14, lineHeight: 20 }}>
+                      {isSignedIn
+                        ? "Your 2-leg Coach picks are free. Subscribe to unlock 3–15 legs, detailed AI breakdowns, and premium Coach features."
+                        : "Enjoy 2 free Coach picks without signing in. Sign in and subscribe to unlock 3–15 legs, detailed AI breakdowns, and premium Coach features."}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={isSignedIn ? "Subscribe for more Coach picks" : "Sign in or subscribe for more Coach picks"}
+                      onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
+                      style={({ pressed }) => ({ backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 12, alignItems: "center", opacity: pressed ? 0.85 : 1 })}
+                    >
+                      <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 14 }}>
+                        {isSignedIn ? "Subscribe for More Picks" : "Sign In / Subscribe for More Picks"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             );
           }}
