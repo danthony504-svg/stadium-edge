@@ -1,1 +1,1 @@
-Build 78 runtime 1.1.0 — owner-approved production release 2026-10-19; Coach free-preview fixes, subscriber composer, premium auth gate, hide sign-in update box. See docs/build78-owner-release-exception-2026-10-19.md. Run critical CI and iOS export before publish.
+Build 78 runtime 1.1.0 — hide Home Device attestation on production; keep preview/development diagnostics. UI visibility only. Existing critical CI and iOS export required before production publish.

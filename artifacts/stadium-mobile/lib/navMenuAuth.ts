@@ -34,3 +34,10 @@ export function plansMenuItem(): {
 export function shouldShowOtaDiagnosticsMenuItem(_isDev: boolean): boolean {
   return true;
 }
+
+/** Home diagnostics are test-only; production always stays hidden. */
+export function shouldShowOtaHomeDiagnostics(channel: string | null | undefined, isDev = false): boolean {
+  const normalized = String(channel ?? "").trim().toLowerCase();
+  if (normalized === "production") return false;
+  return isDev || normalized === "preview" || normalized === "development";
+}
