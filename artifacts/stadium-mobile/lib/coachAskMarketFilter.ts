@@ -17,6 +17,8 @@ import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 import { footballSkillPropFamilies } from "./footballSkillPropIntent.ts";
 
 export type CoachAskMarketConstraint = {
+  /** A bare TD scorer ask means scoring Yes/Over, not a No bet. */
+  touchdownScorersOnly?: boolean;
   /** Stage props only — no ML / spread / total game lines. */
   propsOnly: boolean;
   /**
@@ -69,7 +71,7 @@ const PASS_PROP_KEYS = [
 const HOME_RUN_PROP_KEYS = ["batter_home_runs"] as const;
 
 /** First-TD / anytime-TD / FG / combo asks. */
-const TD_PROP_KEYS = ["player_anytime_td", "player_first_td", "player_rush_tds", "player_reception_tds"] as const;
+const TD_PROP_KEYS = ["player_anytime_td"] as const;
 const ANYTIME_TD_PROP_KEYS = ["player_anytime_td"] as const;
 const FIRST_TD_PROP_KEYS = ["player_first_td"] as const;
 const FG_PROP_KEYS = ["player_field_goals"] as const;
@@ -350,6 +352,7 @@ export function parseCoachAskMarketConstraint(
       excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...explicit.allowedMarketKeys],
+      ...((explicit.ids.includes("fb_touchdowns") || explicit.ids.includes("fb_anytime_td")) && !/\bunder\b|\bno\s+(?:tds?|touchdowns?)\b/i.test(t) ? { touchdownScorersOnly: true } : {}),
     };
   }
 
@@ -527,10 +530,10 @@ export function propMarketKeyAllowed(
 
 /** Filter posted prop-pool rows to the ask's market allowlist. */
 export function filterPropPoolByAskMarkets<
-  T extends { marketKey?: string | null },
->(pool: T[], allowed: readonly string[] | null | undefined): T[] {
+  T extends { marketKey?: string | null; side?: string | null },
+>(pool: T[], allowed: readonly string[] | null | undefined, constraint?: Pick<CoachAskMarketConstraint, "touchdownScorersOnly">): T[] {
   if (!allowed || allowed.length === 0) return pool;
-  return pool.filter((row) => propMarketKeyAllowed(row.marketKey, allowed));
+  return pool.filter((row) => propMarketKeyAllowed(row.marketKey, allowed) && (!constraint?.touchdownScorersOnly || canonicalPropMarketKey(row.marketKey) !== "player_anytime_td" || /^(over|yes)$/i.test(row.side ?? "")));
 }
 
 /** Final ticket defense: drop legs outside the allowlist (or non-props when props-only). */
@@ -538,6 +541,7 @@ export function filterPicksByAskMarketConstraint<
   T extends {
     isProp?: boolean;
     propMarketKey?: string | null;
+    propSide?: string | null;
     market?: string | null;
     pick?: string | null;
   },
@@ -565,6 +569,9 @@ export function filterPicksByAskMarketConstraint<
     out = out.filter((p) =>
       propMarketKeyAllowed(p.propMarketKey ?? null, constraint.allowedMarketKeys),
     );
+  }
+  if (constraint.touchdownScorersOnly) {
+    out = out.filter(p => canonicalPropMarketKey(p.propMarketKey) !== "player_anytime_td" || /^(over|yes)$/i.test(p.propSide ?? "") || (!p.propSide && /\b(over|yes)\b/i.test(p.pick ?? "")));
   }
   return out;
 }

@@ -71,19 +71,18 @@ test("PART A: NCAAF explicit anytime TD locks only player_anytime_td", () => {
   );
 });
 
-test("PART A: bare touchdown / td keeps broader TD family", () => {
+test("PART A: bare touchdown / td means anytime scorer only", () => {
   for (const ask of ["5 leg touchdown", "5 leg td", "7 leg touchdowns tonight"]) {
     const m = matchExplicitMarketLocks(ask);
     assert.ok(m?.ids.includes("fb_touchdowns"), ask);
     assert.equal(m!.ids.includes("fb_anytime_td"), false, ask);
     const keys = m!.allowedMarketKeys;
     assert.ok(keys.includes("player_anytime_td"), ask);
-    assert.ok(keys.includes("player_first_td"), ask);
-    assert.ok(keys.includes("player_pass_tds"), ask);
+    assert.deepEqual(keys, ["player_anytime_td"], ask);
   }
 });
 
-test("PART A: first TD stays first-only; pass TD phrasing still reaches pass_tds via broad lock", () => {
+test("PART A: first TD stays first-only; explicit pass TD phrasing stays pass-only", () => {
   const first = parseCoachAskMarketConstraint("4 leg first touchdown");
   assert.deepEqual(first.allowedMarketKeys, ["player_first_td"]);
 

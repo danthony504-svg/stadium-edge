@@ -154,9 +154,27 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     markets: ["player_pass_interceptions"],
   },
   {
+    id: "fb_pass_tds",
+    label: "passing TDs",
+    re: /\b(?:pass(?:ing)?|qb|quarterback)\s+(?:tds?|touchdowns?)\b/i,
+    markets: ["player_pass_tds"],
+  },
+  {
+    id: "fb_rush_tds",
+    label: "rushing TDs",
+    re: /\brush(?:ing)?\s+(?:tds?|touchdowns?)\b/i,
+    markets: ["player_rush_tds"],
+  },
+  {
+    id: "fb_receiving_tds",
+    label: "receiving TDs",
+    re: /\b(?:rec(?:eiving)?|reception)\s+(?:tds?|touchdowns?)\b/i,
+    markets: ["player_reception_tds"],
+  },
+  {
     id: "fb_first_td",
     label: "first TD",
-    re: /\b(?:first|1st)\s+(?:td|touchdown)\b/i,
+    re: /\b(?:first|1st)\s+(?:tds?|touchdowns?)\b/i,
     markets: ["player_first_td"],
   },
   // Explicit anytime / ATD BEFORE bare touchdowns — Stage 3 Coach funnel:
@@ -164,21 +182,15 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
   {
     id: "fb_anytime_td",
     label: "anytime TD",
-    re: /\b(?:anytime\s+(?:td|touchdown)|atd)\b/i,
+    re: /\b(?:anytime\s+(?:tds?|touchdowns?)|atd)\b/i,
     markets: ["player_anytime_td"],
   },
   {
     id: "fb_touchdowns",
     label: "touchdowns",
-    // Broader TD family only when the ask did NOT name anytime/ATD/first.
+    // Unqualified TD asks mean a player scoring, never a QB passing TD or first scorer.
     re: /\b(?:touchdowns?|tds?)\b/i,
-    markets: [
-      "player_anytime_td",
-      "player_first_td",
-      "player_rush_tds",
-      "player_reception_tds",
-      "player_pass_tds",
-    ],
+    markets: ["player_anytime_td"],
   },
   // Field goals BEFORE bare "goals" so "field goals" never locks NHL/soccer goals.
   {

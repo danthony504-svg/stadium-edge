@@ -69,8 +69,8 @@ const FAMILY_CASES: Array<{
   { ask: "5 leg shots props", id: "soccer_shots", keys: ["player_shots"], reject: ["player_shots_on_target"] },
   { ask: "5 leg anytime goal", id: "soccer_nhl_goal_scorer", keys: ["player_goal_scorer_anytime"] },
   // NFL / NCAAF
-  { ask: "5 leg touchdown", id: "fb_touchdowns", keys: ["player_anytime_td", "player_first_td", "player_rush_tds", "player_reception_tds", "player_pass_tds"] },
-  { ask: "5 leg td", id: "fb_touchdowns", keys: ["player_anytime_td", "player_first_td", "player_pass_tds"] },
+  { ask: "5 leg touchdown", id: "fb_touchdowns", keys: ["player_anytime_td"] },
+  { ask: "5 leg td", id: "fb_touchdowns", keys: ["player_anytime_td"] },
   {
     ask: "5 leg NFL anytime touchdown picks",
     id: "fb_anytime_td",

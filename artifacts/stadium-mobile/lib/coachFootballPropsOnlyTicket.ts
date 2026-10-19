@@ -1,3 +1,4 @@
+import { parseCoachAskMarketConstraint, filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
 /**
  * Greenfield props-only ticket builder (all sports).
  *
@@ -701,10 +702,12 @@ export async function buildFootballPropsOnlyTicket(
   };
   const candidatesPoolBefore = opts.pool.length;
   // Fail closed when caller provides scope: unknown/other-league rows never sim.
-  const scopedPool =
+  const sportScopedPool =
     sportScope.allowedSports.length > 0
       ? filterPoolByAllowedSports(opts.pool, sportScope)
       : opts.pool;
+  const marketConstraint = parseCoachAskMarketConstraint(opts.askText);
+  const scopedPool = filterPropPoolByAskMarkets(sportScopedPool, marketConstraint.allowedMarketKeys, marketConstraint);
   const candidatesPoolAfter = scopedPool.length;
   const propPoolSize = scopedPool.length;
   const athleteLinked = countAthleteLinked(scopedPool);

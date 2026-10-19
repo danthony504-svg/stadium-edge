@@ -464,6 +464,7 @@ async function buildCoachParlayImpl(opts: {
   const scanPropPool = filterPropPoolByAskMarkets(
     inputs.propPool,
     marketConstraint.allowedMarketKeys,
+    marketConstraint,
   );
   const propsOnly = marketConstraint.propsOnly;
   const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
@@ -792,7 +793,7 @@ async function buildCoachParlayImpl(opts: {
       recoverySportScope,
     );
     const recoveryPool = isMarketLocked
-      ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys)
+      ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys, marketConstraint)
       : filterPoolForFootballSkillRecovery(recoverySourcePool, recoverySportScope);
     if (
       shouldRecoverPropsOnlyWithFootballSkillBoard({

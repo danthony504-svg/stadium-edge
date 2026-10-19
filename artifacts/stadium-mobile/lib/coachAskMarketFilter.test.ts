@@ -317,7 +317,7 @@ test("rushing yards and passing TDs locks both named families (not pass yards)",
   assert.equal(c.propsOnly, true);
   const keys = c.allowedMarketKeys?.slice().sort() ?? [];
   assert.ok(keys.includes("player_rush_yds"));
-  assert.ok(keys.includes("player_anytime_td"));
+  assert.ok(!keys.includes("player_anytime_td"));
   assert.ok(keys.includes("player_pass_tds"));
   assert.equal(keys.includes("player_pass_yds"), false);
 });
@@ -629,4 +629,29 @@ test("bare skill intent routes props-only while yards and generic asks retain me
     assert.equal(wantsPropsOnly(ask), false);
     assert.equal(parseCoachAskMarketConstraint(ask).propsOnly, false);
   }
+});
+
+
+test("bare touchdown requests keep scoring Yes sides, never passing/first TD or No", () => {
+  const pool = [
+    {marketKey:"player_anytime_td",side:"Over"},
+    {marketKey:"player_anytime_td",side:"Under"},
+    {marketKey:"player_pass_tds",side:"Over"},
+    {marketKey:"player_first_td",side:"Over"},
+  ];
+  for (const ask of ["5 leg touchdown","5 leg td","5 touchdowns","5 leg NFL touchdown scorers","5 leg NCAAF anytime touchdowns"]) {
+    const c=parseCoachAskMarketConstraint(ask);
+    assert.deepEqual(c.allowedMarketKeys,["player_anytime_td"],ask);
+    assert.deepEqual(filterPropPoolByAskMarkets(pool,c.allowedMarketKeys,c),[pool[0]],ask);
+    const picks=pool.map(p=>({isProp:true,propMarketKey:p.marketKey,propSide:p.side}));
+    assert.deepEqual(filterPicksByAskMarketConstraint(picks,c),[picks[0]],ask);
+  }
+});
+test("explicit passing/rushing/receiving TD asks stay exact, including mixed markets", () => {
+  for (const [ask,key] of [["5 passing touchdowns","player_pass_tds"],["5 QB TDs","player_pass_tds"],["5 rushing TDs","player_rush_tds"],["5 receiving touchdowns","player_reception_tds"]]) {
+    assert.deepEqual(parseCoachAskMarketConstraint(ask).allowedMarketKeys,[key],ask);
+  }
+  assert.deepEqual(new Set(parseCoachAskMarketConstraint("passing TDs and rushing TDs").allowedMarketKeys),new Set(["player_pass_tds","player_rush_tds"]));
+  const no=parseCoachAskMarketConstraint("anytime TD under 0.5");
+  assert.notEqual(no.touchdownScorersOnly,true);
 });
