@@ -11,6 +11,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
+import * as Updates from "expo-updates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -102,6 +103,8 @@ type CoachMessage = {
   picks?: ParsedPick[];
   building?: boolean;
   buildStatus?: string;
+  /** Frozen wall time from this session’s start to delivery, shown on preview only. */
+  buildDurationMs?: number;
   requestedLegs?: number;
   /**
    * Automatic N-leg builds use nleg_ticket — PickCard must not offer Add-to-slip.
@@ -124,6 +127,7 @@ export default function CoachScreen() {
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
   const showComposer = !!isSignedIn && coachPremiumUnlocked;
+  const showBuildDuration = String(Updates.channel ?? "").trim().toLowerCase() === "preview";
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -400,6 +404,10 @@ export default function CoachScreen() {
         building: false,
         buildStatus: undefined,
         picks: storedPicks,
+        buildDurationMs:
+          !opts.failed && opts.requestedLegs >= 2 && picks.length > 0 && sessionRef.current.startedAtMs > 0
+            ? Math.max(0, Date.now() - sessionRef.current.startedAtMs)
+            : undefined,
         text: storedText,
         requestedLegs: opts.requestedLegs || undefined,
         // Automatic N-leg / multi-leg Coach builds never use the legacy slip CTA.
@@ -908,6 +916,11 @@ export default function CoachScreen() {
                 building: false,
                 buildStatus: undefined,
                 picks: storedLate,
+                // A late upgrade gets its actual delivery time, not the earlier shortfall time.
+                buildDurationMs:
+                  requestedLegs >= 2 && picks.length > 0 && sessionRef.current.startedAtMs > 0
+                    ? Math.max(0, Date.now() - sessionRef.current.startedAtMs)
+                    : undefined,
                 // Full late ticket: never keep timedOut budget-stop copy.
                 // Clear empty-budget / shortfall copy once a complete ticket lands.
                 text:
@@ -1249,6 +1262,16 @@ export default function CoachScreen() {
                     </View>
                   );
                 })}
+                {showBuildDuration && !item.building && (item.picks?.length ?? 0) > 0 && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) ? (
+                  <Text
+                    accessibilityRole="text"
+                    style={{ marginHorizontal: 16, marginTop: 6, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}
+                  >
+                    {(item.picks?.length ?? 0) >= (item.requestedLegs ?? 0)
+                      ? `Built in ${(item.buildDurationMs / 1000).toFixed(1)}s`
+                      : `Returned ${item.picks?.length ?? 0}/${item.requestedLegs} picks in ${(item.buildDurationMs / 1000).toFixed(1)}s`}
+                  </Text>
+                ) : null}
                 {!item.building && !coachPremiumUnlocked && isFreeTwoLegCoachPreview(item.requestedLegs) && (item.picks?.length ?? 0) === 2 ? (
                   <View style={{ marginHorizontal: 12, marginTop: 8, padding: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.card, gap: 10 }}>
                     <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>Want more than 2 picks?</Text>
