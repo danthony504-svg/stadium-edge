@@ -1274,10 +1274,8 @@ export default function CoachScreen() {
           }}
         />
 
-        {coachPremiumUnlocked ? (
-        <>
         {showComposer ? (
-          <>
+        <>
         {/* Attached-photo previews — up to 3, above the composer until sent. */}
         {attachedImages.length ? (
           <View
