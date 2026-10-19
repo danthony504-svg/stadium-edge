@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTO_FREE_COACH_ASK, freeCoachAskForStyle, shouldAutoBuildFreeCoachPreview } from "./coachAutoFreePreview.ts";
+import { createCoachSession } from "./coach/session.ts";
 const base = { subscriptionHydrated: true, premiumUnlocked: false, messageCount: 1, busy: false, alreadyStartedOnFocus: false, pendingLaunch: false };
 test("free or signed-out visitor starts exactly two-leg parlay when Coach is first opened", () => {
   assert.equal(shouldAutoBuildFreeCoachPreview(base), true);
@@ -24,4 +25,9 @@ test("four Home tiles request distinct real-odds two-leg Coach builds", () => {
   assert.match(asks[1], /higher estimated hit probability/);
   assert.match(asks[2], /positive expected value/);
   assert.match(asks[3], /never add weak or unqualified legs/);
+});
+
+test("new Coach session has open outcome but should still auto-build when UI is not busy", () => {
+  assert.equal(createCoachSession().outcome, "open");
+  assert.equal(shouldAutoBuildFreeCoachPreview({...base, busy: false}), true);
 });
