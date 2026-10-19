@@ -1123,7 +1123,7 @@ export function PickCard({
             }
           }
           variant="compact"
-          hideLockedTeaser={!!freeCoachPreview && !premiumLocked}
+          hideLockedTeaser={!premiumLocked}
           pick={premiumLocked ? undefined : pick}
           propHolistic={
             premiumLocked
