@@ -88,7 +88,8 @@ import { reconcileCoachTerminalNote } from "@/lib/coachPropsOnlyFailReason";
 import { propsOnlySportLabelFromAsk } from "@/lib/boardScanPropDelivery";
 import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { AUTO_FREE_COACH_ASK, freeCoachAskForStyle, shouldAutoBuildFreeCoachPreview, type FreeCoachStyle } from "@/lib/coachAutoFreePreview";
 
 type Role = "user" | "assistant";
 
@@ -1032,18 +1033,41 @@ export default function CoachScreen() {
     [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
 
-  useEffect(() => {
+  const autoPreviewOnFocusRef = useRef(false);
+  const autoPreviewStyleRef = useRef<FreeCoachStyle | undefined>(undefined);
+  useFocusEffect(useCallback(() => {
     const launch = takeCoachLaunch();
-    if (launch?.freshThread) {
-      setMessages([
-        {
-          id: "welcome",
-          role: "assistant",
-          text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
-        },
-      ]);
+    if (launch?.freshThread && !busy) {
+      const welcome: CoachMessage = {
+        id: "welcome", role: "assistant",
+        text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
+      };
+      messagesRef.current = [welcome];
+      setMessages([welcome]);
+      autoPreviewOnFocusRef.current = false;
+      autoPreviewStyleRef.current = launch.freePreviewStyle;
     }
-  }, []);
+    const id = setTimeout(() => {
+      if (shouldAutoBuildFreeCoachPreview({
+        subscriptionHydrated: !!sub?.hydrated,
+        premiumUnlocked: coachPremiumUnlocked,
+        messageCount: messagesRef.current.length,
+        busy,
+        alreadyStartedOnFocus: autoPreviewOnFocusRef.current,
+        pendingLaunch: !!(draft.trim() || attachedImages.length),
+      })) {
+        autoPreviewOnFocusRef.current = true;
+        const ask = autoPreviewStyleRef.current
+          ? freeCoachAskForStyle(autoPreviewStyleRef.current)
+          : AUTO_FREE_COACH_ASK;
+        autoPreviewStyleRef.current = undefined;
+        void send(ask);
+      }
+    }, 250);
+    // Keep the once-per-thread latch through busy/subscription re-renders.
+    // Only a new explicit Home launch resets it.
+    return () => { clearTimeout(id); };
+  }, [sub?.hydrated, coachPremiumUnlocked, busy, draft, attachedImages.length, send]));
 
   useEffect(() => {
     return () => {

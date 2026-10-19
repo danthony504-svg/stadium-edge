@@ -26,6 +26,8 @@ import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import { useSubscriptionOptional } from "@/context/SubscriptionContext";
+import type { FreeCoachStyle } from "@/lib/coachAutoFreePreview";
 import {
   fetchUpsetSpots,
   getGames,
@@ -383,6 +385,7 @@ type HomeSportFeedProps = {
   hotCardWidth: number;
   quickCardWidth: number;
   coachTourRef?: React.RefObject<View | null>;
+  coachPremiumUnlocked: boolean;
 };
 
 function HomeSportFeed({
@@ -397,6 +400,7 @@ function HomeSportFeed({
   hotCardWidth,
   quickCardWidth,
   coachTourRef,
+  coachPremiumUnlocked,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
@@ -967,6 +971,11 @@ function HomeSportFeed({
       },
     });
 
+  const openFreeCoachTile = (style: FreeCoachStyle) => {
+    markCoachHomeLaunch(style);
+    router.push("/coach");
+  };
+
   const quickActions: {
     label: string;
     subtitle: string;
@@ -979,29 +988,30 @@ function HomeSportFeed({
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => coachPremiumUnlocked ? askCoach("Build me the best parlay", true) : openFreeCoachTile("hot"),
     },
     {
       label: "Easy Money",
       subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => coachPremiumUnlocked ? askCoach("Build me a safe parlay") : openFreeCoachTile("easy"),
     },
     {
       label: "Best Value",
       subtitle: "Top projected edges",
       icon: "bullseye-arrow",
       color: colors.primary,
-      onPress: () =>
-        router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} }),
+      onPress: () => coachPremiumUnlocked
+        ? router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} })
+        : openFreeCoachTile("value"),
     },
     {
       label: "Longshots",
       subtitle: "High upside plays",
       icon: "rocket-launch",
       color: "#a78bfa",
-      onPress: () => router.push("/steals"),
+      onPress: () => coachPremiumUnlocked ? router.push("/steals") : openFreeCoachTile("longshot"),
     },
   ];
 
@@ -1846,6 +1856,8 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const subscription = useSubscriptionOptional();
+  const coachPremiumUnlocked = !!subscription?.hydrated && !!subscription.coachPremiumUnlocked;
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= 680;
@@ -2031,6 +2043,7 @@ export default function HomeScreen() {
             hotCardWidth={hotCardWidth}
             quickCardWidth={quickCardWidth}
             coachTourRef={coachTourRef}
+          coachPremiumUnlocked={coachPremiumUnlocked}
           />
         </ErrorBoundary>
       )}
