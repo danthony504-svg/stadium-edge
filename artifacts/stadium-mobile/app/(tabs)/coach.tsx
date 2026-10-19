@@ -1037,7 +1037,7 @@ export default function CoachScreen() {
   const autoPreviewStyleRef = useRef<FreeCoachStyle | undefined>(undefined);
   useFocusEffect(useCallback(() => {
     const launch = takeCoachLaunch();
-    if (launch?.freshThread && sessionRef.current.outcome !== "open") {
+    if (launch?.freshThread && !busy) {
       const welcome: CoachMessage = {
         id: "welcome", role: "assistant",
         text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
@@ -1052,7 +1052,7 @@ export default function CoachScreen() {
         subscriptionHydrated: !!sub?.hydrated,
         premiumUnlocked: coachPremiumUnlocked,
         messageCount: messagesRef.current.length,
-        busy: sessionRef.current.outcome === "open" || busy,
+        busy,
         alreadyStartedOnFocus: autoPreviewOnFocusRef.current,
         pendingLaunch: !!(draft.trim() || attachedImages.length),
       })) {
