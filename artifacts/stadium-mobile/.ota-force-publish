@@ -1,1 +1,1 @@
-football mix prop∥game overlap #688 — merge ed40030787724f84c490eef771acbc29654c73c3 2026-10-11T03:39Z
+Build 78 runtime 1.1.0 — owner-approved production release 2026-10-19; Coach free-preview fixes, subscriber composer, premium auth gate, hide sign-in update box. See docs/build78-owner-release-exception-2026-10-19.md. Run critical CI and iOS export before publish.
