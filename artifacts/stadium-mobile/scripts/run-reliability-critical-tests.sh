@@ -20,6 +20,7 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/scoreBreakdownCrash.test.ts \
     lib/startupCrashPath.test.ts \
     lib/installGlobalCrashHandlers.test.ts \
+    lib/coachPropAudit.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
     lib/coachReliabilityReporter.test.ts
   node --import ./test/register-hooks.mjs --test \

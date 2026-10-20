@@ -1,3 +1,4 @@
+import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { parseCoachAskMarketConstraint, filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
 /**
  * Greenfield props-only ticket builder (all sports).
@@ -276,6 +277,7 @@ function scoredLegFromHit(
   rawHit: number | null,
   poolRow?: PropPoolEntry | null,
   rushCtx?: {
+    propAudit?: CoachPropAudit;
     oppRushDefense?: FootballOppDefenseMap;
     espnGames?: EspnGame[];
     teamIdMap?: Map<string, GameTeamIds>;
@@ -288,6 +290,7 @@ function scoredLegFromHit(
   probabilityProvenance: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null = null,
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
+  const reject = (reason: string) => { rushCtx?.propAudit?.observe(norm, "simulation", reason); return null; };
   const clipped = clipPropSimHitForGrade(norm, rawHit);
   let hit = sanitizeSimHitForGrade(clipped, {
     market: norm.market,
@@ -299,7 +302,7 @@ function scoredLegFromHit(
     simulationStatKey: "player_prop",
     expectedStatKey: "player_prop",
   });
-  if (!propsOnlyLegClearsOdds(norm, hit, oddsSlack)) return null;
+  if (!propsOnlyLegClearsOdds(norm, hit, oddsSlack)) return reject("odds_or_sim_sanity_gate");
 
   const sport = norm.sport ?? poolRow?.sport;
   const marketKey = norm.propMarketKey ?? norm.market;
@@ -316,7 +319,7 @@ function scoredLegFromHit(
       teamIdMap: rushCtx.teamIdMap,
     })
   ) {
-    return null;
+    return reject("player_team_game_mismatch");
   }
   const oppId = opponentTeamIdForProp({
     sport,
@@ -360,7 +363,7 @@ function scoredLegFromHit(
       vsOpponentGames,
     })
   ) {
-    return null;
+    return reject("missing_opponent_defense");
   }
   if (
     shouldBlockRushOverVsDefense({
@@ -372,7 +375,7 @@ function scoredLegFromHit(
       ownPack,
     })
   ) {
-    return null;
+    return reject("rush_over_defense_block");
   }
   const defTilt = propOppDefenseTilt({
     sport,
@@ -397,7 +400,7 @@ function scoredLegFromHit(
     hitAdjustment: "defense_tilt",
   });
   hit = seatingHitFromProvenance(alignedProvenance, candidateId);
-  if (hit == null) return null;
+  if (hit == null) return reject("unauthorized_adjusted_simulation");
 
   const trend = propsOnlyTrendFromHistory(
     ph,
@@ -632,6 +635,7 @@ function toLocalHistory(
 }
 
 export type FootballPropsOnlyBuildOpts = {
+  propAudit?: CoachPropAudit;
   target: number;
   pool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
@@ -700,6 +704,7 @@ export async function buildFootballPropsOnlyTicket(
       ? opts.allowedSports
       : [],
   };
+  for (const entry of opts.pool) opts.propAudit?.observe(parsedPickFromPoolEntry(entry), "posted", "posted");
   const candidatesPoolBefore = opts.pool.length;
   // Fail closed when caller provides scope: unknown/other-league rows never sim.
   const sportScopedPool =
@@ -1025,6 +1030,15 @@ export async function buildFootballPropsOnlyTicket(
     });
   }
 
+  for (const pick of candidates) {
+    const row = propsOnlyPoolRowForPick(pick, scopedPool);
+    const key = propsOnlySimLookupKey(pick, row);
+    const hit = key ? propHits.get(key) : null;
+    const history = lookupPropsOnlyPlayerHistory(pick.player, pick.athleteId, seededHistory);
+    opts.propAudit?.observe(pick, "simulation", hit?.hitProbability == null ? "simulation_unavailable" : "simulation_completed", {
+      nullReason: hit?.nullReason ?? (hit?.hitProbability == null ? "no_simulation_response" : null), historyGames: history?.recent?.length ?? null,
+    });
+  }
   const nullReasons = collectNullReasons(candidates, propHits, scopedPool);
 
   // Count graded BEFORE odds filter — phone empties were scoring 0 because
@@ -1039,6 +1053,7 @@ export async function buildFootballPropsOnlyTicket(
   // swap to Under / softer alt Over so Coach still fills the seat without
   // locking a bad main Over (Monangai Over 40 → Under or Over 24.5).
   const rushCtx = {
+    propAudit: opts.propAudit,
     oppRushDefense: opts.oppRushDefense,
     espnGames: opts.espnGames,
     teamIdMap: opts.teamIdMap,
@@ -1115,10 +1130,12 @@ export async function buildFootballPropsOnlyTicket(
             })
           ) {
             // Still missing Match after swap (or same Over) — demote via rank later.
+            opts.propAudit?.observe(pick, "simulation", "missing_opponent_defense");
             return alt === pick ? [] : [alt];
           }
           return [alt];
         }
+        opts.propAudit?.observe(pick, "simulation", "missing_opponent_defense");
         return [];
       }
       if (
@@ -1180,6 +1197,7 @@ export async function buildFootballPropsOnlyTicket(
       }) ||
       raw == null
     ) {
+      opts.propAudit?.observe(pick, "simulation", "simulation_identity_or_evidence_invalid", { nullReason: provenance?.nullReason });
       continue;
     }
     const leg = scoredLegFromHit(
@@ -1191,7 +1209,7 @@ export async function buildFootballPropsOnlyTicket(
       reliability,
       provenance,
     );
-    if (leg) propScored.push(leg);
+    if (leg) { opts.propAudit?.observe(leg.pick, "grading", "graded"); propScored.push(leg); }
   }
   propScored.sort(comparePropsOnlyLegsByReliableEv);
 

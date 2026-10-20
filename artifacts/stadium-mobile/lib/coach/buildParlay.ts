@@ -1,3 +1,6 @@
+import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
+import { persistCoachPropAudit } from "../coachPropAuditStore.ts";
+import { parsedPickFromPoolEntry } from "../propSelection.ts";
 import { isAutomaticFreeCoachAsk } from "../coachSmallTicketCompletion.ts";
 import { preparedEnvironmentForGames, filterPreparedDeliveryPicks } from "@/lib/preparedGameContext";
 import { coachContextWarmer } from "@/lib/coachContextWarmup";
@@ -201,6 +204,7 @@ async function loadScanInputs(
   espnGames: EspnGame[];
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
+  rawPropPool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
   liveOdds: RealOddsEntry[];
   sports: string[];
@@ -258,6 +262,7 @@ async function loadScanInputs(
   let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
   );
+  const rawPropPool = propPool;
   // Belt: drop any row whose kickoff slipped outside the requested local day.
   propPool = filterOddsForSlateDay(propPool, slateDay);
   // Exclusions already removed games before prop fetch; belt-and-suspenders on
@@ -274,6 +279,7 @@ async function loadScanInputs(
     espnGames,
     oddsGames,
     propPool,
+    rawPropPool,
     realOdds: realOddsFromOddsGames(oddsGames),
     liveOdds,
     sports,
@@ -286,6 +292,7 @@ async function loadScanInputs(
 }
 
 async function buildCoachParlayImpl(opts: {
+  propAudit?: CoachPropAudit;
   requestedLegs: number;
   /** User ask — scopes sports (college football) and priority inject. */
   askText?: string | null;
@@ -523,6 +530,16 @@ async function buildCoachParlayImpl(opts: {
     inputs.espnGames,
   );
   const propPoolSize = activePropPool.length;
+  if (opts.propAudit) {
+    const keys = (pool: PropPoolEntry[]) => new Set(pool.map(e => propAuditKey(parsedPickFromPoolEntry(e))));
+    const inputKeys = keys(inputs.propPool), marketKeys = keys(scanPropPool), collegeKeys = keys(collegeTeamPropPool), sportKeys = keys(scopedPropPool), active = keys(activePropPool);
+    for (const entry of inputs.rawPropPool) {
+      const p = parsedPickFromPoolEntry(entry), key = propAuditKey(p);
+      opts.propAudit.observe(p, "posted", "posted");
+      const reason = !inputKeys.has(key) ? "slate_day_or_team_scope_excluded" : !marketKeys.has(key) ? "request_market_excluded" : gameLinesOnly ? "game_lines_only_request" : !collegeKeys.has(key) ? "college_player_props_not_requested" : !sportKeys.has(key) ? "request_sport_scope_excluded" : !active.has(key) ? "scorer_side_or_player_game_grounding_gate" : "eligible";
+      opts.propAudit.observe(p, reason === "eligible" ? "eligible" : "scope_excluded", reason);
+    }
+  }
 
   const hasMlbProps = activePropPool.some(
     (e) => String(e.sport ?? "").toLowerCase() === "mlb",
@@ -711,6 +728,7 @@ async function buildCoachParlayImpl(opts: {
       remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
     });
     const built = await buildFootballPropsOnlyTicket({
+      propAudit: opts.propAudit,
       target,
       pool: activePropPool,
       realOdds: inputs.realOdds,
@@ -810,6 +828,7 @@ async function buildCoachParlayImpl(opts: {
           : `Locked markets missed the quality bar — scoring yards / receptions / sacks alts…`,
       );
       const recovered = await buildFootballPropsOnlyTicket({
+      propAudit: opts.propAudit,
         target,
         pool: recoveryPool.length ? recoveryPool : activePropPool,
         realOdds: inputs.realOdds,
@@ -874,6 +893,7 @@ async function buildCoachParlayImpl(opts: {
       } else if (built.propLegsScored > 0 && picks.length === 0) {
         // Retry preferred (already allowlisted) pool with recovery slack.
         const softPreferred = await buildFootballPropsOnlyTicket({
+      propAudit: opts.propAudit,
           target,
           pool: activePropPool,
           realOdds: inputs.realOdds,
@@ -1141,6 +1161,7 @@ async function buildCoachParlayImpl(opts: {
     remainingMs: scanRemaining,
   });
   const scanPromise = tryReachFullBoardScan({
+    propAudit: opts.propAudit,
     target,
     stopWhenTargetQualified: target === 2 && isAutomaticFreeCoachAsk(opts.askText),
     oddsGames: inputs.oddsGames,
@@ -1553,6 +1574,22 @@ async function buildCoachParlayImpl(opts: {
 /** Preparation never extends the foreground deadline or competes with its queue. */
 export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
   const release = coachContextWarmer.beginForeground();
-  try { return await buildCoachParlayImpl(opts); }
-  finally { release(); }
+  const releaseAudit = beginCoachPropAuditForeground();
+  const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const safePicks = (picks: ParsedPick[]) => picks.filter(p => {
+    const issues = audit.deliveryIssues(p);
+    if (!issues.length) return true;
+    audit.observe(p, "delivery_blocked", `delivery_blocked:${issues.join(",")}`);
+    return false;
+  });
+  try {
+    const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
+      onPartialPicks: opts.onPartialPicks ? picks => opts.onPartialPicks?.(safePicks(picks)) : undefined });
+    const picks = safePicks(result.picks);
+    audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
+    return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some props could not be verified, so I left them out.` : result.note };
+  } catch (e) {
+    audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
+    throw e;
+  } finally { releaseAudit(); release(); }
 }
