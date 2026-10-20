@@ -40,6 +40,8 @@ echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health ==
     test/reliabilityOtaWorkflowGates.test.ts \
     test/reliabilityPolicy.test.ts \
     test/coachReliability.test.ts \
+    test/soccerTeamHistory.test.ts \
+    test/soccerScoreboardPaths.test.ts \
     test/reliabilityHealth.test.ts
 )
 
