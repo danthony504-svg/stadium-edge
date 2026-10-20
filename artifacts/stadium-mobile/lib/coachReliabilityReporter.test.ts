@@ -323,3 +323,10 @@ test("temporary coach-rel-diag logs call + post without throwing", async () => {
     else process.env.CRASH_REPORTING_DISABLED = prevDisabled;
   }
 });
+
+test("cancelled builds are recorded as cancellations rather than exceptions", () => {
+  const body=buildCoachReliabilityBody({cancelled:true,requestedLegCount:2,returnedLegCount:0,durationMs:4909});
+  assert.equal(body?.eventType,"coach_cancelled");
+  assert.equal(body?.failureReason,"cancelled");
+  assert.equal(body?.terminalStatus,"cancelled");
+});

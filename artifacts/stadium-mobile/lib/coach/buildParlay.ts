@@ -1,3 +1,4 @@
+import { isAutomaticFreeCoachAsk } from "../coachSmallTicketCompletion.ts";
 import { preparedEnvironmentForGames, filterPreparedDeliveryPicks } from "@/lib/preparedGameContext";
 import { coachContextWarmer } from "@/lib/coachContextWarmup";
 import { filterUngroundedCoachPropPool } from "@/lib/coachPreSimGrounding";
@@ -1141,6 +1142,7 @@ async function buildCoachParlayImpl(opts: {
   });
   const scanPromise = tryReachFullBoardScan({
     target,
+    stopWhenTargetQualified: target === 2 && isAutomaticFreeCoachAsk(opts.askText),
     oddsGames: inputs.oddsGames,
     propPool: activePropPool,
     realOdds: scanRealOdds,

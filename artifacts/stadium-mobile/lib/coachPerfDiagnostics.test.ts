@@ -254,9 +254,9 @@ test("5) cancellation", () => {
     enrichmentMs: 400,
     picks: [groundedPick(), groundedPick()],
   });
-  assert.equal(body?.eventType, "coach_exception");
+  assert.equal(body?.eventType, "coach_cancelled");
   assert.equal(body?.terminalStatus, "cancelled");
-  assert.equal(body?.rootCause, "user_cancelled");
+  assert.equal(body?.rootCause, "request_cancelled");
   assert.equal(body?.updateId, SAMPLE_UPDATE_ID);
 });
 
