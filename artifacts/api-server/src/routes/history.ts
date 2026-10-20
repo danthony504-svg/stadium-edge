@@ -1,3 +1,4 @@
+import { readCoachingStudy } from "../lib/coachingTendencies.js";
 import { teamSearchFallbackQuery } from "../lib/teamSearchQuery.js";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
@@ -458,6 +459,17 @@ router.get("/sports/team-history", async (req, res): Promise<void> => {
       lastGameDate: null,
     });
   }
+});
+
+// Cache-only study inspection. A miss never launches provider collection.
+router.get("/sports/coaching-study", async (req, res): Promise<void> => {
+  const sport = String(req.query.sport ?? "").toLowerCase();
+  const teamId = String(req.query.teamId ?? "");
+  if (!["nba", "wnba", "ncaab", "nfl", "ncaaf"].includes(sport) || !/^\d+$/.test(teamId)) {
+    res.status(400).json({ error: "supported sport and numeric teamId required" }); return;
+  }
+  const study = await readCoachingStudy(sport, teamId);
+  res.json({ sport, teamId, status: study ? "shadow_ready" : "unavailable", study, affectsPickGrades: false });
 });
 
 // Team name search — resolves a free-text team name ("Lakers", "the Eagles")

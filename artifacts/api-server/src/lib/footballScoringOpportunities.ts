@@ -13,6 +13,7 @@ export type ScoringPlay = {
 export type OpportunityCounts = { rush: number; target: number; pass: number; rushTd: number; passTd: number; inside10Rush: number; inside5Rush: number; inside10Target: number; inside5Target: number; qbRush: number; scramble: number };
 export type ScoringGame = {
   eventId: string; date: string; offense: OpportunityCounts; defense: OpportunityCounts;
+  calls?: { rush: number; pass: number; earlyDownRush: number; earlyDownPass: number };
   players: Record<string, OpportunityCounts>; qbTargets: Record<string, number>;
 };
 export type ScoringSnapshot = { sport: string; teamId: string; collectedAt: number; games: ScoringGame[]; fingerprint: string };
@@ -34,7 +35,7 @@ async function bounded<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Only explicit rush/pass types, real starting field position and exact athlete IDs. */
 export function summarizeScoringGame(eventId: string, date: string, teamId: string, plays: ScoringPlay[]): ScoringGame | null {
-  const out: ScoringGame = { eventId, date, offense: empty(), defense: empty(), players: {}, qbTargets: {} };
+  const out: ScoringGame = { eventId, date, offense: empty(), defense: empty(), calls: { rush: 0, pass: 0, earlyDownRush: 0, earlyDownPass: 0 }, players: {}, qbTargets: {} };
   const quarterbacks = new Set(plays.flatMap(p => (p.participants ?? []).filter(a => a.type === "passer").map(a => id(a.athlete)).filter(Boolean)));
   const seen = new Set<string>();
   let recognized = 0;
@@ -52,6 +53,11 @@ export function summarizeScoringGame(eventId: string, date: string, teamId: stri
     if (!own || !defId || own === defId || ![own, defId].includes(teamId) || p.start?.down == null || p.start.down < 1) continue;
     if (typeof yards !== "number" || !Number.isFinite(yards) || yards <= 0 || yards > 100) continue;
     recognized++;
+    if (own === teamId) {
+      const calls = out.calls!;
+      if (rush) { calls.rush++; if (p.start!.down! <= 2) calls.earlyDownRush++; }
+      else { calls.pass++; if (p.start!.down! <= 2) calls.earlyDownPass++; }
+    }
     if (yards > 20) continue;
     const isOwn = own === teamId;
     const totals = isOwn ? out.offense : out.defense;
