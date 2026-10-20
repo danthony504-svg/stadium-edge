@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
 import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
+import { resolveProviderLeagueSport } from "../lib/currentFactAuthority.js";
 import { shouldBlockPlayerSearch } from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
@@ -62,10 +63,13 @@ function parseScore(s: unknown): number | null {
 // schedule via ESPN's real ?season= param (used to fall back to the prior
 // season for off-season sports whose current schedule has no completed games).
 async function fetchTeamHistory(path: string, teamId: string, season?: string) {
+  // Team IDs are global across soccer competitions. The all-competition feed
+  // avoids silently restricting domestic/European form to Champions League.
+  const historyPath = path.startsWith("soccer/") ? "soccer/all" : path;
   const url =
-    `https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}/schedule` +
+    `https://site.api.espn.com/apis/site/v2/sports/${historyPath}/teams/${encodeURIComponent(teamId)}/schedule` +
     (season ? `?season=${season}` : "");
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!r.ok) throw new Error(`ESPN team schedule ${r.status}`);
   const data = (await r.json()) as SchedResp;
   const events = data.events ?? [];
@@ -90,7 +94,7 @@ async function fetchTeamHistory(path: string, teamId: string, season?: string) {
     if (!me || !opp) continue;
     const teamScore = parseScore(me.score);
     const oppScore = parseScore(opp.score);
-    const won = teamScore != null && oppScore != null ? teamScore > oppScore : null;
+    const won = teamScore != null && oppScore != null && teamScore !== oppScore ? teamScore > oppScore : null;
     results.push({
       eventId: ev.id,
       date: ev.date,
@@ -190,10 +194,11 @@ async function fetchGameBoxScore(
 function summarizeForm(results: Array<{ teamScore: number | null; oppScore: number | null; won: boolean | null; margin: number | null }>, n: number) {
   const scored = results.filter((r) => r.teamScore != null && r.oppScore != null).slice(0, n);
   if (scored.length === 0) {
-    return { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null };
+    return { games: 0, wins: 0, losses: 0, draws: 0, ptsFor: null, ptsAgainst: null, avgMargin: null };
   }
   const wins = scored.filter((r) => r.won === true).length;
-  const losses = scored.filter((r) => r.won === false).length;
+  const losses = scored.filter((r) => r.teamScore! < r.oppScore!).length;
+  const draws = scored.filter((r) => r.teamScore === r.oppScore).length;
   const ptsFor = scored.reduce((a, r) => a + (r.teamScore as number), 0) / scored.length;
   const ptsAgainst = scored.reduce((a, r) => a + (r.oppScore as number), 0) / scored.length;
   const avgMargin = scored.reduce((a, r) => a + (r.margin as number), 0) / scored.length;
@@ -201,6 +206,7 @@ function summarizeForm(results: Array<{ teamScore: number | null; oppScore: numb
     games: scored.length,
     wins,
     losses,
+    draws,
     ptsFor: Math.round(ptsFor * 10) / 10,
     ptsAgainst: Math.round(ptsAgainst * 10) / 10,
     avgMargin: Math.round(avgMargin * 10) / 10,
@@ -224,11 +230,13 @@ function recentList(
 // many consecutive games — from the most recent — ended the same way. Real,
 // derived straight from final scores; null when there are no decided games.
 function computeStreak(results: Array<{ won: boolean | null }>) {
-  const decided = results.filter((r) => r.won === true || r.won === false);
-  if (decided.length === 0) return null;
+  // A draw breaks a win/loss streak; do not skip it to extend an older run.
+  const decided = results;
+  if (decided.length === 0 || decided[0].won == null) return null;
   const type = decided[0].won ? "W" : "L";
   let count = 0;
   for (const r of decided) {
+    if (r.won == null) break;
     if ((r.won ? "W" : "L") === type) count++;
     else break;
   }
@@ -237,12 +245,13 @@ function computeStreak(results: Array<{ won: boolean | null }>) {
 
 // Full-season record over every COMPLETED game in the feed — a real proxy for
 // standings/quality. winPct is wins / decided games, rounded to 3 dp.
-function seasonRecord(results: Array<{ won: boolean | null }>) {
-  const decided = results.filter((r) => r.won === true || r.won === false);
-  if (decided.length === 0) return { games: 0, wins: 0, losses: 0, winPct: null };
-  const wins = decided.filter((r) => r.won === true).length;
-  const losses = decided.length - wins;
-  return { games: decided.length, wins, losses, winPct: Math.round((wins / decided.length) * 1000) / 1000 };
+function seasonRecord(results: Array<{ won: boolean | null; teamScore: number | null; oppScore: number | null }>) {
+  const scored = results.filter(r => r.teamScore != null && r.oppScore != null);
+  if (scored.length === 0) return { games: 0, wins: 0, losses: 0, draws: 0, winPct: null };
+  const wins = scored.filter(r => r.teamScore! > r.oppScore!).length;
+  const losses = scored.filter(r => r.teamScore! < r.oppScore!).length;
+  const draws = scored.length - wins - losses;
+  return { games: scored.length, wins, losses, draws, winPct: Math.round((wins / scored.length) * 1000) / 1000 };
 }
 
 // Matchup history: pulls form for both teams + head-to-head meetings.
@@ -261,7 +270,7 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `matchup-history:${path}:${homeTeamId}:${awayTeamId}`;
+    const key = `matchup-history:v2:${path}:${homeTeamId}:${awayTeamId}`;
     const out = await cachedJson(key, 15 * 60 * 1000, async () => {
       const [home, away] = await Promise.all([
         fetchTeamHistory(path, homeTeamId).catch(() => ({ teamName: null, results: [] as Awaited<ReturnType<typeof fetchTeamHistory>>["results"] })),
@@ -396,12 +405,12 @@ router.get("/sports/team-history", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-history:${path}:${teamId}`;
+    const key = `team-history:v2:${path}:${teamId}`;
     const out = await cachedJson(key, 15 * 60 * 1000, async () => {
       let { teamName, results } = await fetchTeamHistory(path, teamId);
       let season: string | null = null;
       const decided = (rs: typeof results) =>
-        rs.filter((r) => r.won === true || r.won === false).length;
+        rs.filter((r) => r.teamScore != null && r.oppScore != null).length;
       // Off-season fallback: current schedule has no decided games → pull the
       // prior season so the team still has real, recent form to show.
       if (decided(results) === 0) {
@@ -468,6 +477,7 @@ router.get("/sports/team-search", async (req, res): Promise<void> => {
     abbreviation?: string;
     league?: string;
     defaultLeagueSlug?: string;
+    sport?: string;
     logos?: Array<{ href?: string; rel?: string[] }>;
   };
   // Pro leagues first, then college — so "Eagles" resolves to the Philadelphia
@@ -476,7 +486,7 @@ router.get("/sports/team-search", async (req, res): Promise<void> => {
     nfl: 0, nba: 1, mlb: 2, nhl: 3, wnba: 4, ncaaf: 5, ncaab: 6,
   };
   try {
-    const key = `team-search:${query.toLowerCase()}`;
+    const key = `team-search:v2:${query.toLowerCase()}`;
     const data = await cachedJson<{ items?: TeamItem[] }>(key, 30 * 60 * 1000, async () => {
       const url =
         `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=team&query=` +
@@ -497,7 +507,8 @@ router.get("/sports/team-search", async (req, res): Promise<void> => {
     const seen = new Set<string>();
     for (const it of data.items ?? []) {
       const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-      const sport = LEAGUE_TO_SPORT[leagueSlug];
+      const mapped = resolveProviderLeagueSport(leagueSlug);
+      const sport = it.sport === "soccer" || mapped === "soccer" ? "soccer" : LEAGUE_TO_SPORT[leagueSlug];
       if (!sport || !it.id || !it.displayName) continue;
       const dedup = `${sport}:${it.id}`;
       if (seen.has(dedup)) continue;
