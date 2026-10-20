@@ -1,3 +1,4 @@
+import type { ParsedPick } from "../components/PickCard.tsx";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -165,7 +166,7 @@ test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends f
 
 test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {
   const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
-  const alt = {
+  const alt: ParsedPick = {
     game: "E @ F",
     market: "Alt Spread",
     pick: "F +3.5",
@@ -295,7 +296,7 @@ test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs"
   };
   assert.equal(sanitizeCoachTicketPicks([hrVp]).length, 0);
 
-  const alt = {
+  const alt: ParsedPick = {
     game: "E @ F",
     market: "Alt Spread",
     pick: "F +3.5",

@@ -211,7 +211,7 @@ test("unsupported fallback blocked on recovery / preserving filter", () => {
     marketKey: "player_pass_yds",
   });
   const pick = withCoachQualification(
-    scoreWith({ provenance: hist, simHit: 0.65 }) as never,
+    scoreWith({ provenance: hist, simHit: 0.65 }),
     { requestStyle: "props_only", isProp: true },
   );
   assert.equal(pick.qualificationStatus, "rejected");
@@ -283,7 +283,7 @@ test("authorized exact 10k still clears ALT + reserved fill + final", () => {
       propIsAlt: true,
     }),
   );
-  const tagged = withCoachQualification(pick as never, {
+  const tagged = withCoachQualification(pick, {
     requestStyle: "normal",
     isProp: true,
   });

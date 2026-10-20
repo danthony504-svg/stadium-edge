@@ -6,7 +6,7 @@ import type { TennisBio, TennisCareer, TennisH2H, TennisMatchup, TennisPlayer } 
 import type { GameSimResult } from "./gameMonteCarlo.js";
 
 export type AnalysisFactor<T = string | number | null> = {
-  value: T;
+  value: T | null;
   available: boolean;
 };
 
@@ -104,7 +104,7 @@ const UNAVAILABLE_FACTOR_LABELS = [
   "Public / sharp betting %",
 ] as const;
 
-function factor<T>(value: T | null | undefined, available = value != null): AnalysisFactor<T | null> {
+function factor<T>(value: T | null | undefined, available = value != null): AnalysisFactor<T> {
   return { value: available ? (value as T) : null, available: available && value != null };
 }
 

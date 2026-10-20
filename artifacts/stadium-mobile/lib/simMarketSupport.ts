@@ -122,6 +122,9 @@ const TEAM_TOTAL_LINE_RANGE: Record<string, { min: number; max: number }> = {
 };
 
 export type SimHitSanityContext = {
+  providerSport?: string | null;
+  eventSport?: string | null;
+  propMarketKey?: string | null;
   market?: string;
   sport?: string;
   period?: string;

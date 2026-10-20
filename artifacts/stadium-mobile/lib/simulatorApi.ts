@@ -298,6 +298,7 @@ export function fetchSimulatorInjuries(sport: string, signal?: AbortSignal): Pro
 }
 
 export type SimParkWeatherReport = {
+  climateControlled?: boolean;
   gameId: string;
   homeTeam: string;
   awayTeam: string;
@@ -344,7 +345,9 @@ export async function fetchSimulatorGameOutcome(
     weatherImpact?: number | null;
     coverQueries?: Array<{
       id: string;
-      kind: "ml" | "spread" | "total" | "teamTotal";
+      kind: "ml" | "spread" | "total" | "teamTotal" | "raceTo";
+      period?: string;
+      raceTarget?: number;
       teamSide?: "home" | "away";
       line?: number;
       totalSide?: "over" | "under";

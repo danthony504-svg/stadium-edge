@@ -578,7 +578,7 @@ async function prefetchCandidateHistory(
               { sport: r.sport, athleteId: r.athleteId, name: r.player },
               ac.signal,
             );
-            let recent = mapRecent(h?.recent ?? []);
+            let recent: import("./coachFootballPropsOnlyGrade.ts").PropsOnlyHistoryGame[] = mapRecent(h?.recent ?? []);
             // Phone diag: early NFL season had 0–3 current games → insufficient_game_log.
             // Backfill prior season so grading has a real sample without inventing stats.
             if (recent.length < PROPS_ONLY_HISTORY_BACKFILL_BELOW) {

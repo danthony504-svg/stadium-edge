@@ -44,7 +44,7 @@ export type BalancedMixSlots = Record<BoardMarketCategory, number>;
 /** Slot budget per category for a fixed-leg ask — never exceeds target. */
 export function balancedMixSlots(
   target: number,
-  fractions: typeof BALANCED_MIX_FRACTIONS = BALANCED_MIX_FRACTIONS,
+  fractions: Readonly<Record<BoardMarketCategory, number>> = BALANCED_MIX_FRACTIONS,
   opts?: { floorTeamTotals?: boolean },
 ): BalancedMixSlots {
   if (target <= 0) {

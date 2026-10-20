@@ -195,7 +195,7 @@ function buildCoupledReceivingBySide(
       vsOpponentValues,
       opportunityShift: 1,
       defenseIndex:
-        (fam && gameCtx.defenseIndexByFamily?.[fam]) ?? gameCtx.defenseIndex ?? null,
+        (fam ? gameCtx.defenseIndexByFamily?.[fam] : null) ?? gameCtx.defenseIndex ?? null,
     });
     if (pre.opponentMatchupShift === 1) continue;
 

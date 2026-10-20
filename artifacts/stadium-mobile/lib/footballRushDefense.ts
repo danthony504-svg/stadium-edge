@@ -942,7 +942,7 @@ export function shouldPreferDefenseAltPick(opts: {
 
 export type DefenseAwarePickCandidate = {
   game: string;
-  player: string;
+  player?: string;
   market: string;
   propMarketKey?: string | null;
   propSide?: string | null;
@@ -965,6 +965,7 @@ export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
   hostileOver: T,
   candidates: readonly T[],
 ): T | null {
+  if (!hostileOver.player) return null;
   const marketKey = canonicalPropMarketKey(
     hostileOver.propMarketKey ?? hostileOver.market ?? "",
   );

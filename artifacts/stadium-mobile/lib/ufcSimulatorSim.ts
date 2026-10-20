@@ -1,6 +1,7 @@
 // UFC Game Simulator outcome — API first, then on-device fight analysis + 10k MC
 // when production /sports/simulate/game-outcome is stale (requires team IDs).
 
+import type { SimPeriodScope } from "./simMarketSupport";
 import { getFightAnalysis } from "./api";
 import { fetchSimulatorGameOutcome } from "./simulatorApi";
 import { fightSimToGameResult } from "./ufcFightSimMap";
@@ -17,7 +18,9 @@ type UfcSimOpts = {
   weatherImpact?: number | null;
   coverQueries?: Array<{
     id: string;
-    kind: "ml" | "spread" | "total" | "teamTotal";
+    kind: "ml" | "spread" | "total" | "teamTotal" | "raceTo";
+    period?: SimPeriodScope;
+    raceTarget?: number;
     teamSide?: "home" | "away";
     line?: number;
     totalSide?: "over" | "under";

@@ -51,6 +51,7 @@ function mapEspnEventToUfcFights(e: EspnEvent): SlateGameRow[] {
     const homeName = espnCompetitorName(home);
     if (!awayName || !homeName) continue;
     const statusObj = comp?.status ?? e.status;
+    const state = statusObj?.type?.state ?? e.status?.type?.state;
     const fightLabel = `${awayName} vs. ${homeName}`;
     out.push({
       id: String(comp?.id ?? e.id),
@@ -81,7 +82,7 @@ function mapEspnEventToUfcFights(e: EspnEvent): SlateGameRow[] {
       clock: statusObj?.displayClock ?? null,
       period: statusObj?.period ?? null,
       periodLabel: statusObj?.type?.shortDetail ?? statusObj?.type?.description ?? null,
-      state: statusObj?.type?.state ?? e.status?.type?.state ?? null,
+      state: state === "pre" || state === "in" || state === "post" ? state : null,
     });
   }
   return out;

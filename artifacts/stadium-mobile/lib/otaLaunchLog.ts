@@ -4,7 +4,7 @@
 
 export type OtaLogEntry = {
   ts: string;
-  step: "checkForUpdateAsync" | "fetchUpdateAsync" | "reloadAsync";
+  step: "deviceAttestation" | "checkForUpdateAsync" | "fetchUpdateAsync" | "reloadAsync";
   ok: boolean;
   detail: string;
 };

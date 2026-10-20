@@ -1,3 +1,4 @@
+import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
 import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by composite
@@ -221,7 +222,7 @@ function aliasPropSimHitsForBatch(
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
       altMarket && altMarket !== market
-        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        ? propSimKey(pick.player ?? "", altMarket, pick.propLine, pick.propSide ?? "")
         : null;
     if (altKey && out.has(altKey)) {
       out.set(clientKey, out.get(altKey)!);
@@ -314,7 +315,7 @@ function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
-  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  const rubric = pick.finalAiScore?.rubric?.scores?.lineShopping ?? pick.scores?.scores?.lineShopping ?? null;
   if (rubric != null) return rubric;
   if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
   return null;
@@ -436,7 +437,7 @@ async function simPropBatch(
   timedOut: boolean;
   playerHistory: Record<string, PlayerHistorySlice>;
 }> {
-  const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
+  const out = new Map<string, { hitProbability: number | null; nullReason?: string | null; simulations?: number; probabilityProvenance?: PropProbabilityProvenance | null }>();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
@@ -456,7 +457,7 @@ async function simPropBatch(
       const batchPick = batch.find(
         (p) =>
           propSimKeyForPick(p, poolRowForPropPick(p, pool)) === k ||
-          propSimKey(p.player, p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
+          propSimKey(p.player ?? "", p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
       );
       const poolRow = batchPick ? poolRowForPropPick(batchPick, pool) : undefined;
       const side =
@@ -802,7 +803,7 @@ function prescorePropRank(pick: ParsedPick, opts?: { hrBoard?: boolean }): numbe
     impliedProbPct: null,
     lineShoppingScore:
       pick.finalAiScore?.rubric?.scores?.lineShopping ??
-      pick.scores?.lineShopping ??
+      pick.scores?.scores?.lineShopping ??
       null,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit: pick.finalAiScore?.simHit ?? null,
@@ -824,6 +825,8 @@ async function simPropPoolUntilQualified(
   gameScored: BoardScoredLeg[],
   opts: {
     target: number;
+    ticketStyle?: string | null;
+    varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
@@ -868,7 +871,11 @@ async function simPropPoolUntilQualified(
     requirePropMix: footballSkill || opts.requirePropMix,
   });
 
-  const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
+  const quoteCandidates = bestPostedPropQuoteCandidates(pool);
+  for (const quote of quoteCandidates.discarded) {
+    opts.propAudit?.observe(parsedPickFromPoolEntry(quote), "scope_excluded", "equivalent_wager_better_posted_price");
+  }
+  const prescorePool = attachPickScores(quoteCandidates.selected.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
     propPool: pool,
     matchupHistory: opts.matchupHistory,
@@ -1629,6 +1636,8 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       espnGames: opts.espnGames,
       perfByFamily: opts.perfByFamily,
       calibration: opts.calibration,
+      ticketStyle: opts.ticketStyle,
+      varietyContext: opts.varietyContext,
     };
     const propPhaseStartedAt = Date.now();
     return simPropPoolUntilQualified(

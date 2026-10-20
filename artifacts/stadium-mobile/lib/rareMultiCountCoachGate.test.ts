@@ -344,7 +344,7 @@ test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
   assert.notEqual(boardLegPoolRole(pick, pick.finalAiScore), null);
   assert.equal(
     boardLegPoolRole(
-      { ...pick, allowRareMultiCount: false },
+      Object.assign({}, pick, { allowRareMultiCount: false }),
       pick.finalAiScore,
     ),
     null,

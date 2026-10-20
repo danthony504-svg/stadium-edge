@@ -1,3 +1,4 @@
+import { emptyPickSubScores } from "./pickScore.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -42,7 +43,7 @@ function mockRow(
       highRiskValuePlay: false,
       recommends: true,
       factors: [],
-      rubric: { scores: {}, composite: 7, grade: "B", confidencePct: 60, edgePct: edge },
+      rubric: { scores: emptyPickSubScores(), composite: 7, grade: "B", confidencePct: 60, edgePct: edge },
     },
     winProb: hit,
     edgePct: edge,
@@ -111,7 +112,6 @@ test("classifyGameSimRecommendation passes coin-flip games", () => {
     {
       overall: mockRow({ edge: 0.2, hit: 0.5, grade: "C" }),
       byTeam: { away: mockRow({ edge: 0.2, hit: 0.5, grade: "C" }), home: null },
-      ranked: [],
     },
     tightSim,
   );

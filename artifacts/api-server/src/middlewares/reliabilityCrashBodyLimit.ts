@@ -7,9 +7,9 @@ import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import { CRASH_MAX_BODY_BYTES } from "../lib/reliabilitySanitize";
 
-declare module "express-serve-static-core" {
-  interface Request {
-    __reliabilityCrashBodyParsed?: boolean;
+declare global {
+  namespace Express {
+    interface Request { __reliabilityCrashBodyParsed?: boolean; }
   }
 }
 

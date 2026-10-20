@@ -1,0 +1,25 @@
+name: Strict app and API checks
+on:
+  pull_request:
+    paths:
+      - "artifacts/stadium-mobile/**"
+      - "artifacts/api-server/**"
+      - "lib/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/stabilization-checks.yml"
+permissions:
+  contents: read
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --build
+      - run: pnpm exec tsc -p artifacts/api-server/tsconfig.json --noEmit
+      - run: pnpm exec tsc -p artifacts/stadium-mobile/tsconfig.json --noEmit
+      - run: node artifacts/api-server/build.mjs

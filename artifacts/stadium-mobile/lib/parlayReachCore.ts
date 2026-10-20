@@ -16,7 +16,7 @@ export type ParlayLegReject = {
   nearScore: number;
 };
 
-export function pickLegFingerprint(p: ParsedPick): string {
+export function pickLegFingerprint(p: { game?: string | null; market?: string | null; pick?: string | null; odds?: number | null }): string {
   return `${p.game}|${p.market}|${p.pick}|${p.odds}`.toLowerCase();
 }
 

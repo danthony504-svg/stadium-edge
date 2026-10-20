@@ -5,6 +5,8 @@ on:
       - "artifacts/api-server/src/lib/referral*"
       - "artifacts/api-server/src/routes/referrals.ts"
       - "artifacts/api-server/test/referral*"
+      - "artifacts/api-server/test/subscriptionWebhook.integration.test.ts"
+      - "artifacts/api-server/src/routes/subscriptions.ts"
       - "artifacts/api-server/test/register-hooks.mjs"
       - "artifacts/api-server/src/routes/account.ts"
       - "artifacts/stadium-mobile/**/referral*"
@@ -33,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: node --import ./test/register-hooks.mjs --test test/referralPolicy.test.ts test/referralStore.integration.test.ts
+      - run: node --import ./test/register-hooks.mjs --test test/referralPolicy.test.ts test/referralStore.integration.test.ts test/subscriptionWebhook.integration.test.ts
         working-directory: artifacts/api-server
         env:
           TEST_DATABASE_URL: postgres://referral_test:referral_test_only@127.0.0.1:5432/referral_test

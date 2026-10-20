@@ -364,7 +364,7 @@ export function evaluateGameLines(input: {
 }
 
 export function bestGameLine(evaluated: EvaluatedGameLine[]): EvaluatedGameLine | null {
-  return evaluated.length ? evaluated[0]! : null;
+  return evaluated.length ? [...evaluated].sort(rankEvaluated)[0]! : null;
 }
 
 export type GameLineRecommendations = {
@@ -608,8 +608,8 @@ function formatGameLineScoreNote(
     edge = rubric?.edgePct ?? null;
   }
   const grade =
-    scored?.finalAiScore.grade ??
     pick.finalAiScore?.grade ??
+    scored?.finalAiScore.grade ??
     pick.scores?.grade ??
     "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";

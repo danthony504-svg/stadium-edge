@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -20,7 +21,7 @@ function makePick(opts: {
   composite: number;
   isProp?: boolean;
 }): ParsedPick {
-  return {
+  return exactPropFixture({
     game: opts.game,
     market: opts.isProp ? "Passing Yards" : "Spread",
     pick: opts.pick,
@@ -45,11 +46,11 @@ function makePick(opts: {
         scores: {} as never,
       },
     },
-  } as ParsedPick;
+  } as ParsedPick);
 }
 
 function scored(pick: ParsedPick, rankScore: number): BoardScoredLeg {
-  return { pick, rankScore, edgePct: 10, confidencePct: 70 };
+  return { pick, rankScore, edgePct: 10, confidencePct: 70, evPct: null, impliedProbPct: null, lineShoppingScore: null, grade: pick.finalAiScore?.grade ?? null, simHit: pick.finalAiScore?.simHit ?? null, composite: pick.finalAiScore?.composite ?? null };
 }
 
 test("injects NFL and NCAAF when ticket is all MLB but football qualifies", () => {

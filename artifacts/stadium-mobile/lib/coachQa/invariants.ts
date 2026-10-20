@@ -33,7 +33,7 @@ export function checkParserInvariants(c: MatrixCase): QaCaseResult[] {
     id: `${baseId}:${suffix}`,
     suite: "parser",
     ok: true,
-    meta: { ask: c.ask, ...snap, ...meta },
+    meta: { ...snap, ...meta, ask: c.ask },
   });
 
   const fail = (

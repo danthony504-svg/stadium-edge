@@ -50,6 +50,11 @@ export type ParsedPick = {
     simHit?: number | null;
   };
   finalAiScore?: {
+    factors?: Array<{ key: string; label: string; score: number | null }>;
+    rubric?: { composite?: number | null; grade?: string | null; confidencePct?: number | null; edgePct?: number | null; scores?: Record<string, unknown> };
+    simAligned?: boolean;
+    recommends?: boolean;
+    highRiskValuePlay?: boolean;
     composite?: number | null;
     grade?: string | null;
     simHit?: number | null;

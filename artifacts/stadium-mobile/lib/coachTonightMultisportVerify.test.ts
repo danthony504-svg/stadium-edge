@@ -50,7 +50,7 @@ function makePick(opts: {
   isProp?: boolean;
   market?: string;
   odds?: number;
-  book?: string;
+  sportsbook?: string;
 }): ParsedPick {
   return {
     game: opts.game,
@@ -59,7 +59,7 @@ function makePick(opts: {
     odds: opts.odds ?? -110,
     sport: opts.sport,
     isProp: opts.isProp ?? false,
-    book: opts.book ?? "DraftKings",
+    sportsbook: opts.sportsbook ?? "DraftKings",
     finalAiScore: {
       composite: opts.composite,
       grade: "A",
@@ -82,7 +82,7 @@ function makePick(opts: {
 }
 
 function scored(pick: ParsedPick, rankScore: number): BoardScoredLeg {
-  return { pick, rankScore, edgePct: 10, confidencePct: 70 };
+  return { pick, rankScore, edgePct: 10, confidencePct: 70, evPct: null, impliedProbPct: null, lineShoppingScore: null, grade: pick.finalAiScore?.grade ?? null, simHit: pick.finalAiScore?.simHit ?? null, composite: pick.finalAiScore?.composite ?? null };
 }
 
 function countBySport(picks: { sport?: string | null }[]): Record<string, number> {
@@ -143,7 +143,7 @@ function buildMixedSlate(target: number) {
       pick: `T${i}a +2.5`,
       composite: 9 - i * 0.05,
       odds: -110,
-      book: "FanDuel",
+      sportsbook: "FanDuel",
     }),
   );
   const extras = [
@@ -154,7 +154,7 @@ function buildMixedSlate(target: number) {
       market: "Moneyline",
       composite: 7.5,
       odds: -105,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     }),
     makePick({
       sport: "wnba",
@@ -162,7 +162,7 @@ function buildMixedSlate(target: number) {
       pick: "Sky +4.5",
       composite: 7.4,
       odds: -110,
-      book: "BetMGM",
+      sportsbook: "BetMGM",
     }),
     makePick({
       sport: "ncaaf",
@@ -171,7 +171,7 @@ function buildMixedSlate(target: number) {
       composite: 7.3,
       isProp: true,
       odds: -115,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     }),
     makePick({
       sport: "nba",
@@ -179,7 +179,7 @@ function buildMixedSlate(target: number) {
       pick: "Lakers +3.5",
       composite: 7.2,
       odds: 100,
-      book: "Caesars",
+      sportsbook: "Caesars",
     }),
   ];
   const pool = [
@@ -394,7 +394,7 @@ function struffPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
     odds: 160,
     isProp: false,
     sport: "tennis",
-    book: "DraftKings",
+    sportsbook: "DraftKings",
     ...overrides,
   };
 }
@@ -426,7 +426,7 @@ test("Struff +3.5 @ +160: no unsupported A grade or +49.2% edge", () => {
       market: "Spread",
       pick: "Jan-Lennard Struff +3.5",
       odds: 160,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     } as RealOddsEntry,
     {
       sport: "tennis",
@@ -434,7 +434,7 @@ test("Struff +3.5 @ +160: no unsupported A grade or +49.2% edge", () => {
       market: "Moneyline",
       pick: "Jan-Lennard Struff ML",
       odds: 250,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     } as RealOddsEntry,
   ];
 
@@ -529,7 +529,7 @@ test("tennis handicap cover is independent of match-win (spread / strength / for
 });
 
 test("tennis scoring preserves exact book/event/market/side/line/odds", () => {
-  const pick = struffPick({ odds: -110, book: "DraftKings" });
+  const pick = struffPick({ odds: -110, sportsbook: "DraftKings" });
   const sim = struffSim(0.58, 0.52);
   const realOdds: RealOddsEntry[] = [
     {
@@ -538,7 +538,7 @@ test("tennis scoring preserves exact book/event/market/side/line/odds", () => {
       market: "Spread",
       pick: "Jan-Lennard Struff +3.5",
       odds: -110,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     } as RealOddsEntry,
     {
       sport: "tennis",
@@ -546,7 +546,7 @@ test("tennis scoring preserves exact book/event/market/side/line/odds", () => {
       market: "Moneyline",
       pick: "Jan-Lennard Struff ML",
       odds: -115,
-      book: "DraftKings",
+      sportsbook: "DraftKings",
     } as RealOddsEntry,
   ];
   assert.equal(resolveTennisSimHit(pick, sim, null, realOdds), 0.58);
@@ -556,7 +556,7 @@ test("tennis scoring preserves exact book/event/market/side/line/odds", () => {
     pick: pick.pick,
     odds: pick.odds,
     sport: pick.sport,
-    book: pick.book,
+    sportsbook: pick.sportsbook,
   };
   scoreGameLinePick(pick, realOdds, undefined, undefined, sim);
   assert.deepEqual(
@@ -566,7 +566,7 @@ test("tennis scoring preserves exact book/event/market/side/line/odds", () => {
       pick: pick.pick,
       odds: pick.odds,
       sport: pick.sport,
-      book: pick.book,
+      sportsbook: pick.sportsbook,
     },
     before,
   );
@@ -609,7 +609,7 @@ test("seated ticket preserves exact book/event/market/side/line/odds", () => {
     );
     assert.ok(src, `seated leg missing from pool: ${leg.game} ${leg.pick}`);
     assert.equal(leg.odds, src!.pick.odds);
-    assert.equal(leg.book, src!.pick.book);
+    assert.equal(leg.sportsbook, src!.pick.sportsbook);
     assert.equal(leg.sport, src!.pick.sport);
     assert.equal(leg.market, src!.pick.market);
   }

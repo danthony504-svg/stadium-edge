@@ -144,7 +144,7 @@ export default function PropDetailScreen() {
       return {
         athleteId: hit.athleteId,
         headshot: full?.headshot ?? null,
-        team: full?.team ?? hit.team ?? null,
+        team: full?.team ?? null,
       };
     },
   });
@@ -455,6 +455,22 @@ export default function PropDetailScreen() {
       return { away, home };
     },
   });
+  // Resolve player's team vs opponent. Prefer props-feed teamAbbr / ESPN search
+  // team name so Match (opposing pitcher + platoon) works even when the player
+  // has no MLB game log yet (Murakami-style imports). Fall back to recent
+  // opponents via teamNameMatches. Fail closed when ambiguous.
+  const { teamName, oppName } = useMemo(
+    () =>
+      resolvePropPlayerSides({
+        awayName,
+        homeName,
+        teamAbbr: teamAbbrParam || null,
+        playerTeam: playerTeamFromSearch,
+        recentOpponents: (historyQ.data?.recent ?? []).map((r) => r.opponentName),
+      }),
+    [awayName, homeName, teamAbbrParam, playerTeamFromSearch, historyQ.data],
+  );
+
   const defenseRows = useMemo(() => {
     const d = defenseQ.data;
     const rows = [d?.away, d?.home].filter(
@@ -472,21 +488,6 @@ export default function PropDetailScreen() {
     return rows;
   }, [defenseQ.data, oppName]);
 
-  // Resolve player's team vs opponent. Prefer props-feed teamAbbr / ESPN search
-  // team name so Match (opposing pitcher + platoon) works even when the player
-  // has no MLB game log yet (Murakami-style imports). Fall back to recent
-  // opponents via teamNameMatches. Fail closed when ambiguous.
-  const { teamName, oppName } = useMemo(
-    () =>
-      resolvePropPlayerSides({
-        awayName,
-        homeName,
-        teamAbbr: teamAbbrParam || null,
-        playerTeam: playerTeamFromSearch,
-        recentOpponents: (historyQ.data?.recent ?? []).map((r) => r.opponentName),
-      }),
-    [awayName, homeName, teamAbbrParam, playerTeamFromSearch, historyQ.data],
-  );
 
   // REAL home/away split of THIS market's value, straight from the game log we
   // already loaded. Needs at least one game on each side or we leave it null and

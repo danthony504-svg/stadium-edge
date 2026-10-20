@@ -118,7 +118,7 @@ export async function fetchServerGameSimulations(
     }
 
     const nameOnly = ["tennis", "ufc", "mma"].includes(sport);
-    const body: Record<string, unknown> = {
+    const body: Parameters<typeof runGameOutcomeSimInProcess>[0] & Record<string, unknown> = {
       sport,
       homeTeam: espn.homeTeam ?? label.home,
       awayTeam: espn.awayTeam ?? label.away,

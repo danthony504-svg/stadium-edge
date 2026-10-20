@@ -18,9 +18,9 @@ jobs:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$RENDER_DEPLOY_HOOK" ]; then
-            echo "RENDER_DEPLOY_HOOK secret not set — skip auto-deploy."
+            echo "::error::RENDER_DEPLOY_HOOK is not configured. No deployment was triggered."
             echo "Redeploy stadium-edge.onrender.com manually so /api/chat/context-stash and props fixes go live."
-            exit 0
+            exit 1
           fi
           curl -sf -X POST "$RENDER_DEPLOY_HOOK"
           echo "Render deploy triggered."

@@ -9,7 +9,7 @@ import {
   reportCoachScanReliability,
 } from "./coachReliabilityReporter.ts";
 import { shouldSendCrashReports } from "./crashReportingGate.ts";
-import { shouldAlertCoachEvent } from "../../api-server/src/lib/coachReliabilitySanitize.ts";
+import { shouldAlertCoachEvent, parseCoachMeta } from "../../api-server/src/lib/coachReliabilitySanitize.ts";
 import { parseCoachReliabilityIngestBody } from "../../api-server/src/lib/coachReliabilityIngest.ts";
 
 test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
@@ -67,10 +67,7 @@ test("2) valid thin slate => legitimate underfill, no immediate Telegram page", 
   const parsed = parseCoachReliabilityIngestBody(body);
   assert.ok(parsed);
   assert.equal(
-    shouldAlertCoachEvent({
-      ...parsed!,
-      answered: parsed!.answered ?? null,
-    }),
+    shouldAlertCoachEvent(parseCoachMeta(JSON.stringify(parsed))!),
     false,
   );
 });
@@ -106,10 +103,7 @@ test("3) player/game mismatch => grounding failure, immediate alert", () => {
   assert.ok(parsed);
   assert.equal(parsed!.failureCategory, "grounding");
   assert.equal(
-    shouldAlertCoachEvent({
-      ...parsed!,
-      answered: parsed!.answered ?? null,
-    }),
+    shouldAlertCoachEvent(parseCoachMeta(JSON.stringify(parsed))!),
     true,
   );
 });

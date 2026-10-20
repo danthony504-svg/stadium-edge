@@ -310,10 +310,10 @@ export function sportForPoolOrOddsEntry(
   return undefined;
 }
 
-function inferSportFromPickText(pick: ParsedPick): string | undefined {
+function inferSportFromPickText(pick: { market?: string; pick?: string; propMarketKey?: string | null }): string | undefined {
   const fromKey = sportFromPropMarketKey(pick.propMarketKey);
   if (fromKey) return fromKey;
-  const fromMarket = sportFromMarketText(pick.market, pick.propMarketKey);
+  const fromMarket = sportFromMarketText(pick.market ?? "", pick.propMarketKey);
   if (fromMarket) return fromMarket;
   const blob = normPickText(`${pick.market} ${pick.pick}`);
   for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
@@ -357,12 +357,12 @@ export function resolveExcludedSports(
 }
 
 /** Fill missing pick.sport from the prop pool or game odds so exclusion filters work. */
-export function enrichPicksWithSport(
-  picks: ParsedPick[],
-  propPool: PropPoolEntry[],
+export function enrichPicksWithSport<T extends { game?: string; player?: string; isProp?: boolean; sport?: string; market?: string; pick?: string; propMarketKey?: string | null }>(
+  picks: T[],
+  propPool: Array<{ game: string; player?: string; sport?: string }>,
   realOdds: { game: string; sport?: string }[],
   gameMeta?: { game: string; sport: string }[],
-): ParsedPick[] {
+): T[] {
   const sportByGame = new Map<string, string>();
   for (const e of realOdds) {
     if (e.sport && e.game) sportByGame.set(e.game.toLowerCase(), e.sport);

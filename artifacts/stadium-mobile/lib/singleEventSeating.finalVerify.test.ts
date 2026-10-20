@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 /**
  * Final pre-merge verification harness — proves shared-path behavior across
  * every Coach sport without changing production seating logic.
@@ -51,7 +52,7 @@ function scored(
   rankScore: number,
 ): BoardScoredLeg {
   return {
-    pick: { isProp: false, sport: "nfl", finalAiScore: mainScore, ...pick },
+    pick: exactPropFixture({ isProp: false, sport: "nfl", finalAiScore: mainScore, ...pick }),
     evPct: 2,
     edgePct: 3,
     confidencePct: 55,
@@ -515,7 +516,7 @@ test("ALT regression across applicable sports: distinct in pool, one seat, not p
         rankScore: 70,
       },
     ];
-    const seated = seatSingleEventTicket(ranked, {
+    const seated = seatSingleEventTicket<ParsedPick>(ranked, {
       target: 3,
       eventKey: row.game,
       sport: row.sport,

@@ -1,3 +1,4 @@
+import type { RealOddsEntry, PropPoolEntry, GameMeta } from "./api.ts";
 // Reach explicit N-leg parlay targets across the full live board before trimming.
 
 import type { ParsedPick } from "../components/PickCard.tsx";

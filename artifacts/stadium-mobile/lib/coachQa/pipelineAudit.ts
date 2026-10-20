@@ -27,6 +27,7 @@ type FakePick = {
   odds: number;
   game: string;
   player?: string;
+  side?: string;
   team?: string;
   propId?: string;
   graded?: boolean;

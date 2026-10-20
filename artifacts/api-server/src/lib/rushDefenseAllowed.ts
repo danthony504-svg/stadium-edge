@@ -172,7 +172,7 @@ export async function computeFootballDefenseAllowed(
 
     for (const ev of recent) {
       const eventId = String(ev.id);
-      const rows = await fetchBoxOffense(sport, eventId).catch(() => []);
+      const rows: BoxOffenseRow[] = await fetchBoxOffense(sport, eventId).catch(() => [] as BoxOffenseRow[]);
       if (rows.length < 2) continue;
       const opp = rows.find((r) => r.teamId !== String(teamId));
       if (!opp) continue;

@@ -1,3 +1,4 @@
+import { emptyPickSubScores } from "../pickScore.ts";
 /**
  * Shared Coach quality invariants A–G — every sport/path must satisfy these.
  * Pure control-flow tests; no I/O / MC.
@@ -72,6 +73,9 @@ function makeProp(opts: {
       simAligned: opts.simHit > 0.01,
       recommends: opts.grade === "A" || opts.grade === "B",
       composite: 50,
+      highRiskValuePlay: false,
+      factors: [],
+      rubric: { composite: null, grade: null, confidencePct: null, edgePct: null, scores: emptyPickSubScores() },
     },
   });
 }

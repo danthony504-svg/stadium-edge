@@ -75,15 +75,10 @@ function boardFixture() {
 }
 
 /** Mirrors loadScanInputs: bettable → slateDay → filter games/props/odds. */
-function applyLoadScanSlateFilter<T extends { commenceTime?: string; startsAt?: string | null }>(
+function applyLoadScanSlateFilter<O extends { commenceTime: string }, E extends { startsAt: string }, P extends { startsAt?: string | null }, L extends { startsAt?: string | null }>(
   ask: string,
   prior: string[],
-  board: {
-    oddsGames: Array<T & { commenceTime: string }>;
-    espnGames: Array<T & { startsAt: string }>;
-    propPool: Array<T & { startsAt?: string | null }>;
-    liveOdds: Array<T & { startsAt?: string | null }>;
-  },
+  board: { oddsGames: O[]; espnGames: E[]; propPool: P[]; liveOdds: L[] },
 ) {
   const slateDay = slateDayFromThread(ask, prior);
   return {

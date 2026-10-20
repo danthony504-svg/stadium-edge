@@ -73,6 +73,8 @@ export type SimAltLine = AltRungOption & {
 };
 
 export type ParsedPick = {
+  qualificationStatus?: "qualified" | "rejected";
+  qualificationReason?: import("../lib/coach/qualifyCoachCandidate").CoachQualificationReason;
   game: string;
   market: string;
   pick: string;
@@ -114,6 +116,7 @@ export type ParsedPick = {
   // AI-recommended prop cards so a tap can fetch the player's REAL game log and
   // show the line/side. Never affects the slip leg key (game/market/pick do).
   athleteId?: string | null;
+  playerTeamId?: string | null;
   player?: string;
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
@@ -2422,7 +2425,7 @@ export function backfillProps(
   let candidates = opts.selectionOpts
     ? rankPropPoolEntries([...byKey.values()], {
         ...opts.selectionOpts,
-        propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
+        propPool: opts.selectionOpts.propPool?.length ? opts.selectionOpts.propPool : propPool,
       })
     : [...byKey.values()];
   if (avoidLegKeys?.size) {

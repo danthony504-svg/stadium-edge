@@ -3,6 +3,7 @@ export type PlayerSearchHit = {
   name: string;
   sport: string;
   isActive: boolean;
+  team?: string | null;
 };
 
 function normName(s: string): string {

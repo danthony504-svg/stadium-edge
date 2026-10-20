@@ -43,6 +43,10 @@ echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health ==
     test/coachReliability.test.ts \
     test/soccerTeamHistory.test.ts \
     test/soccerScoreboardPaths.test.ts \
+    test/pushDelivery.test.ts \
+    test/dailyCoachNotification.test.ts \
+    test/subscriptionSync.test.ts \
+    test/revenueCatSubscriber.test.ts \
     test/reliabilityHealth.test.ts
 )
 
@@ -81,6 +85,7 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachPropSimCoverage.test.ts \
     lib/binaryPropMarket.test.ts \
     lib/propPoolIdentity.test.ts \
+    lib/pickScoreContextIdentity.test.ts \
     lib/coachAskMarketFilter.test.ts \
     lib/coachAskMarketFilter.extra.test.ts \
     lib/coachPropBoardCoverage.test.ts \
@@ -90,6 +95,8 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coach/scanCleanupContract.test.ts \
     lib/coachAskTeamScope.test.ts \
     lib/coachAutoFreePreview.test.ts \
+    lib/coachContextBudget.test.ts \
+    lib/coachPropQuoteCandidates.test.ts \
     lib/coachPremiumGate.test.ts \
     lib/totalBreakdown.test.ts \
     lib/coachP0UnvalidatedTotals.test.ts \

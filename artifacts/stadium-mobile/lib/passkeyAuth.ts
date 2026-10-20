@@ -17,6 +17,8 @@
 /** Minimal surface used by ClerkProvider + auth screens. */
 export type PasskeysApi = {
   isSupported: () => boolean;
+  get?: typeof import("@clerk/expo/passkeys").passkeys.get;
+  create?: typeof import("@clerk/expo/passkeys").passkeys.create;
 };
 
 type PasskeysModuleShape =
@@ -298,4 +300,11 @@ export function clerkAssociatedDomains(publishableKey: string): string[] {
   const host = clerkFrontendApiHost(publishableKey);
   if (!host) return [];
   return [`applinks:${host}`, `webcredentials:${host}`];
+}
+
+/** Type-only module reference never evaluates the native package at startup. */
+export function getProviderPasskeys(): typeof import("@clerk/expo/passkeys").passkeys | undefined {
+  const api = getPasskeys();
+  return api && typeof api.get === "function" && typeof api.create === "function"
+    ? api as typeof import("@clerk/expo/passkeys").passkeys : undefined;
 }

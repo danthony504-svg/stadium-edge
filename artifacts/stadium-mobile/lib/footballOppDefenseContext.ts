@@ -93,6 +93,7 @@ export async function loadFootballOppRushDefense(opts: {
   }
 
   for (let i = 0; i < wanted.length; i += CONCURRENCY) {
+    if (opts.signal?.aborted) break;
     const batch = wanted.slice(i, i + CONCURRENCY);
     const rows = await Promise.all(
       batch.map(async (w) => {

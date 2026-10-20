@@ -53,7 +53,7 @@ export type OtaUpdateClient = {
   reloadAsync: (opts?: { reloadScreenOptions?: { fade?: boolean } }) => Promise<void>;
 };
 
-export type OtaLogStep = "checkForUpdateAsync" | "fetchUpdateAsync" | "reloadAsync";
+export type OtaLogStep = "deviceAttestation" | "checkForUpdateAsync" | "fetchUpdateAsync" | "reloadAsync";
 export type OtaLogger = (step: OtaLogStep, ok: boolean, detail: string) => void;
 
 export type OtaRecoveryReporter = (patch: Partial<OtaRecoverySnapshot>) => void;
@@ -127,7 +127,7 @@ export async function reloadPendingOtaUpdate(
   targetId: string,
   options?: Pick<
     OtaUpdaterOptions,
-    "isReloadBlocked" | "log" | "isTargetPreviouslyFailed" | "onReloadTarget" | "report"
+    "isReloadBlocked" | "log" | "isTargetPreviouslyFailed" | "onReloadTarget" | "report" | "reloadUpdateKey"
   >,
 ): Promise<OtaPrefetchOutcome> {
   const log: OtaLogger = options?.log ?? (() => {});
