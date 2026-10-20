@@ -30,6 +30,7 @@ export type CoachScanFailureReason = {
 
 export type CoachScanFailureDiagnostics = {
   scanMissing?: boolean;
+  stagedPickCount?: number;
   timedOut?: boolean;
   oddsGameCount?: number;
   teamIdMapSize?: number;

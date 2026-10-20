@@ -1035,7 +1035,7 @@ test("fillReservedPropSlots diversifies TD / pass / rec / rush alts over ML-only
   assert.ok(props.some((p) => /receiv|reception/i.test(p.market || "")), "includes receiving yards");
   assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes rush yards / alts");
   const families = new Set(
-    props.map((p) => footballSkillPropFamily(p.propMarketKey || p.market)).filter(Boolean),
+    props.map((p) => footballSkillPropFamily(p.market)).filter(Boolean),
   );
   assert.ok(families.size >= 3, `expected diverse skill families, got ${[...families]}`);
 });

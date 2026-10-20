@@ -167,7 +167,7 @@ export function scoreDiagnosticsFromPartial(
   "simHit" | "impliedProbPct" | "edgePct" | "evPct" | "confidencePct" | "grade"
 > {
   const simHit =
-    score?.simHit ?? pick.finalAiScore?.simHit ?? pick.scores?.simHit ?? null;
+    score?.simHit ?? pick.finalAiScore?.simHit ?? null;
   const edgePct =
     score?.edgePct ?? pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
   const confidencePct =

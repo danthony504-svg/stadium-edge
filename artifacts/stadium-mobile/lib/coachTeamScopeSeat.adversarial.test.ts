@@ -80,7 +80,6 @@ function scoredLeg(opts: {
     sport: opts.sport,
     game: opts.game,
     market,
-    propMarketKey: opts.isProp ? "player_points" : undefined,
     pick: opts.isProp ? "Over 22.5" : "Home ML",
     odds: opts.odds ?? -110,
     isProp: !!opts.isProp,

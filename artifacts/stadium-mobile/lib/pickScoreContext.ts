@@ -1,3 +1,4 @@
+import { findExactPropPoolRow, createExactPropPoolLookup } from "./propPoolIdentity.ts";
 // Bridges the real chat/odds context to the pure pick rubric in lib/pickScore.
 // Given the picks parsePicks() already resolved to REAL odds/prop entries, this
 // re-finds each pick's backing entry and the matchup feeds (history + injuries)
@@ -78,8 +79,8 @@ import { footballCoachSoftTilt } from "@/lib/footballCoachTendencies";
 export type PlayerHistorySlice = {
   player?: string;
   labels?: string[];
-  recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
-  vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
+  recent?: { date?: string | null; opp?: string | null; stats?: Record<string, unknown> }[];
+  vsOpponent?: { date?: string | null; stats?: Record<string, unknown> }[];
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -386,7 +387,7 @@ function propMatchupScore(
   return scoreMatchup(aligned, leanEdge);
 }
 
-function propInjuryScore(
+function propInjuryScoreUncached(
   sport: string | undefined,
   game: string,
   playerTeam: string | null,
@@ -427,6 +428,18 @@ function propInjuryScore(
     }
   }
   return null;
+}
+
+function propInjuryScore(
+  sport: string | undefined, game: string, playerTeam: string | null,
+  side: string | null | undefined, matchupInjuries?: Record<string, GameInjuryReport>,
+  injuryTeams?: InjuryTeam[], memo?: Map<string, PickSubScores["injury"]>,
+): PickSubScores["injury"] {
+  const key = JSON.stringify([sport, game, playerTeam, side]);
+  if (memo?.has(key)) return memo.get(key)!;
+  const score = propInjuryScoreUncached(sport, game, playerTeam, side, matchupInjuries, injuryTeams);
+  memo?.set(key, score);
+  return score;
 }
 
 // Build resolution-shape prop pool rows from live PlayerProp feed (simulator /
@@ -659,6 +672,8 @@ function scorePropPickFromContext(
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     injuryTeams?: InjuryTeam[];
+    injuryScoreMemo?: Map<string, PickSubScores["injury"]>;
+    findPropEntry?: (pick: ParsedPick) => PropPoolEntry | undefined;
   },
 ): CombinedPickScore | null {
   const marketKey = pick.propMarketKey ?? entry?.marketKey ?? pick.market ?? "";
@@ -676,6 +691,7 @@ function scorePropPickFromContext(
     pick.propSide,
     ctx?.matchupInjuries,
     ctx?.injuryTeams,
+    ctx?.injuryScoreMemo,
   );
   if (edgePct == null && simHit == null && matchup == null && trend == null && injury == null) {
     return null;
@@ -703,6 +719,8 @@ function scorePropPick(
     tennisAnalysis?: Record<string, TennisAnalysis>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     injuryTeams?: InjuryTeam[];
+    injuryScoreMemo?: Map<string, PickSubScores["injury"]>;
+    findPropEntry?: (pick: ParsedPick) => PropPoolEntry | undefined;
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
   },
@@ -710,13 +728,7 @@ function scorePropPick(
   // The resolved prop ParsedPick was built from a real pool entry, so match on
   // its identity fields. Prefer the exact line/side, fall back to the same
   // player+side when an alt rung was swapped in.
-  const same = (e: PropPoolEntry) =>
-    e.game === pick.game &&
-    e.player === pick.player &&
-    e.side === pick.propSide;
-  const entry =
-    propPool.find((e) => same(e) && e.line === pick.propLine) ??
-    propPool.find(same);
+  const entry = ctx?.findPropEntry ? ctx.findPropEntry(pick) : findExactPropPoolRow(pick, propPool);
   if (!entry) {
     return scorePropPickFromContext(pick, undefined, simulationByKey, ctx);
   }
@@ -737,6 +749,7 @@ function scorePropPick(
       pick.propSide,
       ctx?.matchupInjuries,
       ctx?.injuryTeams,
+      ctx?.injuryScoreMemo,
     ),
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
     simulation: scoreSimulation(simHit),
@@ -756,10 +769,7 @@ export function pickWinChanceInputs(
   propPool: PropPoolEntry[],
 ): { edge: number | null; fairProb: number | null } {
   if (pick.isProp) {
-    const same = (e: PropPoolEntry) =>
-      e.game === pick.game && e.player === pick.player && e.side === pick.propSide;
-    const entry =
-      propPool.find((e) => same(e) && e.line === pick.propLine) ?? propPool.find(same);
+    const entry = findExactPropPoolRow(pick, propPool);
     return { edge: entry?.edge ?? null, fairProb: null };
   }
   const ro = realOdds.find(
@@ -805,7 +815,10 @@ export function attachPickScores(
   const propPool = opts.propPool ?? [];
   const sims = opts.propSimulations;
   const gameSims = opts.gameSimulations;
+  const findPropEntry = createExactPropPoolLookup(propPool);
   const propCtx = {
+    findPropEntry,
+    injuryScoreMemo: new Map<string, PickSubScores["injury"]>(),
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
@@ -820,16 +833,7 @@ export function attachPickScores(
   };
   return picks.map((p) => {
     const gameSim = gameSims?.get(p.game) ?? null;
-    const propEntryEarly =
-      p.isProp && propPool.length
-        ? propPool.find(
-            (e) =>
-              e.game === p.game &&
-              e.player === p.player &&
-              e.side === p.propSide &&
-              (e.line === p.propLine || e.line == null),
-          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
-        : undefined;
+    const propEntryEarly = p.isProp ? findPropEntry(p) : undefined;
     let raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGameLinePick(
@@ -1083,3 +1087,5 @@ export function rescoreCoachTicketPicks(
     injuryTeams: enrich.injuryTeams,
   });
 }
+
+export type PropSimAttachOpts = Parameters<typeof attachPickScores>[1];

@@ -1,3 +1,4 @@
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -196,7 +197,7 @@ function ReportScreen() {
         {!hasGraded ? (
           <EmptyState
             title="No settled bets yet"
-            subtitle="Save a slip from the Coach or Props tab. Once its games finish, we grade every leg against the real result and your performance shows up here."
+            subtitle={SLIP_UI_ENABLED ? "Save a slip from the Coach or Props tab. Once its games finish, we grade every leg against the real result and your performance shows up here." : "Ticket saving is currently unavailable. Any previously saved, settled tickets will appear here."}
           />
         ) : (
           <>

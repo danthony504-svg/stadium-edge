@@ -12,7 +12,7 @@ type CorrelationPick = {
   pick: string;
   odds?: number;
   isProp?: boolean;
-  player?: string;
+  player?: string | null;
   sport?: string;
 };
 

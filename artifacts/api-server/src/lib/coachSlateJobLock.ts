@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient } from "@workspace/db";
 import { logger } from "./logger.js";
 
 /** Fixed advisory-lock key pair for coach slate jobs (class, id). */

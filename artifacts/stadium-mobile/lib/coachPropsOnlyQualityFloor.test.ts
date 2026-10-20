@@ -1,3 +1,5 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
+import { emptyPickSubScores } from "./pickScore.ts";
 /**
  * Cross-sport props-only quality floor + NHL phone regressions (Imama / Brady).
  *
@@ -72,7 +74,7 @@ function propsPick(
   simHit: number,
 ): { pick: ParsedPick; score: BoardScoredLeg } {
   const edgePct = simEdgeFromHit(simHit, odds) ?? 0;
-  const pick = {
+  const pick = exactPropFixture({
     // Unique game per player so per-game market+side caps do not starve the pool.
     game: `${sport} ${player} Away @ Home`,
     market,
@@ -97,8 +99,9 @@ function propsPick(
       composite: GRADE_RANK[grade] ?? 0,
       highRiskValuePlay: false,
       factors: [],
+      rubric: { composite: null, grade: null, confidencePct: null, edgePct: null, scores: emptyPickSubScores() },
     },
-  } as ParsedPick;
+  } as ParsedPick);
   const scored: BoardScoredLeg = {
     pick,
     evPct: simEvPct(simHit, odds),
@@ -281,7 +284,8 @@ test("Brady Tkachuk: real NHL P history — no zero-fill; missing fails closed",
     marketKey: "player_points",
     line: 0.5,
   });
-  assert.equal(zeroGrade.hitProbability, 0.98);
+  assert.equal(zeroGrade.hitProbability, null, "unvalidated history must not become a seated probability");
+  assert.ok(zeroHist.recent?.every(g => gameValueForMarket("player_points", g.stats ?? {}, NONE) === 0));
 
   // Realistic Brady-like production via NHL P — Under 0.5 must not be ~98%.
   const realHist: PropsOnlyHistorySlice = {
@@ -302,14 +306,12 @@ test("Brady Tkachuk: real NHL P history — no zero-fill; missing fails closed",
     marketKey: "player_points",
     line: 0.5,
   });
-  assert.ok(realGrade.hitProbability != null);
-  // 2/8 games under 0.5 → 0.25, not 0.98
-  assert.ok(
-    (realGrade.hitProbability ?? 1) < 0.5,
-    `expected Under hit << 98%, got ${realGrade.hitProbability}`,
-  );
-  const edge = simEdgeFromHit(realGrade.hitProbability!, 125)!;
-  assert.ok(edge < 0, `real Brady Under should not show +53.6% edge, got ${edge}`);
+  assert.equal(realGrade.hitProbability, null);
+  assert.equal(realGrade.probabilityProvenance?.source, "insufficient_evidence");
+  const observed = realHist.recent!.map(g => gameValueForMarket("player_points", g.stats ?? {}, NONE));
+  assert.equal(observed.filter(v => v != null && v < 0.5).length, 2);
+  const seatedEdge = realGrade.hitProbability == null ? null : simEdgeFromHit(realGrade.hitProbability, 125);
+  assert.equal(seatedEdge, null, "unvalidated history cannot manufacture a positive edge");
 });
 
 test("plain N-leg / player-props asks are not longshot-style grade exemptions", () => {

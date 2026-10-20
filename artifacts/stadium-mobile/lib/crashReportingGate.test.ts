@@ -35,7 +35,7 @@ test("Node / CI / test env cannot enable crash POSTs via production domain alone
   const prodDomainEnv = {
     EXPO_PUBLIC_DOMAIN: "stadium-edge.onrender.com",
     NODE_ENV: "test",
-  } as NodeJS.ProcessEnv;
+  } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv;
   assert.equal(
     shouldSendCrashReports(prodDomainEnv, { isReactNative: false }),
     false,
@@ -47,7 +47,7 @@ test("Node / CI / test env cannot enable crash POSTs via production domain alone
       {
         EXPO_PUBLIC_DOMAIN: "stadium-edge.onrender.com",
         CI: "true",
-      } as NodeJS.ProcessEnv,
+      } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv,
       { isReactNative: false },
     ),
     false,
@@ -59,7 +59,7 @@ test("Node / CI / test env cannot enable crash POSTs via production domain alone
       {
         EXPO_PUBLIC_DOMAIN: "stadium-edge.onrender.com",
         GITHUB_ACTIONS: "true",
-      } as NodeJS.ProcessEnv,
+      } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv,
       { isReactNative: false },
     ),
     false,
@@ -70,7 +70,7 @@ test("Node / CI / test env cannot enable crash POSTs via production domain alone
       {
         EXPO_PUBLIC_DOMAIN: "stadium-edge.onrender.com",
         CRASH_REPORTING_DISABLED: "1",
-      } as NodeJS.ProcessEnv,
+      } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv,
       { isReactNative: true, hasHermes: true },
     ),
     false,
@@ -80,7 +80,7 @@ test("Node / CI / test env cannot enable crash POSTs via production domain alone
 
 test("production mobile (RN/Hermes) remains enabled by default", () => {
   assert.equal(
-    shouldSendCrashReports({} as NodeJS.ProcessEnv, {
+    shouldSendCrashReports({} as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv, {
       isReactNative: true,
       hasHermes: true,
     }),
@@ -88,7 +88,7 @@ test("production mobile (RN/Hermes) remains enabled by default", () => {
   );
   assert.equal(
     shouldSendCrashReports(
-      { EXPO_PUBLIC_CRASH_REPORTING: "0" } as NodeJS.ProcessEnv,
+      { EXPO_PUBLIC_CRASH_REPORTING: "0" } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv,
       { isReactNative: true },
     ),
     false,
@@ -101,7 +101,7 @@ test("default Node runtime (cloud agent / local node:test) is not RN", () => {
   assert.equal(
     shouldSendCrashReports({
       EXPO_PUBLIC_DOMAIN: "stadium-edge.onrender.com",
-    } as NodeJS.ProcessEnv),
+    } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv),
     false,
   );
 });
@@ -117,7 +117,7 @@ test("reportCrash with production domain does not fetch the live API from Node",
   delete process.env.CRASH_REPORTING_DISABLED;
   delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
   // Even if NODE_ENV is unset (agent shells), RN detection still fails in Node.
-  delete process.env.NODE_ENV;
+  Reflect.deleteProperty(process.env, "NODE_ENV");
 
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -150,7 +150,7 @@ test("reportCrash with production domain does not fetch the live API from Node",
     else process.env.EXPO_PUBLIC_DOMAIN = previousDomain;
     if (previousDisable === undefined) delete process.env.CRASH_REPORTING_DISABLED;
     else process.env.CRASH_REPORTING_DISABLED = previousDisable;
-    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
     else process.env.NODE_ENV = previousNodeEnv;
     if (previousFlag === undefined) delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
     else process.env.EXPO_PUBLIC_CRASH_REPORTING = previousFlag;

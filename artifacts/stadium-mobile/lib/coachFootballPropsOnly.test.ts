@@ -1,3 +1,4 @@
+import type { PropsOnlyHistorySlice } from "./coachFootballPropsOnlyGrade.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -289,7 +290,7 @@ test("phone empty after #539: prefetched history grades yards + TD without netwo
 test("null-line TD grades from history after normalize (phone #541 path)", () => {
   // +150 leaves room for Bayesian shrink on a 4/8 scoring log (no 2% floor).
   const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847", odds: 150 });
-  const hist = {
+  const hist: PropsOnlyHistorySlice = {
     recent: Array.from({ length: 8 }, (_, i) => ({
       stats: {
         rushingTouchdowns: "0",
@@ -565,7 +566,7 @@ test("8-leg props-only stages from graded best-EV sides (no empty quality bar)",
 test("phone insufficient_game_log rebuild: 2-game early-season sample grades", () => {
   // 2026 week ~3: ESPN current season often has only 2–3 games. Old min=3 wiped all.
   const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847" });
-  const hist = {
+  const hist: PropsOnlyHistorySlice = {
     recent: [
       {
         date: "2026-09-20",
@@ -633,7 +634,7 @@ test("merge prior-season logs fills thin current season (phone hist=19 graded=0)
 });
 
 test("same-date pass/rush/rec category rows merge before TD grade", () => {
-  const hist = {
+  const hist: PropsOnlyHistorySlice = {
     recent: [
       {
         date: "2026-09-20",

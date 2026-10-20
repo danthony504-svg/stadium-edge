@@ -156,8 +156,8 @@ function indexTeamIds(
 export function buildCoachGameTeamIdMap(
   games: Array<{
     sport?: string;
-    homeTeam?: string;
-    awayTeam?: string;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
     homeAbbr?: string | null;
     awayAbbr?: string | null;
     homeTeamId?: string | null;

@@ -229,7 +229,7 @@ export function buildPropSimulationContext(
 
   const family = opp.family ?? opportunityMarketFamily(req.market, req.sport);
   const defenseIndex =
-    (family && game.defenseIndexByFamily?.[family]) ??
+    (family ? game.defenseIndexByFamily?.[family] : null) ??
     game.defenseIndex ??
     null;
 

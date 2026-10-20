@@ -7,15 +7,15 @@
  * must not be removed. Observe-only reliability reporting stays separate.
  */
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+type GroundablePick = CoachReliabilityGroundingPick & { pick?: string | null; odds?: number | null };
 import {
   pickHasPlayerGameGroundingMismatch,
   type CoachReliabilityGroundingPick,
 } from "./coachReliabilityGrounding.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
-export type DeliveryGroundingResult = {
-  picks: ParsedPick[];
+export type DeliveryGroundingResult<T extends GroundablePick> = {
+  picks: T[];
   /** Legs removed because player/team did not bind onto the pick's game. */
   removedCount: number;
   /** Qualified replacements seated after removals. */
@@ -26,7 +26,7 @@ export type DeliveryGroundingResult = {
   affectedGame: string | null;
 };
 
-function asGroundingPick(p: ParsedPick): CoachReliabilityGroundingPick {
+function asGroundingPick(p: GroundablePick): CoachReliabilityGroundingPick {
   return {
     game: p.game,
     teamAbbr: p.teamAbbr,
@@ -42,22 +42,22 @@ function asGroundingPick(p: ParsedPick): CoachReliabilityGroundingPick {
 /** Player props cannot be delivered when their team has not been identified.
  * This is stricter than observe-only mismatch telemetry: unknown is not a
  * proven mismatch, but it is also not verified evidence for a ticket. */
-function lacksPlayerTeamEvidence(p: ParsedPick): boolean {
+function lacksPlayerTeamEvidence(p: GroundablePick): boolean {
   const prop = p.isProp === true ||
     !!String(p.propMarketKey ?? "").trim() ||
     !!String(p.athleteId ?? "").trim();
   return prop && !!String(p.game ?? "").trim() && !!String(p.player ?? "").trim() && !String(p.teamAbbr ?? "").trim();
 }
 
-function unsafePlayerGameSeat(p: ParsedPick): boolean {
+function unsafePlayerGameSeat(p: GroundablePick): boolean {
   return lacksPlayerTeamEvidence(p) ||
     pickHasPlayerGameGroundingMismatch(asGroundingPick(p));
 }
 
 /** Exclude proven mismatches and player props without team evidence. */
-export function filterPicksForPlayerGameGrounding(
-  picks: readonly ParsedPick[],
-): ParsedPick[] {
+export function filterPicksForPlayerGameGrounding<T extends GroundablePick>(
+  picks: readonly T[],
+): T[] {
   return picks.filter((p) => !unsafePlayerGameSeat(p));
 }
 
@@ -65,11 +65,11 @@ export function filterPicksForPlayerGameGrounding(
  * After final slate/team belts: remove proven mismatches, top up from
  * qualified leftovers that also pass grounding, report shortfall vs target.
  */
-export function applyDeliveryGroundingGate(opts: {
-  picks: readonly ParsedPick[];
-  qualifiedCandidates?: readonly ParsedPick[] | null;
+export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
+  picks: readonly T[];
+  qualifiedCandidates?: readonly T[] | null;
   target: number;
-}): DeliveryGroundingResult {
+}): DeliveryGroundingResult<T> {
   const target =
     typeof opts.target === "number" && Number.isFinite(opts.target)
       ? Math.max(0, Math.floor(opts.target))
@@ -77,7 +77,7 @@ export function applyDeliveryGroundingGate(opts: {
   const incoming = opts.picks.slice();
   let affectedGame: string | null = null;
   let removedCount = 0;
-  const kept: ParsedPick[] = [];
+  const kept: T[] = [];
   for (const p of incoming) {
     if (unsafePlayerGameSeat(p)) {
       removedCount += 1;

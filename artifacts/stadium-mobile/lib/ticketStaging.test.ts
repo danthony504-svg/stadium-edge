@@ -16,7 +16,7 @@ import {
 } from "./coachPropProbabilityProvenance.ts";
 
 function stampScore(
-  score: NonNullable<ParsedPick["finalAiScore"]> | undefined,
+  score: ParsedPick["finalAiScore"],
   pick: Partial<ParsedPick>,
 ): ParsedPick["finalAiScore"] {
   if (!score) return score;
@@ -65,7 +65,6 @@ function leg(
   };
   const score = stampScore(finalAiScore ?? pick.finalAiScore, enriched);
   const full = withExactMarket10kProvenance({
-    isProp: false,
     sport: "mlb",
     ...enriched,
     finalAiScore: score,

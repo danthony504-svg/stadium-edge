@@ -1,6 +1,6 @@
 /**
  * Regression: RootLayout mounts ClerkProvider with
- * `__experimental_passkeys={getPasskeys() ?? undefined}` on every cold start.
+ * `__experimental_passkeys={getProviderPasskeys()}` on every cold start.
  * On Build 78 / preview-build78 (no ClerkExpoPasskeys), evaluating
  * `@clerk/expo/passkeys` throws and Expo ErrorRecovery aborts the process.
  * Startup must call getPasskeys() without ever requiring that package.
@@ -12,12 +12,13 @@ import {
   __setPasskeysLoaderForTests,
   __setPasskeysNativePresentForTests,
   getPasskeys,
+  getProviderPasskeys,
   hasClerkExpoPasskeysNative,
 } from "./passkeyAuth.ts";
 
 /** Mirrors app/_layout.tsx RootLayoutContent → ClerkProvider prop. */
 function rootLayoutPasskeysProp(): unknown {
-  return getPasskeys() ?? undefined;
+  return getProviderPasskeys();
 }
 
 describe("startup succeeds with ClerkExpoPasskeys absent", () => {
@@ -49,4 +50,19 @@ describe("startup succeeds with ClerkExpoPasskeys absent", () => {
       "Cannot find native module 'ClerkExpoPasskeys'";
     assert.match(failedReleaseFatal, /ClerkExpoPasskeys/);
   });
+});
+
+
+it("ClerkProvider receives only a complete guarded native adapter", () => {
+  __setPasskeysNativePresentForTests(() => true);
+  try {
+    __setPasskeysLoaderForTests(() => ({ isSupported: () => true }));
+    assert.equal(getProviderPasskeys(), undefined);
+    const adapter = { isSupported: () => true, get: async () => { throw Error("not called"); }, create: async () => { throw Error("not called"); } };
+    __setPasskeysLoaderForTests(() => adapter);
+    assert.equal(getProviderPasskeys(), adapter);
+  } finally {
+    __setPasskeysNativePresentForTests(null);
+    __setPasskeysLoaderForTests(null);
+  }
 });

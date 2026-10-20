@@ -33,3 +33,23 @@ test("simulation never invents NBA or borrows a sport from another pick", async 
     assert.equal(result.hits.size, 0);
   } finally { globalThis.fetch = original; }
 });
+
+test("indexed exact lookup preserves ambiguity, market and quote identity", async () => {
+  const { createExactPropPoolLookup } = await import("./propPoolIdentity.ts");
+  const pool = [row, { ...row, marketKey: "player_rush_yds" }, { ...row, eventId: "rematch" }, { ...row, sportsbook: "Book B", odds: 105 }];
+  const lookup = createExactPropPoolLookup(pool);
+  for (const query of [pick, { ...pick, eventId: undefined }, { ...pick, propMarketKey: "player_rush_yds" }, { ...pick, sportsbook: "Book B", odds: 105 }, { ...pick, sportsbook: "Book B", odds: 110 }]) {
+    assert.equal(lookup(query), findExactPropPoolRow(query, pool));
+  }
+  assert.equal(lookup({ ...pick, propMarketKey: "unknown_market" }), undefined);
+});
+
+
+test("indexed lookup does not scan unrelated players and agrees with exact quote binding", async () => {
+  const { createExactPropPoolLookup } = await import("./propPoolIdentity.ts");
+  let inspected=0;
+  const unrelated=Array.from({length:1000},(_,i)=>({...row,player:`Other ${i}`,get eventId(){inspected++;return "other";}}));
+  const lookup=createExactPropPoolLookup([...unrelated,row]);
+  assert.equal(lookup(pick),row);
+  assert.equal(inspected,0,"unrelated event identities need no per-pick scan");
+});

@@ -1,5 +1,5 @@
 /**
- * Always-on, fail-soft OTA identity readout for screens that exist on older
+ * Test-only, fail-soft OTA identity readout for screens that exist on older
  * bundles after this tip applies — Account / Sign-in — so Device attestation
  * menu is not required to read Updates.updateId / embed / apply outcome.
  *

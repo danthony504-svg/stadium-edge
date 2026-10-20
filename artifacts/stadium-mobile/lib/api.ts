@@ -310,7 +310,7 @@ import { appVersionRequestHeaders } from "./appVersionGate";
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = {
     ...appVersionRequestHeaders(),
@@ -328,6 +328,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
@@ -2925,6 +2926,7 @@ function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: str
 }
 
 export type ChatContext = {
+  injuryTeams?: InjuryTeam[];
   selectedSports: string[];
   /** Leagues the user banned for this ticket (e.g. ["mlb"] after "no MLB"). */
   excludedSports?: string[];
@@ -5357,7 +5359,7 @@ export async function fetchFullBoardPropPool(
   signal?: AbortSignal,
 ): Promise<PropPoolEntry[]> {
   const poolKey = (e: PropPoolEntry) =>
-    `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
+    JSON.stringify([e.sport, e.eventId ?? e.game, e.athleteId ?? e.player, e.marketKey, e.line, e.side, e.odds, e.sportsbook]);
   const seen = new Set(basePool.map(poolKey));
   const out = [...basePool];
 
@@ -5372,13 +5374,13 @@ export async function fetchFullBoardPropPool(
   for (const games of gamesBySport.values()) {
     for (const g of games) {
       if (g.homeTeamId) {
-        teamMetaById.set(String(g.homeTeamId), {
+        teamMetaById.set(`${g.sport}:${g.homeTeamId}`, {
           abbr: g.homeAbbr ?? null,
           logo: g.homeLogo ?? null,
         });
       }
       if (g.awayTeamId) {
-        teamMetaById.set(String(g.awayTeamId), {
+        teamMetaById.set(`${g.sport}:${g.awayTeamId}`, {
           abbr: g.awayAbbr ?? null,
           logo: g.awayLogo ?? null,
         });
@@ -5434,7 +5436,7 @@ export async function fetchFullBoardPropPool(
         const marketLabel = propMarketLabel(p.market);
         const athleteId = p.athleteId ?? null;
         const teamAbbr = p.playerTeamId
-          ? (teamMetaById.get(String(p.playerTeamId))?.abbr ?? null)
+          ? (teamMetaById.get(`${g.sport}:${p.playerTeamId}`)?.abbr ?? null)
           : null;
         const base = {
           sport: g.sport,
@@ -5492,7 +5494,8 @@ export async function fetchFullBoardPropPool(
 export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    const getter = getAuthTokenGetter();
+    authToken = getter ? await getter() : null;
   } catch {
     authToken = null;
   }
@@ -5677,7 +5680,8 @@ export async function streamChat({
   // under the account); harmless for normal chats. Resolved once up front.
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    const getter = getAuthTokenGetter();
+    authToken = getter ? await getter() : null;
   } catch {
     authToken = null;
   }

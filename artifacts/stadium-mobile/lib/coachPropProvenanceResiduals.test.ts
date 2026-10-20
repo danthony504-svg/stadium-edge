@@ -74,7 +74,7 @@ test("evidenceId cannot authorize a different athlete/event/market/side/line", (
   // Same evidenceId + mutated provenance identity fields → fail closed.
   const mutate = (
     patch: Partial<typeof trusted>,
-    candidate: typeof base,
+    candidate: Omit<typeof base, "propSide"> & { propSide: "Over" | "Under" },
   ) => {
     const forged = { ...trusted, ...patch };
     assert.equal(propProvenanceAllowsSeating(forged, candidate), false);
@@ -287,7 +287,7 @@ test("residual 3: stale qualificationStatus=qualified cannot bypass provenance",
     coachCandidateIsQualified(pick as never, { requestStyle: "props_only", isProp: true }),
     false,
   );
-  const tagged = withCoachQualification(pick as never, {
+  const tagged = withCoachQualification(pick, {
     requestStyle: "props_only",
     isProp: true,
   });
@@ -416,6 +416,7 @@ test("provenance preservation: seating paths reject unapproved / accept trusted"
 
   const good = withExactMarket10kProvenance({
     ...base,
+    propProbabilityProvenance: null as import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null,
     simHit: 0.58,
     finalAiScore: {
       grade: "B+",
@@ -429,7 +430,7 @@ test("provenance preservation: seating paths reject unapproved / accept trusted"
       factors: [],
     },
   });
-  const tagged = withCoachQualification(good as never, {
+  const tagged = withCoachQualification(good, {
     requestStyle: "props_only",
     isProp: true,
   });

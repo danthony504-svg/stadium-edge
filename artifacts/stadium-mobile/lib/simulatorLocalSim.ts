@@ -102,6 +102,7 @@ export function mergePropSimWithLocal(
   if (!local || local.hitProbability == null) return server ?? null;
   if (!server) {
     return {
+      key: "local-history-fallback",
       player: "",
       market: "",
       line: 0,

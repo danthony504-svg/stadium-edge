@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -148,7 +149,7 @@ test("adversarial mixed recovery: college scope excludes NFL solely by sport", (
       propIsAlt: String(row.marketKey).includes("alternate"),
     };
     return {
-      pick,
+      pick: exactPropFixture({ ...pick, simHit: 0.65 }),
       simHit: 0.65,
       evPct: 12,
       edgePct: 12,
@@ -232,7 +233,7 @@ test("shouldRecover only when graded>0 and staged=0 with a skill pool", () => {
   );
 });
 
-test("phone 7-leg touchdown: TD wipe recovers yards/receptions/sacks that clear odds", () => {
+test("phone touchdown recovery: historical skill evidence alone cannot fill a ticket", () => {
   // Preferred TD ladder: all fail clearsOdds (short juice vs ~37% hit).
   const tds: ParsedPick[] = [];
   const skill: ParsedPick[] = [];
@@ -399,14 +400,10 @@ test("phone 7-leg touchdown: TD wipe recovers yards/receptions/sacks that clear 
     })
     .filter((x): x is BoardScoredLeg => !!x);
 
-  assert.ok(skillScored.length >= 7, `expected ≥7 clearing skill props, got ${skillScored.length}`);
+  assert.equal(skillScored.length, 0, "unvalidated historical estimates cannot be recovery seats");
   const staged = stageFootballPropsOnlyLegs(skillScored, 7);
-  assert.equal(staged.length, 7, "skill recovery must fill 7-leg ticket");
-  const families = staged.map((p) => String(p.propMarketKey ?? ""));
-  assert.ok(
-    families.some((m) => /rush_yds|pass_yds|reception|sacks/.test(m)),
-    `recovery must use yards/receptions/sacks — got ${families.join(",")}`,
-  );
+  assert.equal(staged.length, 0);
+  assert.ok(skill.some(p => /rush_yds|pass_yds|reception|sacks/.test(String(p.propMarketKey))));
   assert.match(
     footballSkillRecoveryNote({
       preferredGraded: tds.length,
@@ -417,7 +414,7 @@ test("phone 7-leg touchdown: TD wipe recovers yards/receptions/sacks that clear 
   );
 });
 
-test("phone yards wipe recovers receptions/sacks alts (not TD-only patch)", () => {
+test("phone yards recovery keeps receptions/sacks available but requires exact sim evidence", () => {
   // Prefer rush/pass yards that fail odds; recovery board has rec + sacks that clear.
   const preferred: ParsedPick[] = [
     {
@@ -463,7 +460,7 @@ test("phone yards wipe recovers receptions/sacks alts (not TD-only patch)", () =
       propIsAlt: true,
     } as ParsedPick,
   ];
-  const histories = {
+  const histories: Record<string, { recent: { stats: Record<string, string> }[] }> = {
     "Henry#h1": {
       recent: Array.from({ length: 8 }, () => ({
         stats: { rushingYards: "60" },
@@ -509,14 +506,13 @@ test("phone yards wipe recovers receptions/sacks alts (not TD-only patch)", () =
       } as BoardScoredLeg;
     })
     .filter((x): x is BoardScoredLeg => !!x);
-  assert.equal(recScored.length, 2);
-  const staged = stageFootballPropsOnlyLegs(recScored, 2);
-  assert.equal(staged.length, 2);
-  assert.ok(staged.some((p) => /receptions/i.test(String(p.propMarketKey))));
-  assert.ok(staged.some((p) => /sacks/i.test(String(p.propMarketKey))));
+  assert.equal(recScored.length, 0, "posted recovery markets are not automatically qualified evidence");
+  assert.equal(stageFootballPropsOnlyLegs(recScored, 2).length, 0);
+  assert.ok(recovery.some(p => /receptions/i.test(String(p.propMarketKey))));
+  assert.ok(recovery.some(p => /sacks/i.test(String(p.propMarketKey))));
 });
 
-test("recovery odds slack stages near-clearing TD that strict gate rejects", () => {
+test("recovery odds slack cannot seat history-only or negative-EV touchdown picks", () => {
   // 4/8 = 50% hit vs -130 (~56.5% implied): strict 2.5pp fails; recovery 8pp clears.
   const td = {
     game: "A @ B",
@@ -541,13 +537,9 @@ test("recovery odds slack stages near-clearing TD that strict gate rejects", () 
     })),
   };
   const hit = gradeFootballPropFromHistory(td, hist).hitProbability;
-  assert.ok(hit != null && hit >= 0.45 && hit <= 0.55, `expected ~50% hit, got ${hit}`);
-  assert.equal(propsOnlyLegClearsOdds(td, hit), false, "strict gate must fail");
-  assert.equal(
-    propsOnlyLegClearsOdds(td, hit, PROPS_ONLY_RECOVERY_ODDS_SLACK),
-    true,
-    "recovery slack must clear near-miss TD",
-  );
+  assert.equal(hit, null, "unvalidated history cannot authorize an exact-market TD probability");
+  assert.equal(propsOnlyLegClearsOdds(td, hit), false);
+  assert.equal(propsOnlyLegClearsOdds(td, hit, PROPS_ONLY_RECOVERY_ODDS_SLACK), false);
   const scored: BoardScoredLeg[] = [
     {
       pick: { ...td, propsOnlyTicket: true },
@@ -559,6 +551,6 @@ test("recovery odds slack stages near-clearing TD that strict gate rejects", () 
   assert.equal(stageFootballPropsOnlyLegs(scored, 1).length, 0);
   assert.equal(
     stageFootballPropsOnlyLegs(scored, 1, PROPS_ONLY_RECOVERY_ODDS_SLACK).length,
-    1,
+    0,
   );
 });

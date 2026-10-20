@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -64,7 +65,7 @@ function leg(
   finalAiScore: typeof mainScore,
 ): BoardScoredLeg {
   return {
-    pick: { sport: "mlb", isProp: false, ...pick, finalAiScore },
+    pick: exactPropFixture({ sport: pick.isProp ? "nfl" : "mlb", isProp: false, ...pick, finalAiScore }),
     evPct: 2,
     edgePct: 3,
     confidencePct: 55,
@@ -82,14 +83,12 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
     game: "A @ B",
     market: "Spread",
     pick: "A +1.5",
-    odds: -110,
     isProp: false,
   });
   const alt = marketLadderKey({
     game: "A @ B",
     market: "Alt Spread",
     pick: "A +3.5",
-    odds: 120,
     isProp: false,
   });
   assert.equal(main, alt);

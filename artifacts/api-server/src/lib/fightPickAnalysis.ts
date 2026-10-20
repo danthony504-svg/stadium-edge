@@ -6,7 +6,7 @@ import type { FightComparison, Fighter, FighterRecentFight, FighterStyle } from 
 import type { FightSimResult } from "./ufcMonteCarlo.js";
 
 export type AnalysisFactor<T = string | number | null> = {
-  value: T;
+  value: T | null;
   available: boolean;
 };
 
@@ -101,7 +101,7 @@ const UNAVAILABLE_FACTOR_LABELS = [
   "Line movement history",
 ] as const;
 
-function factor<T>(value: T | null | undefined, available = value != null): AnalysisFactor<T | null> {
+function factor<T>(value: T | null | undefined, available = value != null): AnalysisFactor<T> {
   return { value: available ? (value as T) : null, available: available && value != null };
 }
 

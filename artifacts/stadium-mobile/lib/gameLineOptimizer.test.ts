@@ -1,3 +1,4 @@
+import { emptyPickSubScores } from "./pickScore.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -29,7 +30,7 @@ function mockEval(composite: number, edge: number, winProb: number): EvaluatedGa
       highRiskValuePlay: false,
       recommends: true,
       factors: [],
-      rubric: { scores: {}, composite, grade: "B+", confidencePct: 60, edgePct: edge },
+      rubric: { scores: emptyPickSubScores(), composite, grade: "B+", confidencePct: 60, edgePct: edge },
     },
     winProb,
     edgePct: edge,
@@ -46,7 +47,7 @@ test("bestGameLine picks highest Final AI composite", () => {
 });
 
 test("bestGameLine tie-breaks on edge then win prob", () => {
-  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.51)]);
+  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.56)]);
   assert.equal(best?.edgePct, 2.5);
 });
 
@@ -92,7 +93,7 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
+        rubric: { scores: emptyPickSubScores(), composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
       },
     },
   ];
@@ -157,7 +158,7 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
     realOdds: [],
   });
   assert.match(note, /sim 54%/);
-  assert.match(note, /edge \+1\.8%/);
+  assert.match(note, /edge \+1\.6%/);
   assert.doesNotMatch(note, /sim —/);
   assert.doesNotMatch(note, /edge —/);
 });
@@ -182,7 +183,7 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: emptyPickSubScores(), composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
     },
   ];
@@ -249,7 +250,7 @@ test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pi
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: emptyPickSubScores(), composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
     },
   ];

@@ -49,8 +49,10 @@ export function augmentEvalLinesWithPostedOdds<T extends PostedGameLine>(
   realOdds: T[],
 ): Map<string, T[]> {
   const out = new Map<string, T[]>();
+  const keysByGame = new Map<string, Set<string>>();
   for (const [game, lines] of evalLinesByGame) {
     out.set(game, [...lines]);
+    keysByGame.set(game, new Set(lines.map(oddsEntryKey)));
   }
 
   for (const e of realOdds) {
@@ -68,8 +70,9 @@ export function augmentEvalLinesWithPostedOdds<T extends PostedGameLine>(
     }
     if (!targetGame) continue;
     const lines = out.get(targetGame) ?? [];
-    const keys = new Set(lines.map(oddsEntryKey));
+    const keys = keysByGame.get(targetGame)!;
     if (keys.has(oddsEntryKey(e))) continue;
+    keys.add(oddsEntryKey(e));
     lines.push(e);
     out.set(targetGame, lines);
   }

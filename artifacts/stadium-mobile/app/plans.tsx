@@ -1,3 +1,4 @@
+import { planCatalogNote as planNote } from "@/lib/planCatalogCopy";
 import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -38,28 +39,6 @@ import {
 
 const APPLE_SUBSCRIPTIONS_URL = "https://apps.apple.com/account/subscriptions";
 
-function planNote(
-  planId: PlanId,
-  catalog: StoreKitCatalog | null,
-  fallbackNote: string,
-): string {
-  const row: StoreKitCatalogProduct | null | undefined =
-    planId === "go" ? catalog?.go : planId === "pro" ? catalog?.pro : null;
-  if (!row) return fallbackNote;
-  const price = row.priceString
-    ? planId === "go"
-      ? `${row.priceString}/week`
-      : `${row.priceString}/month`
-    : planId === "go"
-      ? "$9.99/week"
-      : "$29.99/month";
-  // Only promise a trial when StoreKit reports a free introductory offer.
-  if (row.hasFreeTrial) {
-    const days = row.freeTrialDays ?? 7;
-    return `${days}-day free trial, then ${price}`;
-  }
-  return `Billed through Apple · ${price}`;
-}
 
 /**
  * Plans screen — Go/Pro via Apple StoreKit (auto-renewable).
@@ -278,8 +257,8 @@ export default function PlansScreen() {
             }}
           >
             {anyFreeTrial
-              ? "Eligible App Store accounts may include a free trial when Apple shows an introductory offer. Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."
-              : "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."}
+              ? "Eligible App Store accounts may include a free trial when Apple shows an introductory offer. Discover, Coach previews, and Props browsing stay free; Edge Lock, Steals, and Simulator need a plan. Billed through Apple — manage under Settings → Subscriptions."
+              : "Discover, Coach previews, and Props browsing stay free; Edge Lock, Steals, and Simulator need a plan. Billed through Apple — manage under Settings → Subscriptions."}
           </Text>
         </View>
 

@@ -726,7 +726,7 @@ function StealsScreen() {
     },
     staleTime: 3_000,
     refetchInterval: (q) => {
-      if (q.state.isError) return 5_000;
+      if (q.state.status === "error") return 5_000;
       const found =
         (q.state.data?.steals?.length ?? 0) > 0 || (q.state.data?.almostQualified?.length ?? 0) > 0;
       return found ? 3_000 : 8_000;

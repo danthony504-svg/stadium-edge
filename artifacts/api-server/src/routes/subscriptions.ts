@@ -95,9 +95,9 @@ async function upsertEntitlement(input: {
   originalAppUserId: string | null;
   source: string;
   storeKitActive: boolean;
-}): Promise<void> {
+}, writer: Pick<typeof db, "insert"> = db): Promise<void> {
   const now = new Date();
-  await db
+  await writer
     .insert(subscriptionEntitlementsTable)
     .values({
       userId: input.userId,
@@ -515,19 +515,6 @@ router.post(
         ? appUserId
         : null;
 
-      const eventLog = await recordEvent({
-        eventKey: `rc:${eventId}`,
-        userId,
-        eventType,
-        payload: JSON.stringify(body).slice(0, 8000),
-      });
-      // Only skip processing on a confirmed duplicate. "failed" (e.g. missing
-      // audit table) must not block entitlement upsert.
-      if (eventLog === "duplicate") {
-        res.json({ ok: true, duplicate: true });
-        return;
-      }
-
       if (!userId) {
         res.json({ ok: true, skipped: "no_clerk_user" });
         return;
@@ -595,11 +582,10 @@ router.post(
           status = "cancelled";
         }
       } else if (activeTypes.has(eventType)) {
-        planId =
-          planFromEntitlementIds(entitlementIds) ??
-          planFromProductId(productId) ??
-          "pro";
-        storeKitActive = planId !== "free";
+        const paid = planFromEntitlementIds(entitlementIds) ?? planFromProductId(productId);
+        if (!paid) { res.json({ ok: true, skipped: "unrecognized_paid_product" }); return; }
+        planId = paid;
+        storeKitActive = true;
         status = "active";
       } else if (eventType === "BILLING_ISSUE") {
         // Grace / billing retry — keep access when RC still reports a paid plan.
@@ -609,21 +595,46 @@ router.post(
           planFromProductId(productId) ??
           "free";
         storeKitActive = planId !== "free";
+      } else {
+        res.json({ ok: true, skipped: "unhandled_event_type" });
+        return;
       }
 
-      await upsertEntitlement({
-        userId,
-        planId,
-        productId,
-        status,
-        expiresAt: expirationMs != null ? new Date(expirationMs) : null,
-        managementUrl: null,
-        originalAppUserId: appUserId || null,
-        source: "revenuecat",
-        storeKitActive,
+      // A failed entitlement write must roll back the event claim too, so a
+      // RevenueCat retry can recover rather than being skipped as a duplicate.
+      const applied = await db.transaction(async (tx) => {
+        const claimed = await tx
+          .insert(subscriptionEventsTable)
+          .values({
+            eventKey: `rc:${eventId}`,
+            userId,
+            eventType,
+            payload: JSON.stringify(body).slice(0, 8000),
+          })
+          .onConflictDoNothing()
+          .returning({ id: subscriptionEventsTable.eventKey });
+        if (!claimed.length) return false;
+        await upsertEntitlement(
+          {
+            userId,
+            planId,
+            productId,
+            status,
+            expiresAt: expirationMs != null ? new Date(expirationMs) : null,
+            managementUrl: null,
+            originalAppUserId: appUserId || null,
+            source: "revenuecat",
+            storeKitActive,
+          },
+          tx,
+        );
+        return true;
       });
 
-      res.json({ ok: true, planId, status });
+      res.json(
+        applied ? { ok: true, planId, status } : { ok: true, duplicate: true },
+      );
+
     } catch (err) {
       logger.error({ err }, "revenuecat webhook failed");
       res.status(500).json({ error: "webhook failed" });

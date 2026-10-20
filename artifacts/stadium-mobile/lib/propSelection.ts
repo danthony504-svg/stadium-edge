@@ -94,6 +94,7 @@ export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     teamAbbr: e.teamAbbr,
     player: e.player,
     athleteId: e.athleteId,
+    playerTeamId: e.playerTeamId,
     propMarketKey: e.marketKey,
     propLine: e.line,
     propSide: e.side,
@@ -121,7 +122,7 @@ export function rankPropPoolEntries(
   opts: PropSelectionOpts,
 ): PropPoolEntry[] {
   if (!entries.length) return entries;
-  const pool = opts.propPool.length ? opts.propPool : entries;
+  const pool = opts.propPool?.length ? opts.propPool : entries;
   const withScore = entries.map((e) => ({
     e,
     score: selectionScoreForEntry(e, pool, opts),

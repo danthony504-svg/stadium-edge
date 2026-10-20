@@ -32,8 +32,8 @@ import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import { installGlobalCrashHandlers } from "@/lib/installGlobalCrashHandlers";
 // Fail-soft: dynamic load of @clerk/expo/passkeys (never static-import — crashes
-// Build 78 when native ClerkExpoPasskeys is missing; see getPasskeys()).
-import { getPasskeys } from "@/lib/passkeyAuth";
+// Build 78 when native ClerkExpoPasskeys is missing; see getProviderPasskeys()).
+import { getProviderPasskeys } from "@/lib/passkeyAuth";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -243,7 +243,7 @@ function RootLayoutContent() {
       publishableKey={publishableKey}
       tokenCache={tokenCache}
       proxyUrl={proxyUrl}
-      __experimental_passkeys={getPasskeys() ?? undefined}
+      __experimental_passkeys={getProviderPasskeys() ?? undefined}
     >
       <ClerkLoading>
         <BootScreen />

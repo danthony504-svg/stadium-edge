@@ -405,7 +405,7 @@ function sportsHintFromText(text: string): Set<string> {
   if (/\bwnba\b/i.test(t)) out.add("wnba");
   if (/\bncaaf\b|\bcfb\b|\bcollege\s+football\b/i.test(t)) out.add("ncaaf");
   if (/\bncaab\b|\bcbb\b|\bcollege\s+basketball\b/i.test(t)) out.add("ncaab");
-  if (/\bsoccer\b|\bfutbol\b|\bfootball\s+club\b|\bfc\b/i.test(t)) out.add("soccer");
+  if (/\bsoccer\b|\bfutbol\b|\buefa\b|\bucl\b|\b(?:champions|europa|conference)\s+league\b|\bfootball\s+club\b|\bfc\b/i.test(t)) out.add("soccer");
   return out;
 }
 

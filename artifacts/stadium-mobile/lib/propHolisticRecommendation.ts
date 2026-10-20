@@ -636,7 +636,7 @@ export function propHolisticRecommends(
 
 /** Softer bar for filling fixed-leg tickets when strict AI Recommended pool is short. */
 export function propQualifiesForTicketFill(
-  pick: ParsedPick,
+  pick: Partial<Pick<ParsedPick, "isProp" | "market" | "sport" | "athleteId" | "eventId" | "propProbabilityProvenance" | "finalAiScore">> & { propMarketKey?: string | null; propSide?: string | null; propLine?: number | null },
   holistic: PropHolisticScore,
   opts: {
     edgePct?: number | null;
@@ -804,7 +804,7 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
   const form = factor("recentForm");
   const minutes = factor("playingTime");
   const formScore = form?.score ?? minutes?.score ?? null;
-  const formPresent = form?.present || minutes?.present;
+  const formPresent = !!(form?.present || minutes?.present);
   const formDisplay = form?.display ?? minutes?.display;
 
   const coachFactors: PropHolisticFactor[] = [

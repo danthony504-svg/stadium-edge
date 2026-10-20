@@ -143,6 +143,7 @@ test("enrichFightAnalysisWithClientSim fills missing simulation block", () => {
         ageAdvantage: { value: null, available: false },
       },
       unavailableMarkets: [],
+      unavailableFactors: [],
     },
     simMetrics: {
       winProbability: { away: 0.5, home: 0.5 },

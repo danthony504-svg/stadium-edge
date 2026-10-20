@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -22,13 +23,10 @@ function hrPick(
   overrides: Partial<ParsedPick> & { player: string; game: string; odds: number },
 ): ParsedPick {
   const simHit = overrides.finalAiScore?.simHit ?? 0.4;
-  return {
-    game: overrides.game,
+  return exactPropFixture({
     market: "Home Runs",
     pick: `${overrides.player} Over 0.5`,
-    odds: overrides.odds,
     isProp: true,
-    player: overrides.player,
     athleteId: overrides.athleteId ?? overrides.player.replace(/\s+/g, "").toLowerCase(),
     propMarketKey: "batter_home_runs",
     propLine: 0.5,
@@ -63,7 +61,7 @@ function hrPick(
       ...(overrides.finalAiScore ?? {}),
     },
     ...overrides,
-  } as ParsedPick;
+  } as ParsedPick);
 }
 
 function scored(pick: ParsedPick, rankScore: number): BoardScoredLeg {

@@ -186,48 +186,48 @@ export function isPeriodMainMarket(market: string): boolean {
 
 /** Main full-game ML / spread / total (incl. picks ending in " ML") — never backup "alt" cards. */
 export function isMainLineGameLeg(pick: {
-  market: string;
-  pick: string;
+  market?: string;
+  pick?: string;
   isProp?: boolean;
 }): boolean {
   if (pick.isProp) return false;
-  if (isPeriodMainMarket(pick.market)) return true;
-  if (isAlternateOrPeriodMarket(pick.market)) return false;
-  const m = pick.market.trim().toLowerCase();
+  if (isPeriodMainMarket(pick.market ?? "")) return true;
+  if (isAlternateOrPeriodMarket(pick.market ?? "")) return false;
+  const m = (pick.market ?? "").trim().toLowerCase();
   if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return true;
   // "spreads" / "totals" = Odds API FG keys (pre-humanize stamp).
   if (/^spreads?$/i.test(m)) return true;
   if (/^totals?$/i.test(m)) return true;
-  if (/\bml\b/i.test(pick.pick) && !/\balt\b/i.test(m)) return true;
+  if (/\bml\b/i.test(pick.pick ?? "") && !/\balt\b/i.test(m)) return true;
   return false;
 }
 
 /** Game-line backup cards must be true alt/period rungs — never main-board ML/spread/total. */
 export function isQualifyingBackupGameLine(pick: {
-  market: string;
-  pick: string;
+  market?: string;
+  pick?: string;
   isProp?: boolean;
 }): boolean {
   if (pick.isProp) return false;
   if (isMainLineGameLeg(pick)) return false;
-  return isAlternateOrPeriodMarket(pick.market);
+  return isAlternateOrPeriodMarket(pick.market ?? "");
 }
 
 /** True for alternate-ladder prop rungs (flagged alt in the prop pool). */
 export function isAltPropPick(pick: {
-  market: string;
+  market?: string;
   isProp?: boolean;
   propIsAlt?: boolean;
 }): boolean {
   if (!pick.isProp) return false;
   if (pick.propIsAlt) return true;
-  return /\balt\b/i.test(pick.market);
+  return /\balt\b/i.test(pick.market ?? "");
 }
 
 /** Main full-game or main posted prop line — highest priority when filling a ticket. */
 export function isMainBoardPick(pick: {
-  market: string;
-  pick: string;
+  market?: string;
+  pick?: string;
   isProp?: boolean;
   propIsAlt?: boolean;
 }): boolean {
@@ -237,8 +237,8 @@ export function isMainBoardPick(pick: {
 
 /** Alt spread/total/period rung or alternate prop — second stage when reach-N is short. */
 export function isAltBoardPick(pick: {
-  market: string;
-  pick: string;
+  market?: string;
+  pick?: string;
   isProp?: boolean;
   propIsAlt?: boolean;
 }): boolean {

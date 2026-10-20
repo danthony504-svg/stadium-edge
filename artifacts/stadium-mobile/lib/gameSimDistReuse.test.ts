@@ -1,3 +1,4 @@
+import { URL } from "node:url";
 /**
  * Phase 2.4 Option C — FG distribution reuse + cooperative yield correctness.
  *
@@ -583,7 +584,7 @@ test("A≡C extends through qualification, ordering, correlation/diversity, fina
         simAligned: true,
         highRiskValuePlay: false,
         recommends: true,
-        factors: [] as string[],
+        factors: [],
         rubric: {
           composite: s.composite,
           grade: s.grade,

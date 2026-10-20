@@ -44,8 +44,8 @@ function matchReportToGame(
     ) ??
     espnGames.find(
       (g) =>
-        teamNameMatches(g.homeTeam, report.homeTeam) &&
-        teamNameMatches(g.awayTeam, report.awayTeam),
+        teamNameMatches(g.homeTeam ?? "", report.homeTeam) &&
+        teamNameMatches(g.awayTeam ?? "", report.awayTeam),
     ) ??
     null
   );

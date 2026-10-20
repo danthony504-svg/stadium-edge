@@ -145,7 +145,6 @@ test("T5: qualified lean-side candidate swap preserves finalAiScore", () => {
     finalAiScore: leanScore as never,
     eventId: "mlb-1",
     sportsbook: "DraftKings",
-    oddsFetchedAt: new Date().toISOString(),
   };
   const picks: ParsedPick[] = [
     {

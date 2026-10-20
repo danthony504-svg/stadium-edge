@@ -12,7 +12,7 @@ for (const sport of ["mlb", "nba", "wnba", "nfl", "ncaaf", "ncaab", "nhl", "socc
     t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 9, 13, 23, 30) });
     const tomorrow = new Date(2026, 9, 14, 19).toISOString();
     let oddsRequests = 0;
-    t.mock.method(globalThis, "fetch", async (input) => {
+    t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/sports/odds")) oddsRequests++;
       return new Response(JSON.stringify(url.includes("/sports/odds") ? [{
@@ -46,7 +46,7 @@ test("mixed board preserves tonight and excludes tomorrow before props load", as
   const tonight = new Date(2026, 9, 13, 20).toISOString();
   const tomorrow = new Date(2026, 9, 14, 20).toISOString();
   const requested: string[] = [];
-  t.mock.method(globalThis, "fetch", async (input) => {
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
     requested.push(url);
     return new Response(JSON.stringify(url.includes("/sports/odds") ? [tonight, tomorrow].map((commenceTime, i) => ({

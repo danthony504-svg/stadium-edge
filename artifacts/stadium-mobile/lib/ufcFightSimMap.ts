@@ -10,7 +10,7 @@ export function fightSimToGameResult(sport: string, sim: FightSimResult): GameSi
     awayWinProbability: sim.awayWinProbability,
     tieProbability: 0,
     // Projected "score" = mean total rounds for O/U rounds display/grading.
-    homeProjectedScore: sim.meanTotalRounds ?? null,
+    homeProjectedScore: sim.meanTotalRounds ?? undefined,
     awayProjectedScore: 0,
     mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
     mostLikelyWinnerPct: sim.mostLikelyWinnerPct,

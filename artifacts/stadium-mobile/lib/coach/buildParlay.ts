@@ -1,3 +1,4 @@
+import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget.ts";
 import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
 import { persistCoachPropAudit } from "../coachPropAuditStore.ts";
 import { parsedPickFromPoolEntry } from "../propSelection.ts";
@@ -392,8 +393,8 @@ async function buildCoachParlayImpl(opts: {
         // Digest-visible policy block — not a scan/qualification/fulfillment miss.
         eventType: "parlay_zero_results",
         failureReason: BLOCKED_UNVALIDATED_MARKET_REASON,
-        rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
         ...reportTimingFields(),
+        rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       });
       return {
         picks: [],
@@ -572,57 +573,126 @@ async function buildCoachParlayImpl(opts: {
     remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
   });
   const contextSignal = contextArm.signal;
-  const contextPromise = Promise.all([
-    loadBoardInjuries(boardSports, contextSignal).catch(() => ({
-      injuriesBySport: {} as Record<string, import("@/lib/api").InjuryTeam[]>,
-      matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
-      injuryTeams: [] as import("@/lib/api").InjuryTeam[],
-    })),
-    hasMlbProps && activePropPool.length > 0
-      ? loadMlbScanContext({
-          propPool: activePropPool,
-          espnGames: inputs.espnGames,
-          hrOnly: hrBoardAsk,
-          maxBatters: hrBoardAsk ? 32 : 16,
-          signal: contextSignal,
-        }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
-      : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
-    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
-      ? prefetchPropPlayerHistory(activePropPool, {
-          signal: contextSignal,
-          maxPlayers: hrBoardAsk ? 24 : 16,
-          concurrency: 6,
-        }).catch(() => ({}))
-      : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
-    boardSports.some((s) =>
-      ["nfl", "ncaaf", "nba", "wnba", "ncaab", "nhl", "soccer", "mlb"].includes(s),
-    )
-      ? loadFootballOppRushDefense({
-          espnGames: inputs.espnGames,
-          signal: contextSignal,
-        }).catch(() => ({}))
-      : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
-    needFootballWx
-      ? loadFootballScanContext({
-          espnGames: inputs.espnGames,
-          sports: boardSports,
-          signal: contextSignal,
-        }).catch(() => ({ footballGameEnv: {} }))
-      : Promise.resolve({ footballGameEnv: {} }),
-    // Game-line / mixed tickets need mlLean opponent comparison (NFL parity).
-    !propsOnly || gameLinesOnly
-      ? fetchBoardMatchupHistory({
-          espnGames: inputs.espnGames,
-          realOdds: scanRealOdds,
-          signal: contextSignal,
-          focalText: opts.askText,
-          matchupCap: gameLinesOnly ? 20 : 12,
-        }).catch(() => ({} as Record<string, MatchupHistoryEntry>))
-      : Promise.resolve({} as Record<string, MatchupHistoryEntry>),
-  ]);
-
-  const [injuryPack, mlb, earlyHistory, oppRushDefense, football, matchupHistoryRaw] =
-    await contextPromise;
+  const context = await collectCoachContext(
+    [
+      {
+        fallback: {
+          injuriesBySport: {} as Record<
+            string,
+            import("@/lib/api").InjuryTeam[]
+          >,
+          matchupInjuries: {} as Record<
+            string,
+            import("@/lib/injuries").GameInjuryReport
+          >,
+          injuryTeams: [] as import("@/lib/api").InjuryTeam[],
+        },
+        run: async (signal) =>
+          loadBoardInjuries(boardSports, signal).catch(() => ({
+            injuriesBySport: {} as Record<
+              string,
+              import("@/lib/api").InjuryTeam[]
+            >,
+            matchupInjuries: {} as Record<
+              string,
+              import("@/lib/injuries").GameInjuryReport
+            >,
+            injuryTeams: [] as import("@/lib/api").InjuryTeam[],
+          })),
+      },
+      {
+        fallback: { mlbPlatoon: {}, mlbGameEnv: {} },
+        run: async (signal) =>
+          hasMlbProps && activePropPool.length > 0
+            ? loadMlbScanContext({
+                propPool: activePropPool,
+                espnGames: inputs.espnGames,
+                hrOnly: hrBoardAsk,
+                maxBatters: hrBoardAsk ? 32 : 16,
+                signal: signal,
+              }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
+            : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
+      },
+      {
+        fallback: {} as Record<
+          string,
+          import("@/lib/pickScoreContext").PlayerHistorySlice
+        >,
+        run: async (signal) =>
+          (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
+            ? prefetchPropPlayerHistory(activePropPool, {
+                signal: signal,
+                maxPlayers: hrBoardAsk ? 24 : 16,
+                concurrency: 6,
+              }).catch(() => ({}))
+            : Promise.resolve(
+                {} as Record<
+                  string,
+                  import("@/lib/pickScoreContext").PlayerHistorySlice
+                >,
+              ),
+      },
+      {
+        fallback:
+          {} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap,
+        run: async (signal) =>
+          boardSports.some((s) =>
+            [
+              "nfl",
+              "ncaaf",
+              "nba",
+              "wnba",
+              "ncaab",
+              "nhl",
+              "soccer",
+              "mlb",
+            ].includes(s),
+          )
+            ? loadFootballOppRushDefense({
+                espnGames: inputs.espnGames,
+                signal: signal,
+              }).catch(() => ({}))
+            : Promise.resolve(
+                {} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap,
+              ),
+      },
+      {
+        fallback: { footballGameEnv: {} },
+        run: async (signal) =>
+          needFootballWx
+            ? loadFootballScanContext({
+                espnGames: inputs.espnGames,
+                sports: boardSports,
+                signal: signal,
+              }).catch(() => ({ footballGameEnv: {} }))
+            : Promise.resolve({ footballGameEnv: {} }),
+      },
+      {
+        fallback: {} as Record<string, MatchupHistoryEntry>,
+        run: async (signal) =>
+          // Game-line / mixed tickets need mlLean opponent comparison (NFL parity).
+          !propsOnly || gameLinesOnly
+            ? fetchBoardMatchupHistory({
+                espnGames: inputs.espnGames,
+                realOdds: scanRealOdds,
+                signal: signal,
+                focalText: opts.askText,
+                matchupCap: gameLinesOnly ? 20 : 12,
+              }).catch(() => ({}) as Record<string, MatchupHistoryEntry>)
+            : Promise.resolve({} as Record<string, MatchupHistoryEntry>),
+      },
+    ] as const,
+    coachContextBudgetMs(coachRemainingBudgetMs(requestStartedAtMs, budgetMs)),
+    contextSignal,
+  );
+  const [
+    injuryPack,
+    mlb,
+    earlyHistory,
+    oppRushDefense,
+    football,
+    matchupHistoryRaw,
+  ] = context.values;
   contextArm.dispose();
   markCoachPhase(timing, "context", Date.now() - contextStarted);
 
@@ -1291,7 +1361,7 @@ async function buildCoachParlayImpl(opts: {
   }
   markCoachPhase(timing, "scan", Date.now() - scanStarted);
 
-  let scan = timed.scan ?? latest ?? null;
+  let scan: FullBoardScanResult | null = timed.scan ?? latest ?? null;
   if (timed.timedOut) {
     timing.timedOut = true;
     timing.timeoutReason = opts.signal.aborted ? "user_cancelled" : "scan_deadline";
@@ -1396,7 +1466,7 @@ async function buildCoachParlayImpl(opts: {
   if (!propsOnly && matchupHistory && picks.some((p) => !p.isProp)) {
     const qualifiedCandidates = [
       ...(scan?.qualifiedCandidates ?? []),
-      ...(latest?.qualifiedCandidates ?? []),
+      ...((latest as FullBoardScanResult | null)?.qualifiedCandidates ?? []),
       ...picks,
     ];
     const enforced = enforceMlLeanOnPicks(picks, {
@@ -1434,14 +1504,14 @@ async function buildCoachParlayImpl(opts: {
   if (picks.length < target && !propsPending && !propsOnly) {
     const fillPool = [
       ...(scan?.qualifiedCandidates ?? []),
-      ...(latest?.qualifiedCandidates ?? []),
+      ...((latest as FullBoardScanResult | null)?.qualifiedCandidates ?? []),
     ];
     if (fillPool.length) {
       picks = topUpAfterMlLean({
         picks,
         qualifiedCandidates: fillPool,
         target,
-        varietySeed: opts.askText,
+        varietySeed: opts.askText ?? undefined,
         legsPerGameCap,
         collegeTeamMarketStacks,
       });
@@ -1467,7 +1537,7 @@ async function buildCoachParlayImpl(opts: {
     target,
     qualifiedCandidates: [
       ...(scan?.qualifiedCandidates ?? []),
-      ...(latest?.qualifiedCandidates ?? []),
+      ...((latest as FullBoardScanResult | null)?.qualifiedCandidates ?? []),
     ],
   });
   picks = filterPreparedDeliveryPicks(picks, inputs.espnGames);

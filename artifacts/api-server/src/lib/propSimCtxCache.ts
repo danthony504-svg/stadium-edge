@@ -145,7 +145,7 @@ export function propSimulationContextFromCached(
     (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
   const family = opp.family;
   const defenseIndex =
-    (family && game.defenseIndexByFamily?.[family]) ?? game.defenseIndex ?? null;
+    (family ? game.defenseIndexByFamily?.[family] : null) ?? game.defenseIndex ?? null;
   const seasonValues =
     cached.seasonValues?.length ? cached.seasonValues : cached.recentValues;
   const recentVenue =

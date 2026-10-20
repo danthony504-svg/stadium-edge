@@ -194,12 +194,12 @@ export function seasonStatFamilyKey(raw: string | null | undefined): string {
   return display.toLowerCase();
 }
 
-function num(stats: Record<string, string>, label: string): number | null {
+function num(stats: Record<string, unknown>, label: string): number | null {
   // Missing / blank must stay missing — Number("") === 0 would zero-fill NHL
   // points and invent Under 0.5 certainty (Brady Tkachuk 98% phone bug).
   if (!Object.prototype.hasOwnProperty.call(stats, label)) return null;
   const raw = stats[label];
-  if (raw == null) return null;
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
   const s = String(raw).trim();
   if (s === "") return null;
   const n = Number(s);
@@ -209,9 +209,9 @@ function num(stats: Record<string, string>, label: string): number | null {
 // Made count from a column that may be a bare number ("3") or a real
 // "made-attempted" pair ("2-5"). Returns the made portion, or null if the value
 // is missing or not one of those two exact shapes (never guesses).
-function madeCount(stats: Record<string, string>, label: string): number | null {
+function madeCount(stats: Record<string, unknown>, label: string): number | null {
   const raw = stats[label];
-  if (raw == null) return null;
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
   const s = String(raw).trim();
   if (s === "") return null;
   const pair = s.match(/^(\d+)\s*-\s*\d+$/);
@@ -236,7 +236,7 @@ export function computeAmbiguous(labels: string[] | undefined | null): Set<strin
 // the feed doesn't carry the needed column(s) — we never invent a number.
 export function gameValueForMarket(
   market: string,
-  stats: Record<string, string>,
+  stats: Record<string, unknown>,
   ambiguous: Set<string>,
 ): number | null {
   // Alt lines share the same ESPN columns as the main market.

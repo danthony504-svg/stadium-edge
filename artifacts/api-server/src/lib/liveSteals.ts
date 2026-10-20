@@ -6,7 +6,7 @@ import {
   StealFeedScanError,
   type StealFeedDiagnostics,
   type StealOddsSportProbe,
-} from "./stealFeedDiagnostics.ts";
+} from "./stealFeedDiagnostics.js";
 import {
   buildCoachGameTeamIdMap,
   resolveCoachGameTeamIds,
@@ -56,7 +56,7 @@ export {
   type NearMissSteal,
 } from "./liveStealsCore";
 
-export { type StealFeedDiagnostics, type StealOddsSportProbe } from "./stealFeedDiagnostics.ts";
+export { type StealFeedDiagnostics, type StealOddsSportProbe } from "./stealFeedDiagnostics.js";
 
 // ── loopback fetch (reuse cached app routes; bypasses external quota) ────────
 function apiBase(): string {

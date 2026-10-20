@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -123,7 +124,7 @@ function apiBase(): string {
 
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
-    const r = await fetch(`${apiBase()}${path}`);
+    const r = await fetch(`${apiBase()}${path}`, { signal: AbortSignal.timeout(10000) });
     if (!r.ok) return null;
     return (await r.json()) as T;
   } catch {
@@ -980,39 +981,82 @@ export async function runNotificationJobs(): Promise<{
     }
   }
 
-  // ---- Claim (dedupe) then expand to device tokens and send --------------
+  // Claim per device, so one rejected device can retry without duplicating a
+  // notification already accepted for another device. Honor old user claims.
   const messages: PushMessage[] = [];
+  const claims: Array<{
+    userId: string;
+    key: string;
+    type: string;
+    itemKey: string;
+  }> = [];
   for (const item of queue) {
-    let isNew = false;
     try {
-      isNew = await claimSend(item.userId, item.dedupeKey);
+      const legacy = await db
+        .select()
+        .from(notifLogTable)
+        .where(
+          and(
+            eq(notifLogTable.userId, item.userId),
+            eq(notifLogTable.dedupeKey, item.dedupeKey),
+          ),
+        )
+        .limit(1);
+      if (legacy.length) continue;
+      for (const token of tokensByUser.get(item.userId) ?? []) {
+        const key = `${item.dedupeKey}:device:${createHash("sha256").update(token).digest("hex")}`;
+        if (!(await claimSend(item.userId, key))) continue;
+        messages.push({ to: token, ...item.msg });
+        claims.push({
+          userId: item.userId,
+          key,
+          type: String(item.msg.data?.type ?? ""),
+          itemKey: `${item.userId}:${item.dedupeKey}`,
+        });
+      }
     } catch (err) {
-      logger.warn(
-        { err: (err as Error)?.message },
-        "notify: claim failed; skipping",
-      );
-      continue;
+      logger.warn({ err: (err as Error)?.message }, "notify: claim failed");
     }
-    if (!isNew) continue;
-    const type = String(item.msg.data?.type ?? "");
-    if (type === "reminder") summary.reminders++;
-    else if (type === "result") summary.results++;
-    else if (type === "dailyPicks") summary.daily++;
-    else if (type === "oddsMovement") summary.oddsMoves++;
-    else if (type === "upsetAlert") summary.upsets++;
-    else if (type === "edgeLock") summary.edges++;
-    for (const tok of tokensByUser.get(item.userId) ?? [])
-      messages.push({ to: tok, ...item.msg });
   }
-
   if (messages.length) {
-    const { sent, invalidTokens } = await sendPush(messages);
-    summary.sent = sent;
-    if (invalidTokens.length) {
+    const result = await sendPush(messages);
+    summary.sent = result.sent;
+    const counted = new Set<string>();
+    for (const index of result.accepted) {
+      const claim = claims[index];
+      if (!claim || counted.has(claim.itemKey)) continue;
+      counted.add(claim.itemKey);
+      if (claim.type === "reminder") summary.reminders++;
+      else if (claim.type === "result") summary.results++;
+      else if (claim.type === "dailyPicks") summary.daily++;
+      else if (claim.type === "oddsMovement") summary.oddsMoves++;
+      else if (claim.type === "upsetAlert") summary.upsets++;
+      else if (claim.type === "edgeLock") summary.edges++;
+    }
+    // Release only explicit rejections. Transport loss has an unknown outcome;
+    // retaining its claim avoids silently duplicating a possibly accepted push.
+    for (const index of result.rejected) {
+      const claim = claims[index];
+      if (!claim || result.invalidTokens.includes(messages[index]!.to))
+        continue;
+      await db
+        .delete(notifLogTable)
+        .where(
+          and(
+            eq(notifLogTable.userId, claim.userId),
+            eq(notifLogTable.dedupeKey, claim.key),
+          ),
+        );
+    }
+    if (result.unknown.length)
+      logger.warn(
+        { count: result.unknown.length },
+        "notify: push acceptance unknown; claims retained to prevent duplicates",
+      );
+    if (result.invalidTokens.length)
       await db
         .delete(pushTokensTable)
-        .where(inArray(pushTokensTable.token, invalidTokens));
-    }
+        .where(inArray(pushTokensTable.token, result.invalidTokens));
   }
 
   return { summary };

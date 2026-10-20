@@ -512,7 +512,7 @@ function DetailGrid({ report }: { report: ParkWeatherReport }) {
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <Feather name={t.icon} size={13} color={colors.mutedForeground} />
+            <Feather name={t.icon as FeatherName} size={13} color={colors.mutedForeground} />
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{t.label}</Text>
           </View>
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 17 }}>{t.value}</Text>

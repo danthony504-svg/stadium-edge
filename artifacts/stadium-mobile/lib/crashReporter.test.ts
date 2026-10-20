@@ -60,7 +60,7 @@ test("reportCrash is nonblocking and never throws; dedupes identical crashes", a
   // Opt into network so we can assert client dedupe against a mock fetch.
   process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
   delete process.env.CRASH_REPORTING_DISABLED;
-  delete process.env.NODE_ENV;
+  Reflect.deleteProperty(process.env, "NODE_ENV");
 
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -87,7 +87,7 @@ test("reportCrash is nonblocking and never throws; dedupes identical crashes", a
     else process.env.EXPO_PUBLIC_CRASH_REPORTING = previousFlag;
     if (previousDisable === undefined) delete process.env.CRASH_REPORTING_DISABLED;
     else process.env.CRASH_REPORTING_DISABLED = previousDisable;
-    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
     else process.env.NODE_ENV = previousNodeEnv;
   }
 });
@@ -99,7 +99,7 @@ test("OTA enrichment bypasses message dedupe once (fail-soft, non-recursive)", a
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
   delete process.env.CRASH_REPORTING_DISABLED;
-  delete process.env.NODE_ENV;
+  Reflect.deleteProperty(process.env, "NODE_ENV");
 
   const originalFetch = globalThis.fetch;
   const bodies: Array<{ updateId?: string }> = [];
@@ -155,7 +155,7 @@ test("OTA enrichment bypasses message dedupe once (fail-soft, non-recursive)", a
     else process.env.EXPO_PUBLIC_CRASH_REPORTING = previousFlag;
     if (previousDisable === undefined) delete process.env.CRASH_REPORTING_DISABLED;
     else process.env.CRASH_REPORTING_DISABLED = previousDisable;
-    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
     else process.env.NODE_ENV = previousNodeEnv;
   }
 });

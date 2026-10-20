@@ -104,8 +104,9 @@ export async function registerForPushAsync(): Promise<string | null> {
   try {
     await registerPushToken(token, Platform.OS);
   } catch {
-    // Server registration failed (e.g. auth token not ready yet) — the token is
-    // still valid locally; a later call will re-register it.
+    // A local token is not proof that the server registered this device.
+    // A later call can retry, but callers must not show registration success.
+    return null;
   }
   return token;
 }

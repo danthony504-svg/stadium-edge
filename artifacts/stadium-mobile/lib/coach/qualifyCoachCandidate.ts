@@ -174,8 +174,8 @@ export function evaluateCoachQualification(
     return { status: "rejected", reason: "missing_score", pipelineVersion };
   }
 
-  const sport = input.sport ?? null;
-  if (market && !marketSupportsSimulation(market, { isProp, market, sport })) {
+  const sport = input.sport ?? undefined;
+  if (market && !marketSupportsSimulation(market, { isProp, sport })) {
     return { status: "rejected", reason: "sim_unsupported", pipelineVersion };
   }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveOddsEvent, type OddsEventRow } from "./oddsEventResolve.ts";
+import { resolveOddsEvent, type OddsEventRow } from "./oddsEventResolve.js";
 
 const tigersRangers: OddsEventRow[] = [
   {

@@ -20,16 +20,16 @@ export type SlateGameRow = {
   awayTeam: string;
   homeScore: null;
   awayScore: null;
-  homeTeamId: null;
-  awayTeamId: null;
-  homeLogo: null;
-  awayLogo: null;
-  homeAbbr: null;
-  awayAbbr: null;
-  venue: null;
-  clock: null;
-  period: null;
-  periodLabel: null;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  homeLogo: string | null;
+  awayLogo: string | null;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+  venue: string | null;
+  clock: string | null;
+  period: number | null;
+  periodLabel: string | null;
   state: "pre" | "in" | "post" | null;
 };
 

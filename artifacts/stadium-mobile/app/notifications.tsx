@@ -1,3 +1,4 @@
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import { Redirect, useRouter } from "expo-router";
@@ -141,6 +142,8 @@ function NotificationsScreen() {
   const onTest = useCallback(async () => {
     setTesting(true);
     try {
+      const token = await registerForPushAsync();
+      if (!token) { Alert.alert("Device not registered", "Allow notifications and check your connection, then try again."); return; }
       const res = await sendTestPush();
       if (res.sent > 0) {
         Alert.alert("Test sent", `Sent to ${res.sent} device${res.sent === 1 ? "" : "s"}.`);
@@ -276,7 +279,7 @@ function NotificationsScreen() {
               overflow: "hidden",
             }}
           >
-            {CATEGORIES.map((c, i) => (
+            {CATEGORIES.filter(c => SLIP_UI_ENABLED || !["gameReminders", "betResults", "oddsMovement"].includes(c.key)).map((c, i, visible) => (
               <View
                 key={c.key}
                 style={{

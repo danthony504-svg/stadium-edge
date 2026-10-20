@@ -47,7 +47,7 @@ function normalizeBoardScanPickScore<
   T extends RecommendablePick & {
     odds?: number | null;
     finalAiScore?: FinalAiScore | null;
-    edge?: string;
+    edge?: string | null;
   },
 >(pick: T): T {
   const score = pick.finalAiScore;
@@ -158,6 +158,10 @@ export const NOT_AI_RECOMMENDED = "Not AI Recommended";
 export const NOT_AI_RECOMMENDED_COMPACT = "Not Rec.";
 
 export type RecommendablePick = {
+  edge?: string | null;
+  propMarketKey?: string;
+  propSide?: string | null;
+  propLine?: number | null;
   market?: string;
   isProp?: boolean;
   sport?: string;

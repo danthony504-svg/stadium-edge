@@ -1,3 +1,5 @@
+import type { FinalAiScore } from "./finalAiScore.ts";
+import type { CombinedPickScore } from "./pickScore.ts";
 /**
  * Pure helpers for Coach board-scan prop delivery.
  * Kept free of api.ts so node:test can cover the 7-leg → 3 F5 latch without
@@ -491,8 +493,8 @@ function propFillFingerprint(pick: {
 }
 
 function propFillComposite(pick: {
-  finalAiScore?: { composite?: number } | null;
-  scores?: { composite?: number } | null;
+  finalAiScore?: { composite?: number | null } | null;
+  scores?: { composite?: number | null } | null;
 }): number {
   return pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
 }
@@ -698,16 +700,17 @@ export function footballSkillPropFamily(
 
 type PropFillPick = {
   isProp?: boolean;
-  market?: string | null;
-  game?: string | null;
+  market: string;
+  game: string;
   player?: string | null;
-  pick?: string | null;
+  pick: string;
   side?: string | null;
-  sport?: string | null;
+  sport?: string;
   propLine?: number | null;
   propMarketKey?: string | null;
-  finalAiScore?: { composite?: number; simHit?: number | null } | null;
-  scores?: { composite?: number } | null;
+  odds?: number;
+  finalAiScore?: Partial<FinalAiScore> | null;
+  scores?: Partial<CombinedPickScore> | null;
 };
 
 type PropFillLeg<T extends PropFillPick> = {

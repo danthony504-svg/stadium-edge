@@ -152,11 +152,11 @@ export function revalidateCoachTerminalDeliveryPicks<T extends CoachFlushPick>(
     filterFlushKnownStartedPicks(opts?.qualifiedCandidates ?? []),
   );
   const grounded = applyDeliveryGroundingGate({
-    picks: next as never,
-    qualifiedCandidates: eligibleReplacements as never,
+    picks: next,
+    qualifiedCandidates: eligibleReplacements,
     target,
   });
-  return grounded.picks as T[];
+  return grounded.picks;
 }
 
 /**

@@ -5,32 +5,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-type CatalogProduct = {
-  priceString: string | null;
-  hasFreeTrial: boolean;
-  freeTrialDays: number | null;
-};
-
-function planNote(
-  planId: "go" | "pro",
-  catalog: { go: CatalogProduct | null; pro: CatalogProduct | null } | null,
-  fallbackNote: string,
-): string {
-  const row = planId === "go" ? catalog?.go : catalog?.pro;
-  if (!row) return fallbackNote;
-  const price = row.priceString
-    ? planId === "go"
-      ? `${row.priceString}/week`
-      : `${row.priceString}/month`
-    : planId === "go"
-      ? "$9.99/week"
-      : "$29.99/month";
-  if (row.hasFreeTrial) {
-    const days = row.freeTrialDays ?? 7;
-    return `${days}-day free trial, then ${price}`;
-  }
-  return `Billed through Apple · ${price}`;
-}
+import { planCatalogNote as planNote } from "./planCatalogCopy.ts";
 
 describe("plans trial copy honesty", () => {
   it("does not mention free trial when StoreKit reports no intro offer", () => {
@@ -70,4 +45,9 @@ describe("plans trial copy honesty", () => {
     assert.match(note, /3-day free trial/i);
     assert.doesNotMatch(note, /7-day/);
   });
+});
+
+it("never invents seven days when the actual offer duration is unavailable", () => {
+  const note = planNote("go", { go: { priceString: "$9.99", hasFreeTrial: true, freeTrialDays: null }, pro: null }, "fallback");
+  assert.doesNotMatch(note, /7-day/); assert.match(note, /eligible accounts/); assert.match(note, /checkout/);
 });

@@ -289,7 +289,7 @@ function asPropList(data: unknown): PlayerProp[] {
     : [];
 }
 
-function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
+function asParkList(data: unknown): Awaited<ReturnType<typeof fetchSimulatorParkWeather>> {
   return Array.isArray(data) ? data : [];
 }
 

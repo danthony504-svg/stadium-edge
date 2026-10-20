@@ -27,9 +27,8 @@ export function plansMenuItem(): {
 }
 
 /**
- * Temporary: show Device attestation / OTA Diagnostics in production so the
- * installed binary can report runtime/updateId without a native rebuild.
- * Revert to `return isDev` after the stale-Coach investigation.
+ * Diagnostic entry points are available only to development/preview sessions.
+ * An explicit production channel stays hidden even under a dev runtime.
  */
 export function shouldShowOtaDiagnosticsMenuItem(isDev: boolean, channel?: string | null): boolean {
   return shouldShowOtaHomeDiagnostics(channel, isDev);
