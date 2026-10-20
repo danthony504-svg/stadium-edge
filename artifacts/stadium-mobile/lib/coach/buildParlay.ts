@@ -48,6 +48,9 @@ import {
   askWantsAllNewPicks,
   recentParlayVarietyContext,
   rememberParlayBuild,
+  parlayVarietyOwner,
+  recentParlayLegKeys,
+  deprioritizePropPoolEntries,
 } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
@@ -526,10 +529,10 @@ async function buildCoachParlayImpl(opts: {
   let mlbPlatoon: Record<string, unknown> | undefined;
   let mlbGameEnv: Record<string, unknown> | undefined;
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
-  const activePropPool = filterUngroundedCoachPropPool(
+  const activePropPool = deprioritizePropPoolEntries(filterUngroundedCoachPropPool(
     hrBoardAsk ? filterHrScorerPoolEntries(scopedPropPool) : scopedPropPool,
     inputs.espnGames,
-  );
+  ), recentParlayLegKeys());
   const propPoolSize = activePropPool.length;
   if (opts.propAudit) {
     const keys = (pool: PropPoolEntry[]) => new Set(pool.map(e => propAuditKey(parsedPickFromPoolEntry(e))));
@@ -1541,7 +1544,7 @@ async function buildCoachParlayImpl(opts: {
     ],
   });
   picks = filterPreparedDeliveryPicks(picks, inputs.espnGames);
-  if (picks.length) rememberParlayBuild(picks);
+
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
     teamScope,
@@ -1643,6 +1646,7 @@ async function buildCoachParlayImpl(opts: {
 
 /** Preparation never extends the foreground deadline or competes with its queue. */
 export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
+  const varietyOwner = parlayVarietyOwner();
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
   const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -1656,6 +1660,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
       onPartialPicks: opts.onPartialPicks ? picks => opts.onPartialPicks?.(safePicks(picks)) : undefined });
     const picks = safePicks(result.picks);
+    if (picks.length && !opts.signal.aborted) rememberParlayBuild(picks, varietyOwner);
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
     return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some props could not be verified, so I left them out.` : result.note };
   } catch (e) {
