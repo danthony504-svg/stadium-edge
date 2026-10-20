@@ -1,3 +1,4 @@
+import { readCoachingStudy, type CoachingStudy } from "./coachingTendencies.js";
 /** Event-bound context prepared by cron. Reads never start provider work. */
 import { cacheGet, cacheSet } from "./store.js";
 import { ESPN_SPORT_PATHS, cachedJson } from "./sports.js";
@@ -8,6 +9,7 @@ import { resolveFootballStadium } from "./footballStadiums.js";
 export const PREPARED_GAME_CONTEXT_TTL_MS = 2 * 60_000;
 export type ContextGame = { id: string; sport?: string; startsAt: string; homeTeamId?: string | null; awayTeamId?: string | null; homeAbbr?: string | null; homeTeam?: string | null; awayTeam?: string | null; venue?: string | null };
 export type PreparedGameContext = {
+  coachingStudy?: { home: CoachingStudy | null; away: CoachingStudy | null };
   version: 1; sport: string; eventId: string; startsAt: string; observedAtMs: number; expiresAtMs: number;
   homeTeamId: string; awayTeamId: string; requiresEventTime?: boolean;
   lineups: Array<{ teamId: string; complete: boolean; players: Array<{ athleteId: string; starter: boolean; position: string | null; battingOrder: number | null }> }>;
@@ -104,6 +106,10 @@ async function prepareOne(sport: string, game: ContextGame): Promise<PreparedGam
   const data = envelope.data;
   const context = parsePreparedGameContext(sport, game, envelope.data, envelope.at);
   if (!context || context.expiresAtMs <= Date.now()) return null;
+  if (["nba", "wnba", "ncaab", "nfl", "ncaaf"].includes(sport)) {
+    const [home, away] = await Promise.all([readCoachingStudy(sport, context.homeTeamId), readCoachingStudy(sport, context.awayTeamId)]);
+    if (home || away) context.coachingStudy = { home, away };
+  }
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey || context.environment.exposure === "indoors" || !["mlb", "nfl", "ncaaf", "soccer", "tennis"].includes(sport)) return context;
   try {
