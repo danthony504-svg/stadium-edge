@@ -1,3 +1,4 @@
+import { teamSearchFallbackQuery } from "../lib/teamSearchQuery.js";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
 import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
@@ -486,14 +487,17 @@ router.get("/sports/team-search", async (req, res): Promise<void> => {
     nfl: 0, nba: 1, mlb: 2, nhl: 3, wnba: 4, ncaaf: 5, ncaab: 6,
   };
   try {
-    const key = `team-search:v2:${query.toLowerCase()}`;
+    const key = `team-search:v3:${query.toLowerCase()}`;
     const data = await cachedJson<{ items?: TeamItem[] }>(key, 30 * 60 * 1000, async () => {
-      const url =
-        `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=team&query=` +
-        encodeURIComponent(query);
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`ESPN team search ${r.status}`);
-      return (await r.json()) as { items?: TeamItem[] };
+      const lookup = async (q: string): Promise<{ items?: TeamItem[] }> => {
+        const url = `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=team&query=${encodeURIComponent(q)}`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`ESPN team search ${r.status}`);
+        return await r.json() as { items?: TeamItem[] };
+      };
+      const exact = await lookup(query);
+      const fallback = teamSearchFallbackQuery(query);
+      return exact.items?.length || !fallback ? exact : await lookup(fallback);
     });
     const results: Array<{
       teamId: string;
