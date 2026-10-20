@@ -420,3 +420,18 @@ test("observe-only coach perf fields ingest + meta round-trip", () => {
   assert.equal(back!.enrichmentMs, 1_100);
   assert.equal(back!.candidatesPoolBefore, 50);
 });
+
+test("new and legacy cancel-only client outcomes remain recorded without exception pages", () => {
+  for (const body of [
+    {eventType:"coach_cancelled",failureReason:"cancelled",terminalStatus:"cancelled",rootCause:"request_cancelled"},
+    {eventType:"coach_exception",failureReason:"exception",terminalStatus:"cancelled",rootCause:"user_cancelled"},
+  ]) {
+    const parsed=parseCoachReliabilityIngestBody({...body,requestedLegCount:2,returnedLegCount:0,durationMs:4909});
+    assert.ok(parsed);
+    assert.equal(parsed.eventType,"coach_cancelled");
+    assert.equal(parsed.failureReason,"cancelled");
+    assert.equal(shouldAlertCoachEvent(baseMeta({...parsed})),false);
+  }
+  assert.equal(shouldAlertCoachEvent(baseMeta({eventType:"coach_exception",failureReason:"exception",terminalStatus:"error",rootCause:"build_exception"})),true);
+  assert.equal(shouldAlertCoachEvent(baseMeta({eventType:"coach_scan_freeze",failureReason:"scan_freeze",terminalStatus:"timed_out",rootCause:"scan_deadline"})),true);
+});

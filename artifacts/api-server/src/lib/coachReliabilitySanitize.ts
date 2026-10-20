@@ -17,6 +17,7 @@ export const COACH_EVENT_TYPES = [
   "parlay_zero_results",
   "coach_timeout",
   "coach_exception",
+  "coach_cancelled",
   "coach_question_received",
   "coach_question_failed",
   "coach_empty_response",
@@ -77,6 +78,7 @@ export type CoachFailureReason =
   | "blocked_unvalidated_market"
   | "timeout"
   | "exception"
+  | "cancelled"
   | "empty_response"
   | "preview_unsafe"
   | "preview_degraded"
@@ -309,6 +311,7 @@ export function failureCategoryFor(
   eventType: CoachEventType,
   reason: CoachFailureReason,
 ): CoachFailureCategory {
+  if (eventType === "coach_cancelled" || reason === "cancelled") return "none";
   if (eventType === "coach_grounding_failure" || reason === "grounding_failure") {
     return "grounding";
   }
@@ -425,6 +428,8 @@ export function mapScanFailureCode(code: string): {
  * Legitimate underfills / thin slate / unvalidated-market blocks stay digest-only.
  */
 export function shouldAlertCoachEvent(meta: CoachReliabilityMeta): boolean {
+  // Retain cancellations for diagnostics; they are not exception/timeout pages.
+  if (meta.eventType === "coach_cancelled" || (meta.eventType === "coach_exception" && meta.terminalStatus === "cancelled" && meta.rootCause === "user_cancelled")) return false;
   // Known policy gate (e.g. NCAAF game lines while unvalidated) — never a
   // misleading "Coach failure" Telegram page; still counted in the digest.
   if (meta.failureReason === "blocked_unvalidated_market") {

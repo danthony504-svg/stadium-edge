@@ -31,6 +31,6 @@ test("prop-wave onPartial must receive combined game+prop scored legs", () => {
   assert.match(src, /const emitBoardScanPartial = \(legs: BoardScoredLeg\[\] = scored\)/);
   assert.match(
     src,
-    /if \(shouldEmitBoardScanPartial\(partial\)\) opts\.onPartial\(partial\);/,
+    /if \(shouldEmitBoardScanPartial\(partial\)\) opts\.onPartial\?\.\(partial\);/,
   );
 });

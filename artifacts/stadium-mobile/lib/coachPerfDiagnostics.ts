@@ -118,7 +118,7 @@ export function deriveCoachTerminalStatus(opts: {
   eventType?: string | null;
   failureReason?: string | null;
 }): CoachTerminalStatus {
-  if (opts.cancelled) return "cancelled";
+  if (opts.cancelled || opts.eventType === "coach_cancelled") return "cancelled";
   if (opts.timedOut) return "timed_out";
   if (opts.eventType === "coach_grounding_failure") return "grounding_failure";
   if (

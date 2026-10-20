@@ -1,3 +1,4 @@
+import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by composite
 // score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
@@ -1338,7 +1339,7 @@ export function buildScanResult(
   };
 }
 
-export async function buildTopLegsFromFullBoardScan(opts: {
+async function buildTopLegsFromFullBoardScanImpl(opts: {
   target: number;
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
@@ -1361,6 +1362,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
+  stopWhenTargetQualified?: boolean;
+  onTargetSatisfied?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
   varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
@@ -1497,7 +1500,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   // game+prop combined legs — never emit from outer `scored` alone during props,
   // or onPartial stays empty until the final boardExhausted result.
   const emitBoardScanPartial = (legs: BoardScoredLeg[] = scored) => {
-    if (!opts.onPartial) return;
+    if (!opts.onPartial && !opts.stopWhenTargetQualified) return;
     manifestRecorder.recomputeQualificationFromScored(legs);
     const partial = buildScanResult(legs, {
       target: opts.target,
@@ -1519,7 +1522,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       excludedTeams,
       teamScope: opts.teamScope,
     });
-    if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
+    if (canCompleteAutomaticSmallTicket({ enabled: opts.stopWhenTargetQualified, target: opts.target, picks: partial.picks, awaitingPropSlots: partial.awaitingPropSlots, propPhaseIncomplete: partial.propPhaseIncomplete })) {
+      opts.onTargetSatisfied?.({ ...partial, scanComplete: true, note: "", manifest: manifestRecorder.finalize({ scanComplete: true, boardExhausted: false, deliveredLegs: partial.picks.length }) });
+      return;
+    }
+    if (shouldEmitBoardScanPartial(partial)) opts.onPartial?.(partial);
   };
 
   /**
@@ -1895,6 +1902,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
   if (opts.onPartial) opts.onPartial(result);
   return result;
+}
+
+export async function buildTopLegsFromFullBoardScan(opts: Parameters<typeof buildTopLegsFromFullBoardScanImpl>[0]): Promise<FullBoardScanResult> {
+  return runScanUntilTargetSatisfied(opts.signal, opts.stopWhenTargetQualified === true && opts.target === 2, (signal, complete) =>
+    buildTopLegsFromFullBoardScanImpl({ ...opts, signal, onTargetSatisfied: complete }));
 }
 
 export function shouldUseFullBoardScan(

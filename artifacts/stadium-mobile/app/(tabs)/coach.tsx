@@ -362,7 +362,7 @@ export default function CoachScreen() {
             returnedLegCount: picks.length,
             durationMs,
             picks,
-            // Stop → cancelled; thrown build → error (same coach_exception eventType).
+            // Stop → cancellation record; thrown build → exception/error.
             cancelled: !opts.exception,
             eventType: opts.exception ? "coach_exception" : undefined,
             failureReason: opts.exception ? "exception" : undefined,

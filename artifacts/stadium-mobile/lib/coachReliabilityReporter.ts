@@ -352,8 +352,8 @@ export function buildCoachReliabilityBody(
   // User cancel / stop — never parlay_fulfilled, even with a full buffer.
   if (input.cancelled) {
     return finish({
-      eventType: "coach_exception",
-      failureReason: "exception",
+      eventType: "coach_cancelled",
+      failureReason: "cancelled",
       sportCategory: input.sportCategory ?? "unspecified",
       questionKind: "parlay_build",
       requestedLegCount: requested,
@@ -362,7 +362,7 @@ export function buildCoachReliabilityBody(
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
-      rootCause: input.rootCause ?? "user_cancelled",
+      rootCause: input.rootCause ?? "request_cancelled",
       rootCauseGrade: "verified",
       ...timing,
       ...corr,

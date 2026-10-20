@@ -118,10 +118,11 @@ export function parseCoachReliabilityIngestBody(
     };
   }
 
-  const eventType = String(b.eventType ?? "") as CoachEventType;
+  const legacyCancel = b.eventType === "coach_exception" && b.terminalStatus === "cancelled" && b.rootCause === "user_cancelled";
+  const eventType = (legacyCancel ? "coach_cancelled" : String(b.eventType ?? "")) as CoachEventType;
   if (!COACH_EVENT_TYPES.includes(eventType)) return null;
 
-  const failureReason = (String(b.failureReason ?? "unknown") ||
+  const failureReason = (String(legacyCancel || eventType === "coach_cancelled" ? "cancelled" : b.failureReason ?? "unknown") ||
     "unknown") as CoachFailureReason;
 
   return {
