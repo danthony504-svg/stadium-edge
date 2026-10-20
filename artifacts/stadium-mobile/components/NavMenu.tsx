@@ -37,9 +37,11 @@ const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "Edge Lock", route: "/arbitrage", icon: "repeat" },
   { label: "+500 Steals", route: "/steals", icon: "target" },
   ...(SLIP_UI_ENABLED
-    ? [{ label: "Slip", route: "/slip", icon: "layers" as FeatherName }]
+    ? [
+        { label: "Slip", route: "/slip", icon: "layers" as FeatherName },
+        { label: "Model Report", route: "/report", icon: "bar-chart-2" as FeatherName },
+      ]
     : []),
-  { label: "Model Report", route: "/report", icon: "bar-chart-2" },
 ];
 
 function isActive(pathname: string, route: string) {
