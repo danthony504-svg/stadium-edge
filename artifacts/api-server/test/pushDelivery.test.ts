@@ -26,6 +26,10 @@ test("Expo acceptance, explicit rejection and missing tickets remain distinct", 
       rejected: [1],
       unknown: [2],
     });
+    globalThis.fetch = async () => Response.json({ data: [{ status: "unexpected" }, {}] });
+    const malformed = await sendPush(messages);
+    assert.deepEqual(malformed.unknown, [0, 1, 2]);
+    assert.deepEqual(malformed.rejected, []);
   } finally {
     globalThis.fetch = old;
   }

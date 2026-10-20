@@ -78,12 +78,14 @@ export async function sendPush(
         if (t.status === "ok") {
           sent += 1;
           accepted.push(i + idx);
-        } else if (t.details?.error === "DeviceNotRegistered") {
+        } else if (t.status === "error") {
           rejected.push(i + idx);
-          const tok = chunk[idx]?.to;
-          if (tok) invalidTokens.push(tok);
+          if (t.details?.error === "DeviceNotRegistered") {
+            const tok = chunk[idx]?.to;
+            if (tok) invalidTokens.push(tok);
+          }
         } else {
-          rejected.push(i + idx);
+          unknown.push(i + idx);
         }
       }
     } catch (err) {
