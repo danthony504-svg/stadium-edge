@@ -1,3 +1,5 @@
+import { readCoachPropAuditReport } from "@/lib/coachPropAuditStore";
+import { shouldShowOtaHomeDiagnostics } from "@/lib/navMenuAuth";
 import * as Clipboard from "expo-clipboard";
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
@@ -1027,6 +1029,15 @@ function OtaDebugScreenInner() {
               Refresh static attestation & logs
             </Text>
           </Pressable>
+
+          {shouldShowOtaHomeDiagnostics(diag.channel, __DEV__) && (
+            <Pressable
+              onPress={() => { void readCoachPropAuditReport().then(report => Clipboard.setStringAsync(report)).then(() => setStatus("Copied latest prop audit")).catch(() => setStatus("Could not copy prop audit")); }}
+              style={{ paddingVertical: 12, alignItems: "center" }}
+            >
+              <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>Copy latest prop audit</Text>
+            </Pressable>
+          )}
 
           <Pressable
             onPress={() => void copyAll()}

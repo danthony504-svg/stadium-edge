@@ -1,3 +1,4 @@
+import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by composite
 // score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
@@ -564,6 +565,7 @@ function appendPropScoredLegs(
     teamIdMap?: Map<string, GameTeamIds>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
+    propAudit?: CoachPropAudit;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     askText?: string | null;
     allowRareMultiCount?: boolean;
@@ -593,6 +595,7 @@ function appendPropScoredLegs(
   });
 
   for (const pick of scoredPicks) {
+    opts.propAudit?.observe(pick, "grading", "graded");
     const fp = pickLegFingerprint(pick);
     if (seenFp.has(fp)) continue;
     const poolRow = opts.pool.find(
@@ -637,6 +640,7 @@ function appendPropScoredLegs(
                 : false,
           )?.[1])) ||
       null;
+    opts.propAudit?.observe(pick, "grading", "graded", { historyGames: propPh?.recent?.length ?? null });
     if (
       shouldDropPropMissingOppDefense({
         sport: sportKey,
@@ -655,6 +659,7 @@ function appendPropScoredLegs(
         ownPack,
       })
     ) {
+      opts.propAudit?.observe(pick, "grading", "opponent_defense_gate");
       continue;
     }
     const simHit = pick.finalAiScore?.simHit ?? null;
@@ -675,6 +680,7 @@ function appendPropScoredLegs(
         propLine: pick.propLine,
       })
     ) {
+      opts.propAudit?.observe(pick, "grading", "simulation_identity_or_evidence_invalid");
       continue;
     }
     // Carry rare-count reliability from enrich (null for ordinary markets).
@@ -737,7 +743,7 @@ function appendPropScoredLegs(
         hrHistoryValues: hrVals,
         playerTeamIsHome: isHome,
       });
-      if (!ctx.ok) continue;
+      if (!ctx.ok) { opts.propAudit?.observe(pick, "grading", "rare_home_run_missing_hard_context"); continue; }
     }
     if (isBatterHomeRunPick(pick)) {
       const rawPlatoon =
@@ -773,6 +779,7 @@ function appendPropScoredLegs(
       leg = withHr;
     }
     seenFp.add(fp);
+    opts.propAudit?.observe(leg.pick, "grading", "graded");
     propScored.push(leg);
   }
 }
@@ -829,6 +836,7 @@ async function simPropPoolUntilQualified(
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
     onPropBatch?: (size: number, timedOut: boolean, batch?: ParsedPick[]) => void;
+    propAudit?: CoachPropAudit;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
     propsOnly?: boolean;
@@ -916,6 +924,7 @@ async function simPropPoolUntilQualified(
     teamIdMap: opts.teamIdsByGame,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
+    propAudit: opts.propAudit,
     manifestRecorder: opts.manifestRecorder,
     askText: opts.varietyContext?.askText ?? null,
     allowRareMultiCount: opts.varietyContext?.allowRareMultiCount,
@@ -964,10 +973,15 @@ async function simPropPoolUntilQualified(
     for (const pick of batch) {
       const key = propSimKeyForPick(pick, poolRowForPropPick(pick, pool));
       if (!key) {
+        opts.propAudit?.observe(pick, "simulation", "simulation_lookup_identity_missing");
         opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
         continue;
       }
-      const simHit = wave.hits.get(key)?.hitProbability ?? null;
+      const evidence = wave.hits.get(key);
+      const simHit = evidence?.hitProbability ?? null;
+      opts.propAudit?.observe(pick, "simulation", simHit == null ? "simulation_unavailable" : "simulation_completed", {
+        nullReason: evidence?.nullReason ?? (wave.timedOut ? "batch_timeout" : simHit == null ? "no_simulation_response" : null),
+      });
       if (!propHasSimGrade(pick, simHit)) {
         opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit });
       }
@@ -1340,6 +1354,7 @@ export function buildScanResult(
 }
 
 async function buildTopLegsFromFullBoardScanImpl(opts: {
+  propAudit?: CoachPropAudit;
   target: number;
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
@@ -1596,7 +1611,10 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
 
   const runPropPhase = (activePool: PropPoolEntry[]) => {
     for (const entry of activePool) {
-      manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
+      const auditPick = parsedPickFromPoolEntry(entry);
+      opts.propAudit?.observe(auditPick, "posted", "posted");
+      opts.propAudit?.observe(auditPick, "eligible", "eligible");
+      manifestRecorder.recordPropPoolRow(auditPick);
     }
     const propScoreOpts = {
       pool: activePool,
@@ -1634,6 +1652,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
             manifestRecorder.recordPropSimBatch(size, timedOut, batch);
           });
         },
+        propAudit: opts.propAudit,
         manifestRecorder,
       },
       opts.signal,
