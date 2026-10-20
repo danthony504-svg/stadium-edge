@@ -13,6 +13,13 @@ import {
   type FootballSkillRecoveryScope,
 } from "./coachFootballPropsOnlyRecovery.ts";
 
+import {
+  focalSportsFromText,
+  isSoftSportPreferenceAsk,
+  softSportPreferenceExpandsBoard,
+  excludedSportsFromText,
+} from "./chatContextPriority.ts";
+
 export { normalizeFootballRecoverySport };
 
 export type CoachAskSportScope = FootballSkillRecoveryScope;
@@ -76,6 +83,14 @@ export function resolveImmutableAskSportScope(opts: {
   const explicit = explicitFootballPropsSportScope(opts.askText);
   if (explicit === "nfl") return ["nfl"];
   if (explicit === "ncaaf") return ["ncaaf"];
+
+  // Recompute hard intent independently of a possibly widened/cached board.
+  // The same immutable belt guards recovery, partial results and final delivery.
+  const named = focalSportsFromText(opts.askText);
+  if (named.size && !(isSoftSportPreferenceAsk(opts.askText) && softSportPreferenceExpandsBoard(named))) {
+    const excluded = excludedSportsFromText(opts.askText);
+    return [...named].filter((sport) => !excluded.has(sport));
+  }
 
   const out: string[] = [];
   const seen = new Set<string>();

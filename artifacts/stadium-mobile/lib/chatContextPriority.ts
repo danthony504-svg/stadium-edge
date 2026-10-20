@@ -19,6 +19,9 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   nhl: ["nhl", "hockey"],
   soccer: [
     "soccer",
+    "uefa",
+    "europa league",
+    "conference league",
     "futbol",
     "fútbol",
     "epl",
@@ -110,7 +113,7 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   // already locked the board (don't also inject NFL).
   if (
     /\b(american\s+football|gridiron|football)\b/i.test(t) &&
-    !/\bsoccer|futbol|fútbol\b/i.test(t) &&
+    !out.has("soccer") &&
     !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/i.test(t) &&
     !isNegatedSportKeyword(t, "football") &&
     !isNegatedSportKeyword(t, "gridiron")
