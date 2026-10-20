@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { configureParlayVarietyMemory } from "@/lib/parlayVarietyMemory";
 /**
  * Greenfield AI Coach — thin chat + hard-terminal session.
  *
@@ -123,7 +125,8 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
+  useEffect(() => { void configureParlayVarietyMemory(isSignedIn ? userId : null, AsyncStorage); }, [isSignedIn, userId]);
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
   const showComposer = !!isSignedIn && coachPremiumUnlocked;

@@ -22,6 +22,8 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/installGlobalCrashHandlers.test.ts \
     lib/coachPropAudit.test.ts \
     lib/coachUefaScope.test.ts \
+    lib/parlayVarietyMemory.test.ts \
+    lib/parlayVarietyPersistence.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
     lib/coachReliabilityReporter.test.ts
   node --import ./test/register-hooks.mjs --test \

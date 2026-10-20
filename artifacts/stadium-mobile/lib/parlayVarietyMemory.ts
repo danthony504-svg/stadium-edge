@@ -19,12 +19,12 @@ export function parlayLegKey(p: {
   pick?: string;
   isProp?: boolean;
 }): string {
-  if (p.player) return `${norm(p.game)}|${norm(p.player)}|${norm(p.market)}`;
-  return `${norm(p.game)}|${norm(p.market)}|${norm(p.pick ?? "")}`;
+  if (p.player) return `${norm(p.game)}|${norm(p.player)}|${norm(p.market).replace(/\b(?:alt|alternate)\s*/g, "").trim()}`;
+  return `${norm(p.game)}|${norm(p.market).replace(/\b(?:alt|alternate)\s*/g, "").trim()}|${norm(String(p.pick ?? "").replace(/[+-]?\d+(?:\.\d+)?/g, ""))}`;
 }
 
 export function parlayLegKeyFromPool(e: PropPoolEntry): string {
-  return `${norm(e.game)}|${norm(e.player)}|${norm(e.marketLabel)}`;
+  return `${norm(e.game)}|${norm(e.player)}|${norm(e.marketLabel).replace(/\b(?:alt|alternate)\s*/g, "").trim()}`;
 }
 
 /** Player-only key for anchor / frequency tracking. */
@@ -48,6 +48,38 @@ export const MAX_PARLAY_BUILD_HISTORY = 40;
 const MAX_KEYS = 200;
 
 let recentBuilds: ParlayBuildRecord[] = [];
+type VarietyStorage = { getItem(key: string): Promise<string | null>; setItem(key: string, value: string): Promise<unknown> };
+let storage: VarietyStorage | null = null;
+let owner = "guest";
+let generation = 0;
+let historyDay = localDay();
+let saveQueue: Promise<unknown> = Promise.resolve();
+const storageKey = (user: string) => `coach-variety:v1:${encodeURIComponent(user)}`;
+function localDay(now = new Date()): string { return `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`; }
+function expireOldSlate(): void { if (historyDay !== localDay()) { historyDay = localDay(); recentBuilds = []; } }
+export function parlayVarietyOwner(): string { return owner; }
+/** Local account isolation; never await this storage read in a Coach scan. */
+export async function configureParlayVarietyMemory(user: string | null | undefined, adapter: VarietyStorage): Promise<void> {
+  const next = user || "guest";
+  if (storage === adapter && owner === next) return;
+  storage = adapter; owner = next; historyDay = localDay(); recentBuilds = [];
+  const token = ++generation;
+  try {
+    const raw = await adapter.getItem(storageKey(next));
+    if (token !== generation || !raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed.day !== historyDay || !Array.isArray(parsed.builds)) return;
+    const valid = parsed.builds.slice(0, MAX_PARLAY_BUILD_HISTORY).filter((b: any) => Array.isArray(b.legKeys) && b.legKeys.length <= 15 && b.legKeys.every((k: unknown) => typeof k === "string" && k.length < 1000) && Array.isArray(b.signatures) && b.signatures.length <= 15 && b.signatures.every((k: unknown) => typeof k === "string" && k.length < 1000) && Number.isInteger(b.legCount) && b.legCount > 0 && b.legCount <= 15 && typeof b.leadPlayerKey === "string" && typeof b.leadLegKey === "string");
+    // A ticket completed during hydration wins over older stored history.
+    recentBuilds = [...recentBuilds, ...valid].slice(0, MAX_PARLAY_BUILD_HISTORY);
+  } catch { /* unavailable history must never block a build */ }
+}
+function saveHistory(): void {
+  if (!storage) return;
+  const adapter = storage, key = storageKey(owner), value = JSON.stringify({day: historyDay, builds: recentBuilds});
+  saveQueue = saveQueue.catch(() => {}).then(() => adapter.setItem(key, value)).catch(() => {});
+}
+
 
 export type CoachParlayVarietyContext = {
   recentTickets: readonly (readonly string[])[];
@@ -149,6 +181,7 @@ export function askWantsAllNewPicks(text?: string | null): boolean {
 
 /** Full variety context for independent ticket combinator. */
 export function recentParlayVarietyContext(): CoachParlayVarietyContext {
+  expireOldSlate();
   return {
     recentTickets: recentBuilds.map((b) => b.legKeys),
     recentLeadPlayers: recentBuilds
@@ -162,6 +195,7 @@ export function recentParlayVarietyContext(): CoachParlayVarietyContext {
 
 /** Leg keys from the last few parlay builds (newest first). */
 export function recentParlayLegKeys(): Set<string> {
+  expireOldSlate();
   const out = new Set<string>();
   for (const build of recentBuilds) {
     for (const k of build.legKeys) out.add(k);
@@ -187,7 +221,9 @@ export function ticketOverlapRatio(
 }
 
 /** Call after a successful parlay render — feeds the next build's avoid list. */
-export function rememberParlayBuild(picks: ParsedPick[]): void {
+export function rememberParlayBuild(picks: ParsedPick[], expectedOwner = owner): void {
+  if (expectedOwner !== owner) return;
+  expireOldSlate();
   if (!picks.length) return;
   const legKeys = picks.map((p) => parlayLegKey(p));
   const signatures = picks.map((p) => pickUsageSignature(p));
@@ -204,6 +240,7 @@ export function rememberParlayBuild(picks: ParsedPick[]): void {
     record,
     ...recentBuilds.filter((b) => b.legKeys.join("||") !== fingerprint),
   ].slice(0, MAX_PARLAY_BUILD_HISTORY);
+  saveHistory();
 }
 
 /** How many recent tickets reused this market-shape signature. */
