@@ -14,7 +14,7 @@ If the service working directory is already artifacts/api-server, use:
     node dist/cfbdHistoryImport.mjs 2025 1
 
 This makes two sequential calls, /games and /lines, for one regular-season
-week, with an eight-second timeout per call and redirects rejected. No retry
+week, with a twenty-second timeout per call and redirects rejected. No retry
 loop. Use one representative historical week first to verify access/quota.
 Do not paste credentials into the command. The CLI reads the environment.
 
@@ -58,3 +58,5 @@ Historical calibration and the existing NCAAF P0 remain separate.
 
 ## Research PostgreSQL storage
 Set CFBD_HISTORY_DATABASE_URL to the QA/research connection without changing DATABASE_URL. Imports create only cfbd_history_archives and insert normalized JSON with a SHA-256 primary key. A separate one-connection pool closes after each import. No Coach request uses this storage. databaseArchived:true confirms insertion completed; configured storage failure fails the import with a sanitized error. Existing temporary files are not migrated: reimport Weeks 1 and 2 after deployment. No model gate or OTA change.
+
+Import requests allow 20 seconds per provider call, with no retry. Safe errors identify games or lines and timeout, network_error, or invalid_json. This applies only to the importer, never live Coach scans.

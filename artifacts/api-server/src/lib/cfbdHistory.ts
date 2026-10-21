@@ -41,10 +41,15 @@ export async function importCfbdHistory(year:number,week:number,opts:{fetcher?:t
  if(!opts.fetcher){running=true;lastAttempt=now;}
  const get=async(path:"games"|"lines")=>{
   try{
-   const response=await fetcher(`https://api.collegefootballdata.com/${path}?year=${year}&week=${week}&seasonType=regular${path==="games"?"&classification=fbs":""}`,{headers:{Authorization:`Bearer ${apiKey}`,Accept:"application/json"},signal:AbortSignal.timeout(8000),redirect:"error"});
+   const response=await fetcher(`https://api.collegefootballdata.com/${path}?year=${year}&week=${week}&seasonType=regular${path==="games"?"&classification=fbs":""}`,{headers:{Authorization:`Bearer ${apiKey}`,Accept:"application/json"},signal:AbortSignal.timeout(20000),redirect:"error"});
    if(!response.ok)throw Error(`cfbd_http_${response.status}`);
    const content=await response.text();if(content.length>12_000_000)throw Error("cfbd_response_too_large");return JSON.parse(content);
-  }catch(error){const message=error instanceof Error?error.message:"";throw Error(/^cfbd_(?:http_\d+|response_too_large)$/.test(message)?message:"cfbd_network_or_payload_error");}
+  }catch(error){
+   const message=error instanceof Error?error.message:"";
+   if(/^cfbd_(?:http_\d+|response_too_large)$/.test(message))throw Error(message);
+   const reason=error instanceof Error&&(error.name==="TimeoutError"||error.name==="AbortError")?"timeout":error instanceof SyntaxError?"invalid_json":"network_error";
+   throw Error(`cfbd_${path}_${reason}`);
+  }
  };
  try{
   // Sequential two-call batch limits quota/concurrency. No automatic retry.

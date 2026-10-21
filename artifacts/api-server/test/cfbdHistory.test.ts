@@ -26,5 +26,13 @@ test("two requests are authenticated server-side and normalized archive excludes
 test("missing key, HTTP denial and leaked provider error are sanitized",async()=>{
  await assert.rejects(importCfbdHistory(2025,1,{apiKey:"",persist:false}),/cfbd_key_not_configured/);
  await assert.rejects(importCfbdHistory(2025,1,{apiKey:"fixture",persist:false,fetcher:(async()=>new Response("sensitive response",{status:401})) as typeof fetch}),/^Error: cfbd_http_401$/);
- await assert.rejects(importCfbdHistory(2025,1,{apiKey:"fixture",persist:false,fetcher:(async()=>{throw Error("Bearer fixture");}) as typeof fetch}),/^Error: cfbd_network_or_payload_error$/);
+ await assert.rejects(importCfbdHistory(2025,1,{apiKey:"fixture",persist:false,fetcher:(async()=>{throw Error("Bearer fixture");}) as typeof fetch}),/^Error: cfbd_games_network_error$/);
+});
+
+test("request failures identify stage and category without private details",async()=>{
+ for(const stage of ["games","lines"])for(const reason of ["timeout","invalid_json"]){
+  let calls=0;
+  const fetcher=(async()=>{calls++;if(stage==="lines"&&calls===1)return new Response(JSON.stringify([game]));if(reason==="timeout")throw new DOMException("private details","TimeoutError");return new Response("private invalid JSON");}) as typeof fetch;
+  await assert.rejects(importCfbdHistory(2025,1,{apiKey:"fixture",persist:false,fetcher,now}),new RegExp(`^Error: cfbd_${stage}_${reason}$`));
+ }
 });
