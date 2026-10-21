@@ -1,3 +1,4 @@
+import cfbdValidationRouter from "./cfbdValidation.js";
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import oddsRouter from "./odds";
@@ -68,6 +69,7 @@ router.use(simulateRouter);
 router.use(liveOddsRouter);
 router.use(modelCalibrationRouter);
 router.use(coachSlateRouter);
+router.use(cfbdValidationRouter);
 router.use(fantasyRouter);
 router.use(subscriptionsRouter);
 
