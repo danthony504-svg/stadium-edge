@@ -1,3 +1,4 @@
+import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
 import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget.ts";
 import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
 import { persistCoachPropAudit } from "../coachPropAuditStore.ts";
@@ -1643,6 +1644,7 @@ async function buildCoachParlayImpl(opts: {
 
 /** Preparation never extends the foreground deadline or competes with its queue. */
 export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
+  opts = { ...opts, askText: resolveCoachFollowupAsk(opts.askText, opts.priorUserTexts) };
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
   const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -1663,3 +1665,4 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     throw e;
   } finally { releaseAudit(); release(); }
 }
+

@@ -31,6 +31,8 @@ export type CoachTeamGameScopeDiagnostics = {
 
 /** Explicit negative franchise constraint — exclude the entire matchup. */
 export type CoachAskExcludedTeam = {
+  /** Ambiguous city exclusions do not establish a league. */
+  impliesSport?: boolean;
   sport: string;
   /** Lowercase tokens that identify the franchise in Odds/ESPN labels. */
   matchTokens: string[];
@@ -575,6 +577,24 @@ export function excludedTeamScopesFromText(
     pushAll(collectNicksInSpan(span, hintSports, clauseSport));
   }
 
+  // City abbreviations are exclusions only. Use the named league, or exclude
+  // that city's matchups across leagues when the ask is deliberately mixed.
+  const cityAbbreviations: Record<string, string> = {
+    atl: "atlanta", bos: "boston", chi: "chicago", dal: "dallas",
+    den: "denver", det: "detroit", hou: "houston", mia: "miami",
+    mil: "milwaukee", min: "minnesota", nyc: "new york", phi: "philadelphia",
+    phx: "phoenix", sac: "sacramento", tor: "toronto", orl: "orlando",
+  };
+  const aliasesCue = new RegExp(String.raw`\b${TEAM_NEGATION_CUE}\s+(?:any\s+)?`, "gi");
+  while ((m = aliasesCue.exec(raw)) != null) {
+    const span = raw.slice(m.index + m[0].length).split(/[.!?;\n]|\b\d{1,3}\s*legs?\b/i)[0]!;
+    for (const [alias, city] of Object.entries(cityAbbreviations)) {
+      if (!new RegExp(String.raw`\b${alias}\b`, "i").test(span)) continue;
+      const sports = hintSports.size ? [...hintSports] : ["nfl", "nba", "wnba", "mlb", "nhl", "ncaaf", "ncaab", "soccer"];
+      pushAll(sports.map(sport => ({sport, matchTokens: [city], nick: alias, name: city, teamIds: [], impliesSport: false})));
+    }
+  }
+
   return found;
 }
 
@@ -816,6 +836,7 @@ export function sportsFromAskTeamNicknames(
   // Exclusions also imply the league when no sport keyword was named
   // ("no Cowboys" → NFL) so board sport focus still works with league+exclude asks.
   for (const ex of excludedTeamScopesFromText(text)) {
+    if (ex.impliesSport === false) continue;
     out.add(ex.sport);
   }
   return out;

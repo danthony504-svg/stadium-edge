@@ -1,3 +1,4 @@
+import {exactMarket10kProvenance} from "./coachPropProbabilityProvenance.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -39,6 +40,7 @@ function propLeg(
   edge: number,
   rank: number,
 ): BoardScoredLeg {
+  const marketKey = ({Assists:"player_assists",Rebounds:"player_rebounds","3-Pointers":"player_threes","Pts+Reb":"player_points_rebounds"} as Record<string,string>)[market] ?? "player_points";
   return {
     pick: {
       game,
@@ -48,7 +50,10 @@ function propLeg(
       isProp: true,
       odds: -110,
       sport: "wnba",
-      finalAiScore: { ...mainScore, edgePct: edge, composite: rank },
+      athleteId: player, eventId: game, propMarketKey: marketKey, propSide: "Over", propLine: 1.5,
+      finalAiScore: { ...mainScore, edgePct: edge, composite: rank,
+        propProbabilityProvenance: exactMarket10kProvenance({sport:"wnba",marketKey,athleteId:player,eventId:game,side:"Over",line:1.5,hitProbability:0.56,simulations:10000}),
+      },
     } as ParsedPick,
     evPct: edge,
     edgePct: edge,
@@ -243,4 +248,10 @@ test("buildStagedTicketFromScan with varietySeed uses independent combinator", (
   ];
   const { picks } = buildStagedTicketFromScan(scored, 3, "combo-seed");
   assert.equal(picks.length, 3);
+});
+
+test("all-new request returns an honest empty result when every candidate was already used", () => {
+  const scored = Array.from({length:12}, (_,i)=>mainGame(`Away ${i} @ Home ${i}`,8));
+  const picks = buildIndependentCoachTicket(scored,9,{varietySeed:"all-used",hardAvoidRecentLegs:true,recentTickets:[scored.map(x=>parlayLegKey(x.pick))]}).picks;
+  assert.equal(picks.length,0);
 });
