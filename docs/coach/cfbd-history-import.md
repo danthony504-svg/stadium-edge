@@ -55,3 +55,6 @@ https://api.collegefootballdata.com/api/betting
 Tests cover exact joins, incomplete/future rows, null odds, secret redaction,
 credential-only server headers, private archive permissions and route auth.
 Historical calibration and the existing NCAAF P0 remain separate.
+
+## Research PostgreSQL storage
+Set CFBD_HISTORY_DATABASE_URL to the QA/research connection without changing DATABASE_URL. Imports create only cfbd_history_archives and insert normalized JSON with a SHA-256 primary key. A separate one-connection pool closes after each import. No Coach request uses this storage. databaseArchived:true confirms insertion completed; configured storage failure fails the import with a sanitized error. Existing temporary files are not migrated: reimport Weeks 1 and 2 after deployment. No model gate or OTA change.

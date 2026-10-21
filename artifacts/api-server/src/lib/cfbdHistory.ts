@@ -1,4 +1,5 @@
 /** Server/worker historical import only. Never invoked by Coach or mobile. */
+import {saveCfbdArchive} from "./cfbdArchive.js";
 import {createHash} from "node:crypto";
 import {mkdir,writeFile} from "node:fs/promises";
 import {resolve,join} from "node:path";
@@ -51,10 +52,12 @@ export async function importCfbdHistory(year:number,week:number,opts:{fetcher?:t
   const hash=createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
   let file:string|null=null;
   if(opts.persist!==false){const dir=resolve(opts.directory??process.env.CFBD_HISTORY_DIR??"var/cfbd-history");await mkdir(dir,{recursive:true,mode:0o700});file=join(dir,`${year}-w${week}-${now}-${hash.slice(0,12)}.json`);await writeFile(file,JSON.stringify(snapshot),{flag:"wx",mode:0o600});}
-  return {snapshot,file,sha256:hash};
+  let databaseArchived=false;
+  if(opts.persist!==false&&process.env.CFBD_HISTORY_DATABASE_URL){await saveCfbdArchive(snapshot,process.env.CFBD_HISTORY_DATABASE_URL);databaseArchived=true;}
+  return {snapshot,file,sha256:hash,databaseArchived};
  } finally{if(!opts.fetcher)running=false;}
 }
 export function cfbdImportSummary(result:Awaited<ReturnType<typeof importCfbdHistory>>) {
  const {snapshot:s}=result;
- return {ok:true,source:s.source,year:s.year,week:s.week,importedAt:s.importedAt,completedGames:s.games.length,quoteRows:s.quotes.length,matchedGames:new Set(s.quotes.map(q=>q.eventId)).size,rejected:s.rejected,validationReady:false,limitations:s.limitations,sha256:result.sha256};
+ return {ok:true,source:s.source,year:s.year,week:s.week,importedAt:s.importedAt,completedGames:s.games.length,quoteRows:s.quotes.length,matchedGames:new Set(s.quotes.map(q=>q.eventId)).size,rejected:s.rejected,validationReady:false,limitations:s.limitations,sha256:result.sha256,databaseArchived:result.databaseArchived};
 }
