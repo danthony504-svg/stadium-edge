@@ -18,6 +18,7 @@ async function buildAll() {
     entryPoints: [
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/coachSlateWorker.ts"),
+      path.resolve(artifactDir, "src/cfbdHistoryImport.ts"),
     ],
     platform: "node",
     bundle: true,
