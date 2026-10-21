@@ -263,26 +263,28 @@ function boardLegsNearlyEqualRank(a: BoardScoredLeg, b: BoardScoredLeg): boolean
   return Math.abs(b.rankScore - a.rankScore) <= 3;
 }
 
-function bestAlternativeEdge(
-  leg: BoardScoredLeg,
-  pool: BoardScoredLeg[],
-  ticket: ParsedPick[],
-  selected: ParsedPick[],
-): number {
-  const onTicket = new Set(
-    [...ticket, ...selected].map((p) => pickLegFingerprint(p)),
-  );
-  const player = leg.pick.player?.toLowerCase();
-  let best = -Infinity;
+/** Compute eligible alternative edges once per seating step, rather than once per row. */
+function alternativeEdgesForSeat(
+  pool: BoardScoredLeg[], ticket: ParsedPick[], selected: ParsedPick[],
+): (leg: BoardScoredLeg) => number {
+  const occupied = new Set([...ticket, ...selected].map(pickLegFingerprint));
+  const bestByPlayer = new Map<string, number>();
   for (const row of pool) {
-    const fp = pickLegFingerprint(row.pick);
-    if (onTicket.has(fp)) continue;
-    if (player && row.pick.player?.toLowerCase() === player) continue;
+    if (occupied.has(pickLegFingerprint(row.pick))) continue;
     if (boardLegPoolRole(row.pick, row.pick.finalAiScore) == null) continue;
-    const edge = row.edgePct ?? 0;
-    if (edge > best) best = edge;
+    const player = row.pick.player?.toLowerCase() ?? "";
+    bestByPlayer.set(player, Math.max(bestByPlayer.get(player) ?? -Infinity, row.edgePct ?? 0));
   }
-  return best === -Infinity ? 0 : best;
+  const best = [...bestByPlayer].sort((a, b) => b[1] - a[1]).slice(0, 2);
+  return leg => {
+    const player = leg.pick.player?.toLowerCase();
+    const row = best.find(([key]) => !player || key !== player);
+    return row?.[1] ?? 0;
+  };
+}
+
+function bestAlternativeEdge(leg: BoardScoredLeg, pool: BoardScoredLeg[], ticket: ParsedPick[], selected: ParsedPick[]): number {
+  return alternativeEdgesForSeat(pool, ticket, selected)(leg);
 }
 
 function samePlayerRepeatPenalty(
@@ -290,6 +292,7 @@ function samePlayerRepeatPenalty(
   pool: BoardScoredLeg[],
   ticket: ParsedPick[],
   selected: ParsedPick[],
+  alternativeEdge?: (leg: BoardScoredLeg) => number,
 ): number {
   const player = leg.pick.player?.toLowerCase();
   if (!player) return 0;
@@ -298,7 +301,7 @@ function samePlayerRepeatPenalty(
   );
   if (!onTicket) return 0;
   const legEdge = leg.edgePct ?? 0;
-  const altEdge = bestAlternativeEdge(leg, pool, ticket, selected);
+  const altEdge = alternativeEdge ? alternativeEdge(leg) : bestAlternativeEdge(leg, pool, ticket, selected);
   if (legEdge - altEdge >= SIGNIFICANT_EDGE_GAP_PCT) return 0;
   if (legEdge - altEdge >= 1) return 36;
   return 52;
@@ -310,10 +313,11 @@ function recentLegPenalty(
   ticket: ParsedPick[],
   selected: ParsedPick[],
   recentLegKeys?: Set<string>,
+  alternativeEdge?: (leg: BoardScoredLeg) => number,
 ): number {
   if (!recentLegKeys?.has(parlayLegKey(leg.pick))) return 0;
   const legEdge = leg.edgePct ?? 0;
-  const altEdge = bestAlternativeEdge(leg, pool, ticket, selected);
+  const altEdge = alternativeEdge ? alternativeEdge(leg) : bestAlternativeEdge(leg, pool, ticket, selected);
   if (legEdge - altEdge >= SIGNIFICANT_EDGE_GAP_PCT) return 8;
   return 38;
 }
@@ -365,6 +369,11 @@ function pickDiverseLegsFromPool(
   const selected: ParsedPick[] = [];
 
   while (selected.length < want && poolCopy.length) {
+    let alternativeEdgeLookup: ((leg: BoardScoredLeg) => number) | undefined;
+    const alternativeEdge = (leg: BoardScoredLeg) => {
+      alternativeEdgeLookup ??= alternativeEdgesForSeat(poolCopy, ticket, selected);
+      return alternativeEdgeLookup(leg);
+    };
     let bestIdx = -1;
     let bestScore = -Infinity;
     const maxPerGame = maxLegsPerGame(target, config.legsPerGameCap);
@@ -391,8 +400,8 @@ function pickDiverseLegsFromPool(
       let effective =
         row.rankScore -
         corr * config.diversityWeight -
-        samePlayerRepeatPenalty(row, poolCopy, ticket, selected) -
-        recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys) -
+        samePlayerRepeatPenalty(row, poolCopy, ticket, selected, alternativeEdge) -
+        recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys, alternativeEdge) -
         recentSignaturePenalty(row, config.recentSignatureCounts) +
         lineShoppingTieBonus(row, config);
 
@@ -422,10 +431,10 @@ function pickDiverseLegsFromPool(
       }
       const corrChosen = parlayCorrelationPenalty(chosen.pick, [...ticket, ...selected]);
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
-      const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
-      const repeatAlt = samePlayerRepeatPenalty(alt, poolCopy, ticket, selected);
-      const recentChosen = recentLegPenalty(chosen, poolCopy, ticket, selected, config.recentLegKeys);
-      const recentAlt = recentLegPenalty(alt, poolCopy, ticket, selected, config.recentLegKeys);
+      const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected, alternativeEdge);
+      const repeatAlt = samePlayerRepeatPenalty(alt, poolCopy, ticket, selected, alternativeEdge);
+      const recentChosen = recentLegPenalty(chosen, poolCopy, ticket, selected, config.recentLegKeys, alternativeEdge);
+      const recentAlt = recentLegPenalty(alt, poolCopy, ticket, selected, config.recentLegKeys, alternativeEdge);
       const sigChosen = recentSignaturePenalty(chosen, config.recentSignatureCounts);
       const sigAlt = recentSignaturePenalty(alt, config.recentSignatureCounts);
       const effChosen =
@@ -1080,7 +1089,7 @@ export function buildIndependentCoachTicket(
     const fresh = scored.filter((leg) => !recentFlat.has(parlayLegKey(leg.pick)));
     // Prefer a fresh-only pool whenever any alternatives exist. Honest shortfall
     // beats replaying Yankees/Padres on an "all new picks" ask.
-    if (fresh.length > 0) workScored = fresh;
+    workScored = fresh;
   }
 
   const qualifying = qualifyingScoredLegs(workScored, {
