@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Private CFBD historical calibration snapshots
+/artifacts/api-server/var/cfbd-history/
+/var/cfbd-history/
