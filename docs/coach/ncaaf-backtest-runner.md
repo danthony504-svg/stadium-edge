@@ -15,4 +15,10 @@ The isolated regulation candidate runs 10,000 seeded draws per eligible game. Re
 
 Team means use same-season known non-OT games with kickoff more than 24 hours earlier, minimum three games per team. Target OT and unknown-OT games are excluded because regulation scores are unavailable. Exclusions are counted. This creates selection bias and does not evaluate full-game markets.
 
-The lag is a completion proxy, not verified completion or historical availability. Retrospective data may contain corrections. This is not an authenticated pregame replay. No bookmaker quote timing, prices, injuries, venue adjustment, ROI, probability calibration, market baseline or acceptance threshold is validated. Readiness remains false. Full-game engine development and validation remain outstanding.
+The lag is a completion proxy, not verified completion or historical availability. Retrospective data may contain corrections. This is not an authenticated pregame replay. No bookmaker quote timing, prices, injuries, venue adjustment, ROI, probability calibration, verified pregame market baseline or acceptance threshold is validated. Readiness remains false. Full-game engine development and validation remain outstanding.
+
+## Retrospective bookmaker comparison
+
+The same command now reads quote rows too. For each season and bookmaker separately, `bookmakerComparison` reports total and margin paired-game counts, model MAE, book MAE and model-minus-book MAE (positive means the model has larger error). Missing total/spread fields are excluded independently from both sides of the respective comparison. Each game receives one vote per book per metric. Identical quotes deduplicate; differing lines for one event/book fail because there is no timestamp to choose between them. Orphan quotes and invalid field types also fail. Home spread -7 is converted to predicted home margin +7.
+
+Only games already evaluated by the regulation candidate participate. Full-game book lines are compared on a known non-overtime subset; this is a retrospective numerical reference, not validation of full-game settlement or pregame availability. No closing-line, hit-rate, ROI or probability-calibration claim is made. Readiness stays false.
