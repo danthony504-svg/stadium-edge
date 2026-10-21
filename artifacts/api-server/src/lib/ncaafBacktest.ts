@@ -1,4 +1,5 @@
 /** Offline exploratory regulation evaluation; never authorizes picks. */
+import {compareMarketLines,type BaselineQuote,type ScorePrediction} from './ncaafMarketBaseline.js';
 import type {CfbdGame} from './cfbdHistory.js';
 import {runNcaafCandidate,NCAAF_CANDIDATE_VERSION} from './sportSim/ncaafCandidate.js';
 export function readBacktestGames(snapshots:unknown[]):CfbdGame[]{
@@ -22,8 +23,9 @@ export function priorTeamSample(games:CfbdGame[],target:CfbdGame,teamId:string){
  const pts=(g:CfbdGame,own:boolean)=>g.homeId===teamId?(own?g.homePoints:g.awayPoints):(own?g.awayPoints:g.homePoints);
  return {games:rows.length,ptsFor:rows.reduce((n,g)=>n+pts(g,true),0)/rows.length,ptsAgainst:rows.reduce((n,g)=>n+pts(g,false),0)/rows.length};
 }
-export function runNcaafBacktest(games:CfbdGame[]){
+export function runNcaafBacktest(games:CfbdGame[],quotes:BaselineQuote[]=[]){
  const reports=[2024,2025].map(season=>{
+  const predictions:ScorePrediction[]=[];
   let scored=0,thinHistory=0,overtime=0,unknownOvertime=0,invalidCandidate=0,totalError=0,marginError=0;
   for(const g of games.filter(g=>g.season===season)){
    if(g.overtime===null){unknownOvertime++;continue;}if(g.overtime){overtime++;continue;}
@@ -31,11 +33,12 @@ export function runNcaafBacktest(games:CfbdGame[]){
    if(!home||!away){thinHistory++;continue;}
    const result=runNcaafCandidate({home,away,seed:Number(g.eventId)>>>0,simulations:10000});
    if(!result){invalidCandidate++;continue;}
+   predictions.push({game:g,total:result.homeMean+result.awayMean,margin:result.homeMean-result.awayMean});
    scored++;totalError+=Math.abs(result.homeMean+result.awayMean-g.homePoints-g.awayPoints);
    marginError+=Math.abs(result.homeMean-result.awayMean-g.homePoints+g.awayPoints);
   }
   const avg=(x:number)=>scored?Number((x/scored).toFixed(4)):null;
-  return {season,role:season===2024?'development':'holdout',games:games.filter(g=>g.season===season).length,scored,excluded:{thinHistory,overtime,unknownOvertime,invalidCandidate},totalMAE:avg(totalError),marginMAE:avg(marginError)};
+  return {season,role:season===2024?'development':'holdout',games:games.filter(g=>g.season===season).length,scored,excluded:{thinHistory,overtime,unknownOvertime,invalidCandidate},totalMAE:avg(totalError),marginMAE:avg(marginError),bookmakerComparison:compareMarketLines(predictions,quotes,season)};
  });
- return {version:NCAAF_CANDIDATE_VERSION,simulationsPerGame:10000,settlement:'regulation_only',productionReady:false,validationReady:false,reports,limitations:['exploratory_score_error_only','completion_time_unverified_24h_kickoff_proxy','historical_data_revision_availability_unverified','overtime_and_unknown_overtime_excluded','no_injury_or_matchup_adjustments','quote_timestamps_unverified_no_market_performance_claim','no_probability_calibration_or_roi_validation']};
+ return {version:NCAAF_CANDIDATE_VERSION,simulationsPerGame:10000,settlement:'regulation_only',productionReady:false,validationReady:false,reports,limitations:['exploratory_score_error_only','completion_time_unverified_24h_kickoff_proxy','historical_data_revision_availability_unverified','overtime_and_unknown_overtime_excluded','no_injury_or_matchup_adjustments','retrospective_book_lines_not_verified_pregame_or_closing','non_ot_subset_not_full_game_market_validation','no_probability_calibration_or_roi_validation']};
 }
