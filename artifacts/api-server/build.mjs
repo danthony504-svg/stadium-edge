@@ -19,6 +19,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/coachSlateWorker.ts"),
       path.resolve(artifactDir, "src/cfbdHistoryImport.ts"),
+      path.resolve(artifactDir, "src/ncaafBacktest.ts"),
     ],
     platform: "node",
     bundle: true,
