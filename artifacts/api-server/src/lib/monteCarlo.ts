@@ -214,9 +214,11 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   }
 
   if (isBasketballMilestoneMarket(ctx.market)) {
-    if (rawVals.some(v => v !== 0 && v !== 1)) return null;
-    // Beta(1,1) smoothing avoids certainty from a short run of zero/all hits.
-    const rate = (values: number[]) => (values.reduce((a, b) => a + b, 0) + 1) / (values.length + 2);
+    if (rawVals.length < 10 || rawVals.some(v => v !== 0 && v !== 1) ||
+        !rawVals.includes(0) || !rawVals.includes(1)) return null;
+    // Conservative evidence policy, not a population prior or calibration claim.
+    // Do not let a short all-zero run manufacture a rare-event betting edge.
+    const rate = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
     return 0.4 * rate(rawVals.slice(0, 5)) + 0.3 * rate(rawVals.slice(0, 10)) + 0.3 * rate(rawVals);
   }
 

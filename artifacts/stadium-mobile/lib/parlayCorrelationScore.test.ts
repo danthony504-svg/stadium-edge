@@ -81,8 +81,8 @@ test("legsPerGameCapForAsk keeps college team stacks at ≥4 seats", () => {
     legsPerGameCapForAsk(7, { gameLinesOnly: false, collegeTeamMarketStacks: true }),
     4,
   );
-  assert.equal(legsPerGameCapForAsk(7, { gameLinesOnly: true }), 4);
-  assert.equal(legsPerGameCapForAsk(5, { gameLinesOnly: true }), 3);
+  assert.equal(legsPerGameCapForAsk(7, { gameLinesOnly: true }), null);
+  assert.equal(legsPerGameCapForAsk(5, { gameLinesOnly: true }), null);
   assert.equal(
     legsPerGameCapForAsk(5, { gameLinesOnly: true, collegeTeamMarketStacks: true }),
     4,
@@ -216,4 +216,10 @@ test("10-leg NFL period stack cannot take more than 2 legs per game", () => {
     wouldExceedMaxLegsPerGame(leg(g1, "Alt Spread", "Chargers +9.5"), g1Legs, 2),
     g1Legs.length >= 2,
   );
+});
+
+test("only explicit few-game asks raise the generic game-line cap", () => {
+  assert.equal(legsPerGameCapForAsk(7, {gameLinesOnly:true}), null);
+  assert.equal(legsPerGameCapForAsk(7, {gameLinesOnly:true,maxGames:2}), 4);
+  assert.equal(legsPerGameCapForAsk(7, {maxGames:1}), 7);
 });

@@ -40,17 +40,11 @@ test("coverQueryHits scores team totals and period totals", () => {
     108,
     "nba",
   );
-  assert.equal(typeof periodHit, "boolean");
+  assert.equal(periodHit, false, "basketball periods have no supported distribution");
 });
 
-test("coverQueryHits scores race-to markets", () => {
-  let hits = 0;
-  for (let i = 0; i < 200; i++) {
-    if (coverQueryHits({ id: "rt", kind: "raceTo", teamSide: "home", raceTarget: 20 }, 115, 105, "nba")) {
-      hits += 1;
-    }
-  }
-  assert.ok(hits > 20 && hits < 180);
+test("coverQueryHits cannot grade basketball race-to from final scores", () => {
+  assert.equal(coverQueryHits({id:"rt",kind:"raceTo",teamSide:"home",raceTarget:20},115,105,"nba"),false);
 });
 
 test("runGameMonteCarlo returns coverHitRates for queries", () => {

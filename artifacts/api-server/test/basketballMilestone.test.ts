@@ -8,7 +8,7 @@ import { simulatePropGroupShared } from "../src/lib/monteCarloBuild.ts";
 test("real game-log pipeline supplies one 10k draw for milestone Yes and No", () => {
   const history = {
     labels: ["PTS", "REB", "AST", "STL", "BLK"],
-    recent: Array.from({length:10},(_,i)=>({stats:{PTS:"20",REB:"10",AST:i%2 ? "10" : "9",STL:"0",BLK:"0"}})),
+    recent: Array.from({length:10},(_,i)=>({stats:{PTS:"20",REB:i%2 ? "10" : "9",AST:i%2 ? "10" : "9",STL:"0",BLK:"0"}})),
   };
   for (const market of ["player_double_double", "player_triple_double"]) {
     const requests = (["Over","Under"] as const).map(side=>({player:"Player",market,line:0.5,side,sport:"nba",athleteId:"p"}));
@@ -46,9 +46,9 @@ test("milestone Yes/No share exactly 10k bounded Bernoulli draws, without count-
     assert.ok(Math.abs(rows[0]!.hitProbability! + rows[1]!.hitProbability! - 1) < 0.002);
     assert.equal(drawPropStatSamples({ ...ctx, recentValues: [0, 1, 2] }, 10000), null);
     assert.equal(drawPropStatSamples({ ...ctx, recentValues: [0, 1] }, 10000), null);
-    for (const recentValues of [[0,0,0], [1,1,1]]) {
-      const p = buildProjectionMean({ ...ctx, recentValues, line:0.5, side:"Over" })!;
-      assert.ok(p > 0 && p < 1, "short perfect/zero runs must not imply certainty");
+    for (const recentValues of [[0,0,0], [1,1,1], Array(10).fill(0), Array(10).fill(1), [0,1,0,0,0,0,0,0,0]]) {
+      assert.equal(buildProjectionMean({ ...ctx, recentValues, line:0.5, side:"Over" }), null);
+      assert.equal(drawPropStatSamples({ ...ctx, recentValues }, 10000), null);
     }
   }
 });
@@ -56,7 +56,7 @@ test("milestone Yes/No share exactly 10k bounded Bernoulli draws, without count-
 test("milestone cache versions reject old count draws and preserve warm non-milestone keys", () => {
   const parts = { sport:"nba", player:"Player", market:"player_double_double" };
   const key = propDistributionCacheKey(parts,"history","deep",10000);
-  assert.match(key,/milestone-bernoulli-v1:/);
+  assert.match(key,/milestone-bernoulli-v2:/);
   assert.equal(key,propDistributionCacheKey({...parts,market:"player_double_double_alternate"},"history","deep",10000));
   assert.notEqual(key,propDistributionCacheKey({...parts,market:"player_triple_double"},"history","deep",10000));
   assert.ok(!propDistributionCacheKey({...parts,market:"player_points"},"history","deep",10000).includes("bernoulli"));

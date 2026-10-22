@@ -4,7 +4,7 @@ import type { GameInjuryReport } from "./injuries";
 /** Fresh for 3 minutes — middle of the 2–5 minute window users expect. */
 export const SIM_RESULT_TTL_MS = 3 * 60_000;
 
-const FINGERPRINT_VERSION = 1;
+const FINGERPRINT_VERSION = 2;
 
 export type SimInputFingerprint = {
   version: number;

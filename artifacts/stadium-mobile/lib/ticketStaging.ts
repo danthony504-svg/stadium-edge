@@ -388,8 +388,9 @@ export function topUpTicketFromQualifiedScored(
   // (2) Mixed top-up under the default diversity cap.
   merged = appendExtras(merged, legsPerGameCap);
 
-  // (3) Thin-slate game-line relax — only after props had their chance.
-  if (merged.length < target) {
+  // (3) Relax only an explicit few-game budget (or the existing college policy).
+  // A generic request stays short rather than silently increasing concentration.
+  if (merged.length < target && (legsPerGameCap != null || opts?.collegeTeamMarketStacks)) {
     for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap, {
       collegeTeamMarketStacks: !!opts?.collegeTeamMarketStacks,
     })) {

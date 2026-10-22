@@ -56,7 +56,13 @@ export function localPropSimulation(
 
   let hitProb: number | null;
   let tdReliability: number | null = null;
-  if (isRareCountPropMarket(args.market)) {
+  if (/^player_(?:double|triple)_double(?:_alternate)?$/.test(args.market)) {
+    // Match the server's evidence policy; local fallback must not recreate a prior.
+    if (vals.length < 10 || vals.some(v => v !== 0 && v !== 1) || !vals.includes(0) || !vals.includes(1)) return null;
+    const rate = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+    const yes = 0.4 * rate(vals.slice(0, 5)) + 0.3 * rate(vals.slice(0, 10)) + 0.3 * rate(vals);
+    hitProb = args.side === "Under" ? 1 - yes : yes;
+  } else if (isRareCountPropMarket(args.market)) {
     // Threshold-aware Poisson — 0/N does not become a fake 2% floor.
     hitProb = rareCountHitFromValues(vals, args.line, args.side);
   } else if (isAnytimeTdPropMarket(args.market)) {
