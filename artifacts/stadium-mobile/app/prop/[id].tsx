@@ -1,3 +1,5 @@
+import { simulatorModelEdge, formatPropProjectedStat, propSimulationCount, propSimulationEvidence } from "@/lib/simulatorPropMetrics";
+import { isBinaryNullLineMarket } from "@/lib/binaryPropMarket";
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
@@ -273,7 +275,7 @@ export default function PropDetailScreen() {
     () => mergePropSimWithLocal(serverSim, localSim),
     [serverSim, localSim],
   );
-  const simHitFromServer = serverSim?.hitProbability != null;
+  const simHitFromServer = simData != null && propSimulationCount(simData) > 0;
   const simulationPending =
     simQuickQ.isFetching || simDeepQ.isFetching || (simQuickQ.isSuccess && !simDeepQ.isFetched);
 
@@ -754,7 +756,7 @@ export default function PropDetailScreen() {
     const trend = scoreTrend(
       playerTrendMomentum(games.map((g) => g.value), line, side),
     );
-    const edgePct = propMetaQ.data?.edge ?? null;
+    const edgePct = simulatorModelEdge(simData?.hitProbability, odds);
     const lineValue = scoreLineValue(edgePct);
     const lineShopping = scoreLineShopping(propMetaQ.data?.bookSpread ?? null);
     let injury = null;
@@ -926,7 +928,7 @@ export default function PropDetailScreen() {
                 backgroundColor: colors.surface,
               }}
             >
-              <ConfidenceRing value={propScore.confidencePct} size={94} centerSub="Win %" />
+              <ConfidenceRing value={simData?.hitProbability != null ? Math.round(simData.hitProbability * 100) : null} size={94} centerSub={simHitFromServer ? "Sim hit %" : "History %"} />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text
                   style={{
@@ -965,7 +967,7 @@ export default function PropDetailScreen() {
                       <Feather name="trending-up" size={11} color={edgeColor} />
                       <Text style={{ color: edgeColor, fontFamily: FONT.bold, fontSize: 11 }}>
                         {propScore.edgePct >= 0 ? "+" : ""}
-                        {propScore.edgePct.toFixed(1)}% edge
+                        {propScore.edgePct.toFixed(1)} pp model edge
                       </Text>
                     </View>
                   ) : null}
@@ -1015,31 +1017,27 @@ export default function PropDetailScreen() {
             <View style={{ flexDirection: "row", gap: 10 }}>
               <MetricTile
                 icon="trending-up"
-                label="PROJECTION"
-                value={projection != null ? projection.toFixed(1) : "—"}
+                label={isBinaryNullLineMarket(marketKey) ? "HISTORY YES %" : "PROJECTION"}
+                value={projection != null ? (isBinaryNullLineMarket(marketKey) ? `${Math.round(projection * 100)}%` : projection.toFixed(1)) : "—"}
                 caption={`Last ${n} avg`}
                 tint={colors.foreground}
               />
               <MetricTile
                 icon="cpu"
-                label="SIM HIT %"
+                label={simHitFromServer ? "SIM HIT %" : "HISTORY HIT %"}
                 value={
                   simData?.hitProbability != null
                     ? `${Math.round(simData.hitProbability * 100)}%`
                     : "—"
                 }
-                caption={simHitFromServer ? "10k Monte Carlo" : "recent form vs line"}
+                caption={simData ? propSimulationEvidence(simData) : "Simulation unavailable"}
                 tint={colors.primary}
               />
               <MetricTile
                 icon="activity"
-                label="PROJECTED STAT"
-                value={
-                  simData?.mostLikelyLine != null
-                    ? String(simData.mostLikelyLine)
-                    : "—"
-                }
-                caption="mode outcome"
+                label={isBinaryNullLineMarket(marketKey) ? "TYPICAL OUTCOME" : "PROJECTED STAT"}
+                value={simData ? formatPropProjectedStat({ ...simData, market: marketKey }) : "—"}
+                caption="median outcome"
                 tint={colors.foreground}
               />
             </View>
@@ -1053,13 +1051,13 @@ export default function PropDetailScreen() {
               />
               <MetricTile
                 icon="shield"
-                label="SIM CONF"
+                label="MODEL SCORE"
                 value={
                   simData?.confidenceScore != null
-                    ? `${simData.confidenceScore}`
+                    ? `${simData.confidenceScore}/100`
                     : "—"
                 }
-                caption={simHitFromServer ? "model conviction" : "sample conviction"}
+                caption="score, not win probability"
                 tint={colors.foreground}
               />
               <MetricTile

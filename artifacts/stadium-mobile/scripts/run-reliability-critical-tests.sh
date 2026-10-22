@@ -87,6 +87,8 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachPropSimCoverage.test.ts \
     lib/binaryPropMarket.test.ts \
     lib/basketballMilestone.test.ts \
+    lib/simulatorPropMetrics.test.ts \
+    lib/simulatorLocalSim.test.ts \
     lib/propPoolIdentity.test.ts \
     lib/pickScoreContextIdentity.test.ts \
     lib/coachAskMarketFilter.test.ts \
