@@ -34,6 +34,7 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   player_rush_tds: "Rush TDs",
   player_reception_tds: "Rec TDs",
   player_double_double: "Double-Double",
+  player_triple_double: "Triple-Double",
   player_goals: "Goals",
   player_shots_on_goal: "Shots on Goal",
   player_goal_scorer_anytime: "Anytime Goal",

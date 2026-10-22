@@ -1476,6 +1476,7 @@ const YES_NO_PROP_MARKETS = new Set([
   "player_anytime_td",
   "player_first_td",
   "player_double_double",
+  "player_triple_double",
   "player_goals",
   "player_goal_scorer_anytime",
   "player_first_goal_scorer",

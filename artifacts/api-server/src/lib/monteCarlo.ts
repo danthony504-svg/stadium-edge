@@ -176,6 +176,10 @@ function modeRounded(samples: number[], step = 0.5): number {
   return round2(best);
 }
 
+export function isBasketballMilestoneMarket(market: string): boolean {
+  return /^player_(?:double|triple)_double(?:_alternate)?$/.test(market);
+}
+
 export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
   if (rawVals.length < 3) return null;
@@ -207,6 +211,13 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
     }
 
     return poissonLambdaForAnytimeTd(clamp(p, 0, 0.95));
+  }
+
+  if (isBasketballMilestoneMarket(ctx.market)) {
+    if (rawVals.some(v => v !== 0 && v !== 1)) return null;
+    // Beta(1,1) smoothing avoids certainty from a short run of zero/all hits.
+    const rate = (values: number[]) => (values.reduce((a, b) => a + b, 0) + 1) / (values.length + 2);
+    return 0.4 * rate(rawVals.slice(0, 5)) + 0.3 * rate(rawVals.slice(0, 10)) + 0.3 * rate(rawVals);
   }
 
   const vals = rawVals;
@@ -337,6 +348,10 @@ export function drawPropStatSamples(
     side: "Over",
   } as PropSimulationContext);
   if (mean == null) return null;
+  if (isBasketballMilestoneMarket(ctx.market)) {
+    const samples = Array.from({ length: simulations }, () => rng() < mean ? 1 : 0);
+    return { samples, mean, std: Math.sqrt(mean * (1 - mean)) };
+  }
   const historicalStd = sampleStd(vals);
   const std = Math.max(historicalStd, mean * 0.12, 0.35);
   const discrete = ctx.discrete ?? false;

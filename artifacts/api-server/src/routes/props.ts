@@ -53,15 +53,15 @@ export const MARKETS_BY_SPORT: Record<string, string[]> = {
     "player_points", "player_rebounds", "player_assists", "player_threes",
     "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists",
     "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals",
-    "player_turnovers", "player_double_double",
+    "player_turnovers", "player_double_double", "player_triple_double",
   ],
   wnba: [
     "player_points", "player_rebounds", "player_assists", "player_threes",
     "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists",
     "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals",
-    "player_turnovers", "player_double_double",
+    "player_turnovers", "player_double_double", "player_triple_double",
   ],
-  ncaab: ["player_points", "player_rebounds", "player_assists", "player_double_double"],
+  ncaab: ["player_points", "player_rebounds", "player_assists", "player_double_double", "player_triple_double"],
   nfl: [
     "player_pass_yds", "player_pass_attempts", "player_pass_completions", "player_pass_tds",
     "player_pass_interceptions", "player_pass_longest_completion", "player_rush_yds",

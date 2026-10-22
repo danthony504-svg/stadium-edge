@@ -124,7 +124,9 @@ export function propDistributionCacheKey(
   simulations: number,
 ): string {
   const base = propSharedDistributionKey(parts);
-  return `simdist:${tier}:${simulations}:${historyFingerprint}:${base}`;
+  // Do not reuse pre-Bernoulli milestone distributions; other markets retain their warm keys.
+  const model = /^player_(?:double|triple)_double(?:_alternate)?$/.test(parts.market) ? "milestone-bernoulli-v1:" : "";
+  return `simdist:${tier}:${simulations}:${model}${historyFingerprint}:${base}`;
 }
 
 export async function getCachedPropDistribution(

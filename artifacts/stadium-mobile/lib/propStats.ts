@@ -256,7 +256,7 @@ export function gameValueForMarket(
   }
 
   // Double-double is Yes/No — 1 when a player hits 10+ in two of PTS/REB/AST/STL/BLK.
-  if (market === "player_double_double") {
+  if (market === "player_double_double" || market === "player_triple_double") {
     const cats = ["PTS", "REB", "AST", "STL", "BLK"];
     let doubles = 0;
     for (const lab of cats) {
@@ -265,7 +265,7 @@ export function gameValueForMarket(
       if (n == null) return null;
       if (n >= 10) doubles += 1;
     }
-    return doubles >= 2 ? 1 : 0;
+    return doubles >= (market === "player_triple_double" ? 3 : 2) ? 1 : 0;
   }
 
   // Pitcher outs: prefer OUTS column; else convert IP ("6.2" = 6 inn + 2 outs).

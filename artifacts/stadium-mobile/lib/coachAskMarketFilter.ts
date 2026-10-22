@@ -411,7 +411,16 @@ export function parseCoachAskMarketConstraint(
       allowedMarketKeys: [...FOOTBALL_COMBO_PROP_KEYS],
     };
   }
-  if (hasDoubleDoubleAsk(t) || hasPraAsk(t)) {
+  if (hasDoubleDoubleAsk(t) || /\btriple[-\s]?doubles?\b/i.test(t)) {
+    return {
+      propsOnly: true, gameLinesOnly: false, excludeTotals: false, maxGames,
+      allowedMarketKeys: [
+        ...(hasDoubleDoubleAsk(t) ? ["player_double_double"] : []),
+        ...(/\btriple[-\s]?doubles?\b/i.test(t) ? ["player_triple_double"] : []),
+      ],
+    };
+  }
+  if (hasPraAsk(t)) {
     return {
       propsOnly: true,
       gameLinesOnly: false,

@@ -99,7 +99,7 @@ export const EXPECTED_MAIN_PROP_FAMILIES: Record<string, string[]> = {
     "player_assists",
     "player_threes",
     "player_points_rebounds_assists",
-    "player_double_double",
+    "player_double_double", "player_triple_double",
   ],
   nfl: [
     "player_pass_yds",
@@ -122,7 +122,7 @@ export const EXPECTED_MAIN_PROP_FAMILIES: Record<string, string[]> = {
     "player_pass_tds",
     "player_field_goals",
   ],
-  ncaab: ["player_points", "player_rebounds", "player_assists", "player_double_double"],
+  ncaab: ["player_points", "player_rebounds", "player_assists", "player_double_double", "player_triple_double"],
   nhl: ["player_points", "player_goals", "player_shots_on_goal"],
   wnba: [
     "player_points",
@@ -130,7 +130,7 @@ export const EXPECTED_MAIN_PROP_FAMILIES: Record<string, string[]> = {
     "player_assists",
     "player_threes",
     "player_points_rebounds_assists",
-    "player_double_double",
+    "player_double_double", "player_triple_double",
   ],
   soccer: [
     "player_goal_scorer_anytime",

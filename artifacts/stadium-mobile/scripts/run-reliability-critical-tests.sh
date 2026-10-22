@@ -62,6 +62,7 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/propCatalogParity.test.ts \
     test/anytimeTdModel.test.ts \
     test/monteCarlo.test.ts \
+    test/basketballMilestone.test.ts \
     test/ncaafHistoricalAcceptance.test.ts \
     test/nflDriveSimCaps.test.ts
 )
@@ -85,6 +86,7 @@ echo "== Coach ticket qualification / staging / absolute budget =="
     lib/coachFootballPropsOnly.test.ts \
     lib/coachPropSimCoverage.test.ts \
     lib/binaryPropMarket.test.ts \
+    lib/basketballMilestone.test.ts \
     lib/propPoolIdentity.test.ts \
     lib/pickScoreContextIdentity.test.ts \
     lib/coachAskMarketFilter.test.ts \

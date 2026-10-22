@@ -32,6 +32,7 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
+import { isBinaryNullLineMarket } from "@/lib/binaryPropMarket";
 import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
 import {
   fetchSimulatorGameOutcome,
@@ -78,6 +79,7 @@ import { analyzeFullSimulation, type FullSimulationAnalytics } from "@/lib/fullS
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
+  normalizeSimulatorPropLines,
   gradeSimulatorProps,
   type SimulatorPlayerHistorySlice,
   type SimulatorPropGrade,
@@ -152,6 +154,8 @@ const BASKETBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "rebounds", label: "Rebounds", markets: ["player_rebounds"] },
   { id: "assists", label: "Assists", markets: ["player_assists"] },
   { id: "threes", label: "Threes", markets: ["player_threes"] },
+  { id: "double_double", label: "Double-Double", markets: ["player_double_double"] },
+  { id: "triple_double", label: "Triple-Double", markets: ["player_triple_double"] },
 ];
 
 const NHL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
@@ -732,7 +736,7 @@ function SimulatorScreen() {
 
   const mains = useMemo(() => {
     if (propsLoading) return [];
-    let list = asPropList(propsQ.data).filter((p) => !p?.alt && p.line != null);
+    let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null);
     if (sport === "soccer") {
       list = list.filter((p) => isSoccerPropMarket(p.market));
     }
@@ -778,7 +782,7 @@ function SimulatorScreen() {
     const price = side === "Over" ? p.overPrice : p.underPrice;
     if (!isPp && (price == null || p.line == null)) return;
     if (p.line == null) return;
-    const label = `${side} ${p.line} ${propMarketLabel(p.market)}`;
+    const label = isBinaryNullLineMarket(p.market) ? `${side === "Over" ? "Yes" : "No"} ${propMarketLabel(p.market)}` : `${side} ${p.line} ${propMarketLabel(p.market)}`;
     const key = `${p.player}|${p.market}|${p.line}|${side}`;
     const exists = selected.find(
       (s) => `${s.player}|${s.market}|${s.line}|${s.side}` === key,
@@ -1436,7 +1440,7 @@ function SimulatorScreen() {
                               {p.player}
                             </Text>
                             <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}>
-                              {side} {p.line} {propMarketLabel(p.market)}
+                              {isBinaryNullLineMarket(p.market) ? `${side === "Over" ? "Yes" : "No"} ${propMarketLabel(p.market)}` : `${side} ${p.line} ${propMarketLabel(p.market)}`}
                             </Text>
                           </View>
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
@@ -1684,7 +1688,7 @@ function SimulatorScreen() {
                           }}
                         >
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
+                            {r.player} — {isBinaryNullLineMarket(r.market) ? `${r.side === "Over" ? "Yes" : "No"} ${propMarketLabel(r.market)}` : `${r.side} ${r.line} ${propMarketLabel(r.market)}`}
                           </Text>
                           {simBadge ? (
                             <View

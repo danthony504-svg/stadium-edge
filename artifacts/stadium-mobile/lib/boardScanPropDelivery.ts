@@ -523,6 +523,7 @@ export type SkillPropFamily =
   | "threes"
   | "pra"
   | "double_double"
+  | "triple_double"
   | "goals"
   | "sog"
   | "shots"
@@ -566,7 +567,7 @@ export function skillPropRank(market: string | null | undefined): number {
 
   // —— Basketball (NBA / NCAAB / WNBA) ——
   if (/points\s*rebounds\s*assists|\bpra\b/.test(m)) return 5;
-  if (/double\s*double/.test(m)) return 4;
+  if (/double[\s_-]*double/.test(m)) return 4;
   if (/\bthrees?\b|3\s*pt|three\s*point/.test(m)) return 5;
   if (/rebounds?/.test(m)) return 5;
   if (/assists?/.test(m)) return 5;
@@ -616,7 +617,8 @@ export function skillPropFamily(market: string | null | undefined): SkillPropFam
 
   // Basketball
   if (/points\s*rebounds\s*assists|\bpra\b/.test(m)) return "pra";
-  if (/double\s*double/.test(m)) return "double_double";
+  if (/double[\s_-]*double/.test(m)) return "double_double";
+  if (/triple[\s_-]*double/.test(m)) return "triple_double";
   if (/\bthrees?\b|3\s*pt|three\s*point/.test(m)) return "threes";
   if (/rebounds?/.test(m)) return "rebounds";
   if (/assists?/.test(m)) return "assists";
