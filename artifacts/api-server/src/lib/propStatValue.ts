@@ -177,11 +177,11 @@ export function gameValueForMarket(
     return gameValueForMarket(market.slice(0, -"_alternate".length), stats, ambiguous);
   }
   if (isScoringOrderMarket(market)) return null;
-  if (market === "player_double_double") {
+  if (market === "player_double_double" || market === "player_triple_double") {
     const values = ["PTS", "REB", "AST", "STL", "BLK"].map(label =>
       ambiguous.has(label) ? null : num(stats, label));
     if (values.some(v => v == null)) return null;
-    return values.filter(v => v != null && v >= 10).length >= 2 ? 1 : 0;
+    return values.filter(v => v != null && v >= 10).length >= (market === "player_triple_double" ? 3 : 2) ? 1 : 0;
   }
   if (market === "pitcher_outs") {
     if (!ambiguous.has("OUTS")) {

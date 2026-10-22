@@ -1,3 +1,4 @@
+import { isBinaryNullLineMarket } from "./binaryPropMarket";
 // Simulator-only prop pool + grading — ships with simulator.tsx so props mode never
 // depends on pickScoreContext or the large api.ts barrel during partial OTAs.
 import type { InjuryTeam, MatchupHistoryEntry, PlayerProp, PropPoolEntry } from "./api";
@@ -38,6 +39,11 @@ function splitLabel(label: string): { away: string; home: string } {
   return { away: (parts[0] || "").trim(), home: (parts[1] || "").trim() };
 }
 
+/** Keep posted Yes/No markets selectable without fabricating a sportsbook line. */
+export function normalizeSimulatorPropLines(props: PlayerProp[]): PlayerProp[] {
+  return props.map(p => p && p.line == null && isBinaryNullLineMarket(p.market) ? { ...p, line: 0.5 } : p);
+}
+
 export function buildSimulatorPropPool(
   props: PlayerProp[],
   game: string,
@@ -50,7 +56,7 @@ export function buildSimulatorPropPool(
   },
 ): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
-  for (const p of props) {
+  for (const p of normalizeSimulatorPropLines(props)) {
     if (!p || p.alt || p.line == null) continue;
     const marketLabel = propMarketLabel(p.market);
     const teamAbbr =

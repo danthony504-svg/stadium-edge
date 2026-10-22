@@ -3,7 +3,8 @@ import {coachAskTeamScope,excludedTeamScopesFromText} from './coachAskTeamScope.
 
 const reset = /\b(?:all|any|mixed|different)\s+sports?\b|\bstart\s+over\b/i;
 const continuation = /\b(?:new|again|another|same|instead|no|without|exclude|excluding|skip|avoid)\b/i;
-const market = /\b(?:props?|spreads?|money\s*lines?|totals?|team\s+totals?|game\s+lines?|over|under)\b/i;
+const milestone = /\b(?:double|triple)[-\s]?doubles?\b/ig;
+const market = /\b(?:props?|spreads?|money\s*lines?|totals?|team\s+totals?|game\s+lines?|over|under|double[-\s]?doubles?|triple[-\s]?doubles?)\b/i;
 /** Carry explicit league/props intent only for a continuation, never across a reset or topic switch. */
 export function resolveCoachFollowupAsk(current:string|null|undefined,priorUserTexts:readonly string[]=[]):string {
  const ask=String(current??'');
@@ -19,11 +20,12 @@ export function resolveCoachFollowupAsk(current:string|null|undefined,priorUserT
   if(!sports.size&&scope)sports.add(scope.sport);
   if(sports.size){
    if(named.size&&(sports.size!==named.size||[...named].some(s=>!sports.has(s))))return ask;
+   const inheritedMilestones = !market.test(ask) ? [...previous.matchAll(milestone)].map(x=>x[0]).join(" ") : "";
    const inheritProps=!market.test(ask)&&/\b(?:player\s+)?props?\b/i.test(previous);
    const currentExclusions=new Set(excludedTeamScopesFromText(ask).map(x=>x.nick));
    const inheritedExclusions=[...new Set(excludedTeamScopesFromText(previous).filter(x=>sports.has(x.sport)&&!currentExclusions.has(x.nick)).map(x=>x.nick))].map(nick=>`no ${nick}`).join(' ');
    // Put inherited league before negative clauses so exclusion stripping cannot remove it.
-   return `${named.size?'':[...sports].join(' ')+' '}${ask}${inheritProps?' player props':''}${inheritedExclusions?' '+inheritedExclusions:''}`;
+   return `${named.size?'':[...sports].join(' ')+' '}${ask}${inheritedMilestones?" "+inheritedMilestones:""}${inheritProps?' player props':''}${inheritedExclusions?' '+inheritedExclusions:''}`;
   }
   if(!continuation.test(previous))return ask;
  }

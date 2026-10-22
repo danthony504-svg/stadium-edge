@@ -88,7 +88,8 @@ export function resolveMarketFamilyId(
     if (/three|3pm|threes/.test(m)) return "threes";
     if (/\bsteals?\b/.test(m)) return "steals";
     if (/\bblocks?\b/.test(m)) return "blocks";
-    if (/double\s*double/.test(m)) return "double_double";
+    if (/double[\s_-]*double/.test(m)) return "double_double";
+    if (/triple[\s_-]*double/.test(m)) return "triple_double";
     if (/\bhits?\b/.test(m) && !/runs/.test(m)) return "hits";
     if (/total bases/.test(m)) return "total_bases";
     if (/home\s*runs?|\bhr\b/.test(m)) return "home_runs";
@@ -240,6 +241,7 @@ const BASKETBALL_PROP = setOf(
   "blocks_steals",
   "turnovers",
   "double_double",
+  "triple_double",
 );
 
 const MLB_PROP = setOf(
@@ -321,6 +323,7 @@ function basketballFamilyMap(): ReadonlyMap<string, MarketFamilyId> {
     [["player_blocks_steals"], "blocks_steals"],
     [["player_turnovers", "turnovers"], "turnovers"],
     [["player_double_double", "double double"], "double_double"],
+    [["player_triple_double", "triple double"], "triple_double"],
     [["player_points_q1"], "points"],
     [["player_rebounds_q1"], "rebounds"],
     [["player_assists_q1"], "assists"],
@@ -528,7 +531,7 @@ ADAPTERS.ncaab = {
   sport: "ncaab",
   supportsParticipantProps: true,
   maxIndependentFamiliesHint: 8,
-  participantPropFamilies: setOf("points", "rebounds", "assists", "double_double"),
+  participantPropFamilies: setOf("points", "rebounds", "assists", "double_double", "triple_double"),
   teamGameEventFamilies: GAME_CORE,
   periodFamilies: PERIOD_GAME,
   altFamilies: new Set([...ALT_GAME, "points_alt", "rebounds_alt", "assists_alt"]),
