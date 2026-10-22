@@ -121,21 +121,21 @@ export function mergePropSimWithLocal(
     };
   }
   if (server.hitProbability != null && server.sampleGames >= LOCAL_PROP_SIM_MIN_SAMPLE) {
-    return {
-      ...server,
-      mostLikelyLine: server.mostLikelyLine ?? local.mostLikelyLine,
-      medianProjection: server.medianProjection ?? local.medianProjection,
-      confidenceScore: server.confidenceScore ?? local.confidenceScore,
-    };
+    return server;
   }
   return {
     ...server,
-    hitProbability: server.hitProbability ?? local.hitProbability,
-    sampleGames: Math.max(server.sampleGames, local.sampleGames),
-    mostLikelyLine: server.mostLikelyLine ?? local.mostLikelyLine,
-    medianProjection: server.medianProjection ?? local.medianProjection,
-    meanProjection: server.meanProjection ?? local.medianProjection,
-    confidenceScore: server.confidenceScore ?? local.confidenceScore,
+    simulations: 0,
+    tier: "quick",
+    cached: false,
+    hitProbability: local.hitProbability,
+    sampleGames: local.sampleGames,
+    mostLikelyLine: local.mostLikelyLine,
+    medianProjection: local.medianProjection,
+    meanProjection: local.medianProjection,
+    confidenceScore: local.confidenceScore,
+    stdDev: null,
+    percentiles: null,
     nullReason: server.hitProbability != null ? server.nullReason : null,
   };
 }
@@ -158,12 +158,17 @@ export function enrichPropSimResults(
     if (!local || local.hitProbability == null) return r;
     return {
       ...r,
+      simulations: 0,
+      cached: false,
       hitProbability: local.hitProbability,
-      sampleGames: Math.max(r.sampleGames, local.sampleGames),
-      mostLikelyLine: r.mostLikelyLine ?? local.mostLikelyLine,
-      medianProjection: r.medianProjection ?? local.medianProjection,
-      confidenceScore: r.confidenceScore ?? local.confidenceScore,
-      tier: r.tier ?? "quick",
+      sampleGames: local.sampleGames,
+      mostLikelyLine: local.mostLikelyLine,
+      medianProjection: local.medianProjection,
+      meanProjection: local.medianProjection,
+      confidenceScore: local.confidenceScore,
+      stdDev: null,
+      percentiles: null,
+      tier: "quick",
     };
   });
 }

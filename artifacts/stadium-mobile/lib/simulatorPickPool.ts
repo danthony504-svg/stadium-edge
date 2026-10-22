@@ -1,3 +1,4 @@
+import { simulatorModelEdge } from "./simulatorPropMetrics";
 import { isBinaryNullLineMarket } from "./binaryPropMarket";
 // Simulator-only prop pool + grading — ships with simulator.tsx so props mode never
 // depends on pickScoreContext or the large api.ts barrel during partial OTAs.
@@ -250,16 +251,19 @@ function scoreOneSimulatorProp(
   },
 ): CombinedPickScore | null {
   const same = (e: PropPoolEntry) =>
-    e.game === args.game && e.player === args.player && e.side === args.side;
+    e.game === args.game && e.player === args.player && e.side === args.side &&
+    e.marketKey === args.market && e.line === args.line &&
+    (!e.sport || e.sport === args.sport) &&
+    (!args.athleteId || !e.athleteId || args.athleteId === e.athleteId);
   const entry =
-    propPool.find((e) => same(e) && e.line === args.line) ?? propPool.find(same);
+    propPool.find(same);
   if (!entry) return null;
-  const edgePct = entry.edge ?? null;
   const marketKey = entry.marketKey ?? args.market;
   const ph = playerHistoryFor(args.player, args.athleteId ?? entry.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(args.game, entry, ph);
   const simKey = `${args.player}|${marketKey}|${args.line}|${args.side}`;
   const sim = simulationByKey?.get(simKey);
+  const edgePct = simulatorModelEdge(sim?.hitProbability, args.odds);
   const scores: PickSubScores = {
     matchup: propMatchupScore(args.game, playerTeam, ctx?.matchupHistory),
     trend: propTrendScore(ph, marketKey, args.line, args.side),

@@ -1,3 +1,5 @@
+import { americanToImplied } from "@/lib/pickScore";
+import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel } from "@/lib/simulatorPropMetrics";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useFocusEffect } from "expo-router";
@@ -295,21 +297,6 @@ function asPropList(data: unknown): PlayerProp[] {
 
 function asParkList(data: unknown): Awaited<ReturnType<typeof fetchSimulatorParkWeather>> {
   return Array.isArray(data) ? data : [];
-}
-
-function formatPropProjectedStat(r: PropSimulationResult): string {
-  const raw = r.medianProjection ?? r.meanProjection ?? r.mostLikelyLine;
-  if (raw == null || !Number.isFinite(raw)) return "—";
-  return Number.isInteger(raw) ? String(raw) : raw.toFixed(1);
-}
-
-function formatPropSimConf(
-  r: PropSimulationResult,
-  rubricConf?: number | null,
-): string {
-  const score = r.confidenceScore ?? rubricConf;
-  if (score == null || !Number.isFinite(score)) return "—";
-  return String(Math.round(score));
 }
 
 function SimulatorScreen() {
@@ -1542,7 +1529,7 @@ function SimulatorScreen() {
                       }}
                     >
                       <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: colors.primary }}>
-                        {SIM_COUNT.toLocaleString()} Sims
+                        {mode === "props" ? propSimulationSummaryLabel(propResults) : `${SIM_COUNT.toLocaleString()} game sims`}
                       </Text>
                     </View>
                     {ranAt ? (
@@ -1661,6 +1648,8 @@ function SimulatorScreen() {
                     </Text>
                     {propResults.map((r) => {
                       const graded = propScores.get(r.key);
+                      const quoted = selected.find(s => `${s.player}|${s.market}|${s.line}|${s.side}` === r.key);
+                      const breakEven = americanToImplied(quoted?.odds);
                       const combined = graded?.rubric;
                       const finalAi = graded?.finalAiScore;
                       const simBadge = finalAiScoreLabel(finalAi);
@@ -1722,23 +1711,30 @@ function SimulatorScreen() {
                           <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
                             <MiniStat label="Final AI Score" value={finalAi?.grade ?? combined?.grade ?? "—"} valueColor={gradeColor} />
                             <MiniStat
-                              label="Confidence"
-                              value={finalAi?.confidencePct != null ? `${finalAi.confidencePct}%` : combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
+                              label="Quality score"
+                              value={finalAi?.confidencePct != null ? `${finalAi.confidencePct}/100` : combined?.confidencePct != null ? `${combined.confidencePct}/100` : "—"}
                             />
                             <MiniStat
-                              label="Edge"
-                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct}%` : "—"}
+                              label={propSimulationCount(r) ? "Model edge (pp)" : "History edge (pp)"}
+                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct} pp` : "—"}
                               valueColor={edgeColor}
                             />
                           </View>
                           <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
-                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                            <MiniStat label="Projected Stat" value={formatPropProjectedStat(r)} />
+                            <MiniStat label={propSimulationCount(r) ? "Sim hit chance" : "History hit rate"} value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
+                            <MiniStat label={isBinaryNullLineMarket(r.market) ? "Typical outcome" : "Projected stat"} value={formatPropProjectedStat(r)} />
                             <MiniStat
-                              label="Sim Conf"
-                              value={formatPropSimConf(r, finalAi?.confidencePct ?? combined?.confidencePct)}
+                              label="Model score"
+                              value={r.confidenceScore != null && Number.isFinite(r.confidenceScore) ? `${Math.round(r.confidenceScore)}/100` : "—"}
                             />
                           </View>
+                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
+                            <MiniStat label="Selected odds" value={breakEven != null ? formatAmerican(quoted!.odds) : "—"} />
+                            <MiniStat label="Price break-even" value={breakEven != null ? `${(breakEven * 100).toFixed(1)}%` : "—"} />
+                          </View>
+                          <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 8 }}>
+                            {propSimulationEvidence(r)}
+                          </Text>
                         </View>
                       );
                     })}
@@ -1758,8 +1754,10 @@ function SimulatorScreen() {
                 How it works
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
-                Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
-                minutes, injuries, matchup splits, and park weather. One draw set powers every market on that game.
+                Deep simulations target {SIM_COUNT.toLocaleString()} Monte Carlo draws. Each prop shows its actual draw count;
+                history estimates are labeled separately. Model edge is the estimated hit chance minus the price's
+                break-even chance, in percentage points. Quality and model scores are not win probabilities.
+                Binary props show Yes/No outcomes. Supported models use recent game logs and applicable context.
                 For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
                 The Final AI Score rolls those answers together with matchup, form, injuries, and line shopping.
               </Text>
