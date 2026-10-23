@@ -31,3 +31,11 @@ Historical odds can support market/outcome research. They cannot supply missing 
 The full API suite passed before publication (719 passing, zero failing, 12 skipped). The live WNBA probe was run separately: games existed, but no priced player-prop sides were returned in the scanned sample, so live prop qualification was unavailable. Full premium Coach speed still requires a real authenticated session; the earlier 3.18-second result measured only the public locked preview.
 
 No OTA is included in these backend/test changes. Passing automated tests alone does not lift the NCAAF gate.
+
+## Isolated unlock-path test
+
+The production flag was replaced only in an in-memory test bundle; no runtime flag, app setting, or OTA was changed. The test found that the old mobile market-support classifier would permit NCAAF quarter/half sides after that flag was flipped. NCAAF period markets now remain unsupported independently of the full-game-side gate, including `cfb`/college-football aliases and provider underscore keys. Full-game and period totals remain blocked by their separate scoring-model gate.
+
+The regression exercises both locked and test-only-open states. It checks the positive acceptance branch using explicitly synthetic 500-row/two-season fixtures and asserted verification options, then rejects undersized, single-season, unverified, postgame and worse-than-market variants. Synthetic fixtures prove control flow only; they are not independent validation data or a release approval.
+
+Validation: 89 targeted NCAAF/mobile market-support tests pass; the full API suite passes 720 tests, with zero failures and 12 skipped. API typecheck and build pass. Production NCAAF eligibility remains false and no OTA is included.

@@ -30,9 +30,9 @@ test("parseMarketPeriod detects Odds API underscore keys (spreads_q2)", () => {
 });
 
 test("simModelForMarket treats Odds API period keys as period models", () => {
-  assert.equal(simModelForMarket("spreads_q2", { sport: "ncaaf" }), "period");
+  assert.equal(simModelForMarket("spreads_q2", { sport: "ncaaf" }), "unsupported");
   assert.equal(simModelForMarket("spreads", { sport: "ncaaf" }), "fullGame");
-  assert.equal(simModelForMarket("Q2 Spread", { sport: "ncaaf" }), "period");
+  assert.equal(simModelForMarket("Q2 Spread", { sport: "ncaaf" }), "unsupported");
 });
 
 test("simModelForMarket maps market families to models", () => {

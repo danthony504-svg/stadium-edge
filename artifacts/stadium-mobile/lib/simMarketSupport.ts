@@ -32,7 +32,7 @@ export type SimPeriodScope =
   | "p2"
   | "p3";
 
-const PERIOD_UNSUPPORTED_SPORTS = new Set(["tennis", "tabletennis", "cricket", "ufc", "mma", "soccer"]);
+const PERIOD_UNSUPPORTED_SPORTS = new Set(["tennis", "tabletennis", "cricket", "ufc", "mma", "soccer", "ncaaf"]);
 
 export function parseMarketPeriod(market: string): SimPeriodScope {
   // Odds API keys (`spreads_q2`) need `_` → space so `\bq2\b` can match.
@@ -61,12 +61,12 @@ export function simModelForMarket(
 ): SimModelKind {
   if (opts.isProp) return "playerProp";
   const m = String(market ?? "").toLowerCase();
+  const period = parseMarketPeriod(market);
+  const sport = canonicalizeCoachSport(opts.sport ?? "");
+  if (period !== "fg" && PERIOD_UNSUPPORTED_SPORTS.has(sport)) return "unsupported";
   if (/race to/.test(m)) return "raceTo";
   if (/team total/.test(m)) return "teamTotal";
-  const period = parseMarketPeriod(market);
   if (period !== "fg") {
-    const sport = (opts.sport ?? "").toLowerCase();
-    if (PERIOD_UNSUPPORTED_SPORTS.has(sport)) return "unsupported";
     if (period === "p1" || period === "p2" || period === "p3") {
       return sport === "nhl" ? "period" : "unsupported";
     }
@@ -464,7 +464,7 @@ export function simMarketMappingIsValid(pick: {
   if (pick.isProp || kind === "playerProp") return true;
   const period = parseMarketPeriod(market);
   if (period === "fg") return true;
-  const sport = (pick.sport ?? "").toLowerCase();
+  const sport = canonicalizeCoachSport(pick.sport ?? "");
   if (PERIOD_UNSUPPORTED_SPORTS.has(sport)) return false;
   if (period === "p1" || period === "p2" || period === "p3") return sport === "nhl";
   if (period === "f5" || period === "i1") return sport === "mlb";
