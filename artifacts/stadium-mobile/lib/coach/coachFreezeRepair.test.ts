@@ -155,8 +155,8 @@ test("user cancel is not freeze and not fulfilled", () => {
     deliveryCommitted: false,
     picks: [],
   });
-  assert.equal(body?.eventType, "coach_exception");
-  assert.equal(body?.rootCause, "user_cancelled");
+  assert.equal(body?.eventType, "coach_cancelled");
+  assert.equal(body?.rootCause, "request_cancelled");
 });
 
 test("rejected / cancelled race: sendGen mismatch blocks late apply", () => {

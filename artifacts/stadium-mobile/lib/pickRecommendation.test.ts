@@ -463,6 +463,7 @@ test("pickGradeDisplayLabel shows Not AI Recommended when sim exists but thresho
     },
     edgePct: -1,
     gameSim: {
+      simModel: "nba-score-v2",
       sport: "nba",
       simulations: 10_000,
       homeWinProbability: 0.48,

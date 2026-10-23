@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 /**
  * Phase 1 — all-sports AI Coach market-diversity fairness regressions.
  * Proves fair seating, distinct alt thresholds, correlation caps, sim quotas,
@@ -69,12 +70,12 @@ function scoredLeg(
   finalAiScore: typeof qualMain = qualMain,
 ): BoardScoredLeg {
   return {
-    pick: {
+    pick: exactPropFixture({
       sport: pick.sport ?? "nfl",
       isProp: !!pick.isProp,
       ...pick,
       finalAiScore,
-    },
+    }),
     evPct: 2,
     edgePct: finalAiScore.edgePct,
     confidencePct: finalAiScore.confidencePct,

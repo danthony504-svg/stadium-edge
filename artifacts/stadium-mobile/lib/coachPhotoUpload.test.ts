@@ -21,7 +21,7 @@ test("phone ask: 5 leg touchdown → props-only TD markets (not game lines)", ()
   const c = parseCoachAskMarketConstraint("5 leg touchdown");
   assert.equal(c.propsOnly, true);
   assert.ok(c.allowedMarketKeys?.includes("player_anytime_td"));
-  assert.ok(c.allowedMarketKeys?.includes("player_first_td"));
+  assert.ok(!c.allowedMarketKeys?.includes("player_first_td"), "bare touchdown does not opt into first-scorer longshots");
   assert.ok(!c.gameLinesOnly);
 });
 
@@ -39,6 +39,7 @@ test("5 leg touchdown filter drops spreads (phone Air Force 1H leak)", () => {
         market: "ANYTIME TD",
         propMarketKey: "player_anytime_td",
         pick: "Jeanty Anytime TD",
+        propSide: "Yes",
       },
     ],
     c,

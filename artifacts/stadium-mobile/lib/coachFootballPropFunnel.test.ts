@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -205,7 +206,7 @@ function ncaafUnsupportedPick(): ParsedPick {
 }
 
 function qualifyingFootballPick(base: ParsedPick): ParsedPick {
-  return {
+  return exactPropFixture({
     ...base,
     finalAiScore: {
       simHit: 0.58,
@@ -216,7 +217,7 @@ function qualifyingFootballPick(base: ParsedPick): ParsedPick {
       composite: 70,
       recommends: true,
     },
-  } as ParsedPick;
+  } as ParsedPick);
 }
 
 test("unsupported-market discovery rejects and samples survive final recompute", () => {

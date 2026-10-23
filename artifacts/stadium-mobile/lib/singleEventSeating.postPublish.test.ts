@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 /**
  * Post-publish / post-merge Coach ask proofs:
  * - 8 leg Saints
@@ -31,7 +32,7 @@ function scored(
   rankScore: number,
 ): BoardScoredLeg {
   return {
-    pick: { isProp: false, finalAiScore: mainScore, ...pick },
+    pick: exactPropFixture({ isProp: false, finalAiScore: mainScore, ...pick }),
     evPct: 2,
     edgePct: 3,
     confidencePct: 55,

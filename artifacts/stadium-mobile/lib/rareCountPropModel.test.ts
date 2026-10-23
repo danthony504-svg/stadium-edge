@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 /**
  * Rare-count HR / multi-goal probability + ranking regression tests.
  *
@@ -115,11 +116,14 @@ test("gradeFootballPropFromHistory: Cronenworth-style 1×2HR does not inflate Ov
     hrHist(vals),
     { marketKey: "batter_home_runs", line: 1.5 },
   );
-  assert.ok(over05.hitProbability != null);
-  assert.ok(over15.hitProbability != null);
-  assert.ok(over05.hitProbability! > over15.hitProbability!);
-  // Must not reuse the empirical 0.1 rate for Over 1.5.
-  assert.ok(over15.hitProbability! < 0.05, `got ${over15.hitProbability}`);
+  // History-only HR models are not seating authority. The mathematical rare
+  // count model still distinguishes thresholds without inventing provenance.
+  assert.equal(over05.hitProbability, null);
+  assert.equal(over15.hitProbability, null);
+  const low = rareCountHitFromValues(vals, .5, "Over");
+  const high = rareCountHitFromValues(vals, 1.5, "Over");
+  assert.ok(low != null && high != null && low > high);
+  assert.ok(high < .05);
   assert.ok((over15.hitReliability ?? 0) < 0.6);
 });
 
@@ -237,6 +241,12 @@ test("generic 7-leg staging diversifies same-event rare HR family", () => {
     } as BoardScoredLeg);
   }
 
+  for (const leg of mixed) {
+    leg.pick = exactPropFixture({ ...leg.pick, finalAiScore: {
+      grade: leg.grade, confidencePct: leg.confidencePct, edgePct: leg.edgePct,
+      simHit: leg.simHit, composite: leg.composite,
+    } as ParsedPick["finalAiScore"] });
+  }
   const generic = stageFootballPropsOnlyLegs(mixed, 7);
   const hrOnTicket = generic.filter((p) =>
     isRareCountPropMarket(p.propMarketKey ?? p.market),

@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 /**
  * Proof: NCAAF Coach team-market fill behavior under P0 integrity gates.
  *
@@ -47,12 +48,12 @@ function scored(
   partial: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,
   rankScore: number,
 ): BoardScoredLeg {
-  const pick: ParsedPick = {
+  const pick: ParsedPick = exactPropFixture({
     isProp: false,
     sport: "ncaaf",
     ...partial,
     finalAiScore: partial.finalAiScore ?? mainScore,
-  };
+  });
   return {
     pick,
     evPct: 3,

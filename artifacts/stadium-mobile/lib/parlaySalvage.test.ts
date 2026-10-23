@@ -9,7 +9,7 @@ const WC_ODDS = [
     market: "Moneyline",
     pick: "Argentina ML",
     odds: -285,
-    startsAt: "2026-07-07T16:00:00Z",
+    startsAt: new Date(2026, 6, 7, 16).toISOString(),
   },
   {
     sport: "soccer",
@@ -17,12 +17,12 @@ const WC_ODDS = [
     market: "Moneyline",
     pick: "Colombia ML",
     odds: 150,
-    startsAt: "2026-07-07T20:00:00Z",
+    startsAt: new Date(2026, 6, 7, 20).toISOString(),
   },
 ];
 
 test("filterSalvageOddsPool focuses World Cup asks on soccer", (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 6, 7, 0, 0, 0) });
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 6, 7, 12) });
   const ask = "Build me a 2 leg World Cup parlay for today's matches";
   const pool = filterSalvageOddsPool(WC_ODDS, ask, "tonight");
   assert.equal(pool.length, 2);

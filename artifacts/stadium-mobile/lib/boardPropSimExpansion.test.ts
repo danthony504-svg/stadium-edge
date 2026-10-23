@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -43,7 +44,7 @@ function propLeg(
   rankScore: number,
 ): BoardScoredLeg {
   return {
-    pick: {
+    pick: exactPropFixture({
       game: "NYY @ WSH",
       market: "Total Bases",
       pick: `${player} Over ${line} Total Bases`,
@@ -55,7 +56,7 @@ function propLeg(
       propSide: "Over",
       propIsAlt,
       finalAiScore: qualScore,
-    },
+    }),
     evPct: 3,
     edgePct: 2,
     confidencePct: 55,
