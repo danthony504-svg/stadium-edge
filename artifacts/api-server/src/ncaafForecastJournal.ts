@@ -5,14 +5,20 @@ import {
   prepareForwardForecast,
   type ForecastInput,
 } from "./lib/ncaafForecastJournal.js";
+import { forecastInputFromArchive } from "./lib/ncaafLiveInputAdapter.js";
 async function main() {
   const file = process.argv[2];
   if (!file || file.startsWith("--")) throw Error("journal_input_required");
   const raw = await readFile(file, "utf8");
   if (Buffer.byteLength(raw) > 25_000_000)
     throw Error("journal_input_too_large");
-  const input = JSON.parse(raw) as ForecastInput;
-  if (!process.argv.includes("--execute")) {
+  let input = JSON.parse(raw) as ForecastInput;
+  const option = (key: string) => {
+    const i = process.argv.indexOf(key);
+    return i < 0 ? undefined : process.argv[i + 1];
+  };
+  const liveKey = option("--live-input-key");
+  if (!liveKey && !process.argv.includes("--execute")) {
     const record = prepareForwardForecast(input, new Date().toISOString());
     console.log(
       JSON.stringify({
@@ -39,12 +45,47 @@ async function main() {
   });
   await db.connect();
   try {
-    await db.query("BEGIN");
+    await db.query(
+      process.argv.includes("--execute") ? "BEGIN" : "BEGIN READ ONLY",
+    );
     const check = await db.query(
       "SELECT current_database() AS name, clock_timestamp() AS now",
     );
     if (check.rows[0].name !== "stadium_edge_production")
       throw Error("journal_unexpected_database");
+    if (liveKey) {
+      if (!/^research:ncaaf:live-inputs:/.test(liveKey))
+        throw Error("journal_invalid_live_key");
+      const live = await db.query(
+        "SELECT value FROM public.app_kv WHERE key=$1",
+        [liveKey],
+      );
+      const recent = await db.query(
+        "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:injuries:%' ORDER BY key DESC LIMIT 1",
+      );
+      const injuryRow = recent.rows[0];
+      if (
+        !live.rows[0]?.value ||
+        !injuryRow ||
+        injuryRow.value.researchOnly !== true ||
+        injuryRow.value.absentTeamStatus !== "unknown"
+      )
+        throw Error("journal_live_archive_missing");
+      input = forecastInputFromArchive(
+        live.rows[0].value,
+        option("--event-id") ?? "",
+        JSON.parse(raw).games,
+        {
+          key: injuryRow.key,
+          observedAt: injuryRow.value.observedAt,
+          sha256: injuryRow.value.sha256,
+          rawResponse: injuryRow.value.rawResponse,
+          absentTeamStatus: "unknown",
+        },
+        option("--ruleset") ?? "",
+        new Date(check.rows[0].now).toISOString(),
+      );
+    }
     const injury = await db.query(
       "SELECT value FROM public.app_kv WHERE key=$1",
       [input.injuryEvidence?.key],
@@ -63,6 +104,18 @@ async function main() {
       input,
       new Date(check.rows[0].now).toISOString(),
     );
+    if (!process.argv.includes("--execute")) {
+      await db.query("ROLLBACK");
+      console.log(
+        JSON.stringify({
+          planOnly: true,
+          eventId: record.target.eventId,
+          markets: record.markets.length,
+          automaticUnlock: false,
+        }),
+      );
+      return;
+    }
     const key = `research:ncaaf:forecast:${record.modelVersion}:${record.target.season}:${record.target.eventId}`;
     // DB clock guards the final INSERT, after computation; first forecast is immutable.
     const result = await db.query(
