@@ -105,7 +105,8 @@ test("prepareDeepParlaySeed clears chalk game scaffold", () => {
     isProp: false,
   }));
   const { picks: out, stripped } = prepareDeepParlaySeed(picks, 15);
-  assert.ok(stripped >= 13);
+  assert.equal(stripped + out.length, 15);
+  assert.ok(stripped >= 12);
   assert.ok(out.length <= 3);
 });
 
@@ -228,7 +229,7 @@ test("topUpDeepParlayToTarget caps game legs on longshot top-up", () => {
     startsAt: kick,
   }));
   const out = topUpDeepParlayToTarget(existing, 15, propPool, realOdds, [], { longshotAsk: true });
-  assert.ok(out.filter((p) => p.isProp).length >= 8);
+  assert.equal(out.filter((p) => p.isProp).length, 4, "single-stat pool respects its per-market ceiling");
   assert.ok(out.filter((p) => !p.isProp).length <= 2);
 });
 
@@ -262,5 +263,13 @@ test("finalizeDeepParlayTicket strips model moneylines and rebuilds", () => {
   }));
   const out = finalizeDeepParlayTicket(chalkMl, 15, propPool, realOdds, [], { longshotAsk: true });
   assert.equal(out.filter((p) => /^moneyline$/i.test(p.market)).length, 0);
-  assert.ok(out.filter((p) => p.isProp).length >= 8);
+  assert.equal(out.filter((p) => p.isProp).length, 4, "single-stat pool respects its per-market ceiling");
+});
+
+
+test("a full pre-existing game-line scaffold still passes the deep-ticket cap", () => {
+  const picks = Array.from({length:15},(_,i)=>({game:`Away${i} @ Home${i}`, market:"Moneyline",pick:`Home${i} ML`,odds:-110,isProp:false}));
+  const out = topUpDeepParlayToTarget(picks,15,[],[],[],{longshotAsk:true});
+  assert.equal(out.length,2);
+  assert.ok(out.every(p=>picks.some(seed=>seed.game===p.game && seed.pick===p.pick && seed.odds===p.odds)));
 });

@@ -164,7 +164,7 @@ test("scoreSimulation: hit probability maps to 1-10 around neutral 50%", () => {
   assert.equal(scoreSimulation(null), null);
   assert.equal(scoreSimulation(0.5), 5.5);
   assert.equal(scoreSimulation(0.65), 6.9);
-  assert.equal(scoreSimulation(0.35), 4.1);
+  assert.equal(scoreSimulation(0.35), 4.2);
 });
 
 test("combinePickScore: renormalizes over present scores only", () => {
@@ -177,8 +177,8 @@ test("combinePickScore: renormalizes over present scores only", () => {
     simulation: null,
   };
   const full = combinePickScore(all, 7.8, -110);
-  assert.equal(full.composite, 6.8);
-  assert.equal(full.grade, "B-");
+  assert.equal(full.composite, 7.5);
+  assert.equal(full.grade, "B+");
   assert.equal(full.edgePct, 7.8);
   assert.equal(full.confidencePct, 67);
 

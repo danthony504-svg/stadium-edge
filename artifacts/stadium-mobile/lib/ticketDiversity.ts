@@ -274,7 +274,7 @@ function deepParlayMix(legTarget: number, longshotAsk?: boolean, reachFull?: boo
   const minProps = longshotAsk ? Math.max(props, Math.ceil(legTarget * 0.65)) : props;
   const reserveAlts = Math.round(legTarget * BALANCED_MIX_FRACTIONS.alternateLines);
   const reserveTeam = Math.round(legTarget * BALANCED_MIX_FRACTIONS.teamTotals);
-  const maxGameLegs = Math.max(gameLines, legTarget - minProps - reserveAlts - reserveTeam);
+  const maxGameLegs = Math.min(longshotAsk ? 2 : 3, Math.max(gameLines, legTarget - minProps - reserveAlts - reserveTeam));
   return { minProps, maxGameLegs };
 }
 
@@ -314,7 +314,6 @@ export function topUpDeepParlayToTarget(
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
-  if (picks.length >= legTarget) return dedupeSameTeamGameLegs(picks).picks;
   const { minProps, maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk, opts.reachFull);
   const propOpts = {
     plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
@@ -324,7 +323,8 @@ export function topUpDeepParlayToTarget(
     selectionOpts: opts.selectionOpts,
   };
   const gameOrder = deepParlayGameOrder(opts.longshotAsk, opts.reachFull);
-  let out = [...picks];
+  let out = trimGameLegsForPropMix(picks, { legTarget, maxGameLegs }).picks;
+  if (out.length >= legTarget) return dedupeSameTeamGameLegs(out).picks;
   const propsNow = out.filter((p) => p.isProp).length;
   if (propsNow < minProps) {
     out = backfillProps(out, propPool, realOdds, gameMeta, {

@@ -323,7 +323,7 @@ function recentLegPenalty(
 }
 
 /** Soft penalty when this market-shape (alt pattern) was overused recently. */
-function recentSignaturePenalty(
+export function recentSignaturePenalty(
   leg: BoardScoredLeg,
   signatureCounts?: ReadonlyMap<string, number>,
 ): number {

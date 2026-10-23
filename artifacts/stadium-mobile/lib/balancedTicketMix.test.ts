@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { balancedMixSlots, BALANCED_MIX_FRACTIONS, FOOTBALL_BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
@@ -24,12 +25,12 @@ function leg(
   rankScore: number,
   finalAiScore?: ParsedPick["finalAiScore"],
 ): BoardScoredLeg {
-  const full: ParsedPick = {
+  const full: ParsedPick = exactPropFixture({
     isProp: false,
     sport: "nba",
     ...pick,
     finalAiScore: finalAiScore ?? pick.finalAiScore,
-  };
+  });
   return {
     pick: full,
     evPct: 2,

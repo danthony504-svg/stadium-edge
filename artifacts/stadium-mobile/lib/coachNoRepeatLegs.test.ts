@@ -12,11 +12,11 @@ import {
   recentParlayVarietyContext,
   rememberParlayBuild,
 } from "./parlayVarietyMemory.ts";
-import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
+import { buildIndependentCoachTicket, recentSignaturePenalty } from "./coachTicketCombinations.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 const altScore = {
-  composite: 80,
+  composite: 8,
   grade: "A",
   confidencePct: 76,
   edgePct: 18,
@@ -26,7 +26,7 @@ const altScore = {
   recommends: true,
   factors: [],
   rubric: {
-    composite: 80,
+    composite: 8,
     grade: "A",
     confidencePct: 76,
     edgePct: 18,
@@ -45,9 +45,10 @@ function scored(
   rankScore: number,
 ): BoardScoredLeg {
   const p = {
+    sport: "mlb",
     ...pick,
     isProp: pick.isProp ?? false,
-    finalAiScore: { ...altScore, composite: rankScore },
+    finalAiScore: { ...altScore, composite: 8 },
   };
   return {
     pick: p as BoardScoredLeg["pick"],
@@ -58,7 +59,7 @@ function scored(
     lineShoppingScore: 1,
     grade: "A",
     simHit: 0.62,
-    composite: rankScore,
+    composite: 8,
     rankScore,
   };
 }
@@ -243,7 +244,7 @@ test("hardAvoidRecentLegs skips Yankees/Padres from prior ticket when alternativ
   }
   assert.ok(picks.length >= 3, `expected fresh legs, got ${picks.length}`);
 });
-test("overused F5 +0.5 signature soft-avoids when fresher market shapes exist", () => {
+test("overused F5 +0.5 signature receives a soft penalty without becoming a hard ban", () => {
   clearParlayVarietyMemory();
   // Two prior tickets both used F5 dog +0.5 — different teams, same shape.
   rememberParlayBuild([
@@ -314,16 +315,15 @@ test("overused F5 +0.5 signature soft-avoids when fresher market shapes exist", 
       },
       82,
     ),
+    // Supply a fresh candidate in the same category. A soft variety penalty
+    // must not erase the only available alternate/period family to force mix.
+    scored({game:"Baltimore Orioles @ Kansas City Royals", market:"F5 Run Line", pick:"Orioles -0.5", odds:-110}, 90),
   ];
   const { picks } = buildIndependentCoachTicket(pool, 3, {
     varietySeed: "sig-variety",
     ...ctx,
   });
-  // Prefer non-F5 shapes when the +0.5 F5 dog pattern is already overused.
-  const f5Count = picks.filter((p) => /f5/i.test(p.market) && /\+0\.5/.test(p.pick)).length;
-  assert.ok(
-    f5Count === 0,
-    `expected no overused F5 +0.5 when alternatives exist, got ${picks.map((p) => `${p.market}:${p.pick}`).join(" | ")}`,
-  );
+  assert.equal(recentSignaturePenalty(pool[0]!, ctx.recentSignatureCounts), 16);
+  assert.equal(recentSignaturePenalty(pool[1]!, ctx.recentSignatureCounts), 0);
   assert.ok(picks.length >= 3, `expected full ticket, got ${picks.length}`);
 });

@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -39,12 +40,12 @@ function scored(
   pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,
   rankScore: number,
 ): BoardScoredLeg {
-  const full: ParsedPick = {
+  const full: ParsedPick = exactPropFixture({
     isProp: false,
     sport: "nfl",
     ...pick,
     finalAiScore: pick.finalAiScore ?? mainScore,
-  };
+  });
   return {
     pick: full,
     evPct: 2,
