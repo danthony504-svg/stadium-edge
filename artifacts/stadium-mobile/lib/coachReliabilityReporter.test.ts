@@ -25,7 +25,7 @@ test("1) props-only early return emits exactly one Coach reliability report", ()
   // Match the call site, not the import — import.indexOf would include the
   // earlier NCAAF P0 game-line early-exit reporter (separate path).
   const start = src.indexOf("shouldBuildFootballPropsOnlyTicket({");
-  const end = src.indexOf("Allowlisted / props-only pools must not re-expand");
+  const end = src.indexOf("const skipPropExpand =");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);
   const emits = block.match(/reportCoachScanReliability\s*\(/g) ?? [];
