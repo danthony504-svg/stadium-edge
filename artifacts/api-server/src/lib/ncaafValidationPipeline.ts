@@ -77,11 +77,13 @@ export async function runNcaafValidationPipeline({
     const prior = await get(slotKey);
     if (prior?.finishedAt && prior.state === "processed")
       return { state: "skipped_completed_slot", slot, releaseEligible: false };
-    if (prior?.finishedAt && (prior.attempts ?? 1) >= 3)
+    if (prior && (prior.attempts ?? 1) >= 3)
       return { state: "skipped_exhausted_slot", slot, releaseEligible: false };
     if (
-      prior?.finishedAt &&
-      Date.parse(await clock()) - Date.parse(prior.finishedAt) < 5 * 60000
+      prior &&
+      Date.parse(await clock()) -
+        Date.parse(prior.finishedAt ?? prior.startedAt) <
+        5 * 60000
     )
       return { state: "skipped_retry_backoff", slot, releaseEligible: false };
     // Mark the charged request BEFORE invoking it. A crash cannot silently retry it.

@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { pool } from "@workspace/db";
+import { applyNotificationLogMigration } from "./lib/notificationLogMigration.js";
 import app from "./app";
 import {
   queueNcaafResearchValidation,
@@ -44,6 +47,27 @@ const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+// Explicit opt-in for the missing production notification dedupe table.
+// Read from the repository relative to the built dist/index.mjs entry point.
+if (process.env.APPLY_NOTIF_LOG_MIGRATION === "true") {
+  const client = await pool.connect();
+  try {
+    await applyNotificationLogMigration(
+      client,
+      await readFile(
+        new URL(
+          "../../../lib/db/migrations/20261023_create_notif_log.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    logger.info("notification dedupe schema migration complete");
+  } finally {
+    client.release();
+  }
 }
 
 const server = app.listen(port, (err) => {

@@ -337,6 +337,40 @@ test("failed slots back off and stop retrying after three attempts", async () =>
   );
   assert.equal(calls, 3);
 });
+test("abandoned running slots enforce backoff and attempt limits without a finishedAt", async () => {
+  const { db } = fixture();
+  const key = `research:ncaaf:pipeline:slot:${researchSlot(new Date(db.now))}`;
+  let calls = 0;
+  const deps = {
+    db,
+    runCollector: async () => {
+      calls++;
+    },
+    fetchOutcome: async () => null,
+  };
+  db.values.set(key, {
+    state: "running",
+    attempts: 1,
+    startedAt: "2026-10-23T14:04:00Z",
+    oddsAttempted: true,
+  });
+  assert.equal(
+    (await runNcaafValidationPipeline(deps)).state,
+    "skipped_retry_backoff",
+  );
+  assert.equal(calls, 0);
+  db.values.set(key, {
+    state: "running",
+    attempts: 3,
+    startedAt: "2026-10-23T14:00:00Z",
+    oddsAttempted: true,
+  });
+  assert.equal(
+    (await runNcaafValidationPipeline(deps)).state,
+    "skipped_exhausted_slot",
+  );
+  assert.equal(calls, 0);
+});
 test("UTC scheduling crosses midnight correctly and separates seasons/books/models in calibration", () => {
   assert.equal(
     researchSlot(new Date("2026-10-23T01:00:00Z")),
