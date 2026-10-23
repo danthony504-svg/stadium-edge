@@ -51,7 +51,7 @@ export function findExactPropPoolRow<T extends PoolIdentity>(
     if (pick.odds != null && row.odds != null && pick.odds !== row.odds)
       return false;
     for (const key of ["sport", "athleteId", "eventId"] as const) {
-      if (pick[key] && row[key] && pick[key] !== row[key]) return false;
+      if (pick[key] && pick[key] !== row[key]) return false;
     }
     return (
       row.line === line ||

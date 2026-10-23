@@ -11,13 +11,13 @@ export function candidateDriveRates(ppd:number):{td:number;fg:number;expectedPoi
 }
 export function chooseSampleMean(input:{venue?:{games:number;ptsFor:number|null;ptsAgainst:number|null};overall?:{games:number;ptsFor:number|null;ptsAgainst:number|null}}):CandidateTeam|null {
  const s=input.venue&&input.venue.games>=3?input.venue:input.overall;
- if(!s||s.games<3||s.ptsFor==null||s.ptsAgainst==null||![s.ptsFor,s.ptsAgainst].every(v=>Number.isFinite(v)&&v>=0&&v<=84))return null;
+ if(!s||!Number.isSafeInteger(s.games)||s.games<3||s.ptsFor==null||s.ptsAgainst==null||![s.ptsFor,s.ptsAgainst].every(v=>Number.isFinite(v)&&v>=0&&v<=84))return null;
  return {games:s.games,ptsFor:s.ptsFor,ptsAgainst:s.ptsAgainst};
 }
 /** Local seeded RNG never mutates Math.random or other requests. */
 export function runNcaafCandidate(input:CandidateInput):{version:string;settlement:"regulation_only";homeScores:number[];awayScores:number[];homeMean:number;awayMean:number;draws:number}|null {
  const n=input.simulations??10000,drives=input.drives??12;
- if(!Number.isInteger(n)||n<10000||n>100000||!Number.isInteger(drives)||drives<8||drives>20||!Number.isInteger(input.seed)||![input.home,input.away].every(t=>t.games>=3&&[t.ptsFor,t.ptsAgainst].every(v=>Number.isFinite(v)&&v>=0&&v<=84)))return null;
+ if(!Number.isInteger(n)||n<10000||n>100000||!Number.isInteger(drives)||drives<8||drives>20||!Number.isInteger(input.seed)||![input.home,input.away].every(t=>Number.isSafeInteger(t.games)&&t.games>=3&&[t.ptsFor,t.ptsAgainst].every(v=>Number.isFinite(v)&&v>=0&&v<=84)))return null;
  const homeMean=(input.home.ptsFor+input.away.ptsAgainst)/2,awayMean=(input.away.ptsFor+input.home.ptsAgainst)/2;
  const h=candidateDriveRates(homeMean/drives),a=candidateDriveRates(awayMean/drives);if(!h||!a)return null;
  let state=input.seed>>>0;const random=()=>{state=(Math.imul(1664525,state)+1013904223)>>>0;return state/4294967296;};

@@ -332,7 +332,7 @@ test("locked TD recovery must reject yards / receptions / sacks cross-fill", () 
   const recovery = filterPropPoolByAskMarkets(pool, c.allowedMarketKeys);
   assert.deepEqual(
     recovery.map((r) => r.marketKey).sort(),
-    ["player_anytime_td", "player_rush_tds_alternate"],
+    ["player_anytime_td"], // Existing bare-TD scorer policy.
   );
 });
 

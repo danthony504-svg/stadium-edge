@@ -21,6 +21,7 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/startupCrashPath.test.ts \
     lib/installGlobalCrashHandlers.test.ts \
     lib/coachPropAudit.test.ts \
+    lib/coachRequestIntegrity.test.ts \
     lib/coachUefaScope.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
     lib/coachReliabilityReporter.test.ts
@@ -66,6 +67,10 @@ echo "== Stage 3 TD sim mapping / Monte Carlo / provenance contracts =="
     test/sportSimRegistry.test.ts \
     test/gameMonteCarlo.test.ts \
     test/ncaafHistoricalAcceptance.test.ts \
+    test/ncaafCandidate.test.ts \
+    test/ncaafFullGameCandidate.test.ts \
+    test/ncaafFullGameBacktest.test.ts \
+    test/cfbdHistory.test.ts \
     test/nflDriveSimCaps.test.ts
 )
 (

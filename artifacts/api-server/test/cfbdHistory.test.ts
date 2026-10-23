@@ -36,3 +36,13 @@ test("request failures identify stage and category without private details",asyn
   await assert.rejects(importCfbdHistory(2025,1,{apiKey:"fixture",persist:false,fetcher,now}),new RegExp(`^Error: cfbd_${stage}_${reason}$`));
  }
 });
+
+test("new imports preserve only consistent observed OT regulation scores",()=>{
+ const ot={...game,homePoints:31,awayPoints:28,homeLineScores:[7,7,7,3,7],awayLineScores:[7,7,7,3,4]};
+ const g=normalizeCfbdHistory([ot],[],2025,1,now).games[0]!;
+ assert.equal(g.regulationHomePoints,24);assert.equal(g.regulationAwayPoints,24);
+ for(const patch of [{homeLineScores:undefined},{homeLineScores:[7,7,7,3.5,7]},{awayLineScores:[7,7,7,0,7]}]){
+  const invalid=normalizeCfbdHistory([{...ot,...patch}],[],2025,1,now).games[0]!;
+  assert.equal(invalid.regulationHomePoints,null);assert.equal(invalid.regulationAwayPoints,null);
+ }
+});

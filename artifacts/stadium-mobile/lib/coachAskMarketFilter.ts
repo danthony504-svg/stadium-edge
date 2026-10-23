@@ -26,6 +26,7 @@ export type CoachAskMarketConstraint = {
    * Opposite of propsOnly. Used for "no player props" / "game lines only".
    */
   gameLinesOnly: boolean;
+  fullGameOnly?: boolean;
   /**
    * Drop Over/Under game totals (keep ML / puck line / spread).
    * Phone: "Bet365 doesn't have over or under for NHL".
@@ -313,6 +314,7 @@ export function parseCoachAskMarketConstraint(
   // College bare asks also default here via wantsGameLinesOnlyAsk — but an
   // explicit market-family lock below takes precedence over that automatic default.
   const gameLinesOnly = wantsGameLinesOnlyAsk(t) || excludeTotals;
+  const fullGameOnly = /\bfull[-\s]+games?\b/i.test(t);
 
   // Explicit single/multi-stat lock (all sports) — shared with server chat.
   // Same-stat `_alternate` rungs remain allowed via canonicalPropMarketKey.
@@ -467,6 +469,7 @@ export function parseCoachAskMarketConstraint(
   return {
     propsOnly: false,
     gameLinesOnly,
+    fullGameOnly,
     excludeTotals,
     maxGames,
     allowedMarketKeys: null,
@@ -504,6 +507,9 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   if (/\bwithout\s+props?\b/.test(t)) return true;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
   if (/\bsides?\s+only\b/.test(t)) return true;
+  const namesGameMarket = /\b(?:spreads?|money\s*lines?|ml|totals?|puck\s*lines?|run\s*lines?|handicaps?)\b/i.test(t);
+  const namesProps = /\b(?:player|props?)\b/i.test(t) || !!matchExplicitMarketLocks(t);
+  if (namesGameMarket && !namesProps) return true;
   // Phone: college books post team spreads / totals / Q lines — not player
   // yards. Bare "8 leg college" / "8 leg Collage" / NCAAF → game lines only
   // unless the user named player props. Mixed "soccer and college" stays off.
@@ -561,6 +567,9 @@ export function filterPicksByAskMarketConstraint<
   }
   if (constraint.gameLinesOnly) {
     out = out.filter((p) => !p.isProp);
+  }
+  if (constraint.fullGameOnly) {
+    out = out.filter(p => !/\b(?:q[1-4]|[1-4]q|[12]h|h[12]|quarter|half|period|inning|f[1-9]|race(?:[-\s]+to)?)\b|_(?:q[1-4]|h[12]|[12]h|f[1-9])\b/i.test(String(p.market ?? "")));
   }
   if (constraint.excludeTotals) {
     out = out.filter((p) => {

@@ -25,6 +25,8 @@ export type ExplicitMarketLockRule = {
  * (SOT before shots, SB before steals, combos before singles, etc.).
  */
 export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
+  { id: "nba_double_double", label: "double-double", re: /\bdouble[-\s]?doubles?\b/i, markets: ["player_double_double"] },
+  { id: "nba_triple_double", label: "triple-double", re: /\btriple[-\s]?doubles?\b/i, markets: ["player_triple_double"] },
   // —— MLB ——
   {
     id: "mlb_strikeouts",

@@ -1,3 +1,4 @@
+import { matchExplicitMarketLocks, canonicalExplicitMarketKey } from "./explicitMarketLock.ts";
 import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
 import { isBinaryNullLineMarket } from "./binaryPropMarket.ts";
@@ -2886,7 +2887,9 @@ function propPlayerMatchesNamed(player: string, candidates: string[]): boolean {
 // Fix: fill the cap from the focal slate first (still breadth-balanced across
 // focal games + combo-aware within each), then backfill any leftover cap with
 // the rest of the slate so non-focal breadth is preserved when room remains.
-function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: string | null): RealPropEntry[] {
+export function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: string | null): RealPropEntry[] {
+  const lock = matchExplicitMarketLocks(focalText ?? "");
+  if (lock) { const allowed = new Set(lock.allowedMarketKeys.map(canonicalExplicitMarketKey)); props = props.filter(p => allowed.has(canonicalExplicitMarketKey(p.market))); }
   if (props.length <= cap) return props;
   if (focalText) {
     // FLOAT NAMED PLAYERS FIRST: a bare player name in the question (e.g. "is
@@ -4924,7 +4927,7 @@ export async function buildChatContext(
                 sportsbook: p.overBook ?? null,
               });
             }
-            if (p.line != null && underQ) {
+            if ((p.line != null || isBinaryNullLineMarket(p.market)) && underQ) {
               propPool.push({
                 sport,
                 game,
@@ -5327,7 +5330,7 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         sportsbook: p.overBook ?? null,
       });
     }
-    if (p.line != null && p.under != null) {
+    if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.under != null) {
       out.push({
         sport: p.sport,
         game: p.game,
