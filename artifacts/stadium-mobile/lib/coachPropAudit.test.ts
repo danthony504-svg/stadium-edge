@@ -38,6 +38,8 @@ test("each captured candidate has a truthful terminal reason, without fabricatin
   selected.finalAiScore!.confidencePct = 1; // snapshots must not drift
   c.flush(); const report = result.report as PropAuditReport | undefined; assert.ok(report);
   assert.equal(report.rows.length, 5);
+  assert.equal(report.deliveredPickCount, 1);
+  assert.deepEqual(report.deliveredPropKeys, [propAuditKey(selected)]);
   assert.equal(report.counts.not_simulated_in_this_request, 1);
   assert.equal(report.counts.qualified_not_selected, 1);
   assert.equal(report.rows.find(r => r.athleteId === "missing")?.nullReason, "stat_mapping_failed");

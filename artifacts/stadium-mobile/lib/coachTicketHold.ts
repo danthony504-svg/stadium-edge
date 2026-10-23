@@ -137,9 +137,8 @@ export function filterQualifiedFlushSeats<T extends CoachFlushPick>(
  */
 export function revalidateCoachTerminalDeliveryPicks<T extends CoachFlushPick>(
   picks: readonly T[],
-  opts?: { target?: number; qualifiedCandidates?: readonly T[] | null },
+  opts?: { target?: number; qualifiedCandidates?: readonly T[] | null; legsPerGameCap?: number | null; maxPropsPerGameCap?: number | null; onRejected?: (pick: T, reason: string) => void },
 ): T[] {
-  if (!picks.length) return [];
   let next = filterFlushKnownStartedPicks(picks);
   next = filterQualifiedFlushSeats(next);
   const target =
@@ -155,6 +154,9 @@ export function revalidateCoachTerminalDeliveryPicks<T extends CoachFlushPick>(
     picks: next,
     qualifiedCandidates: eligibleReplacements,
     target,
+    legsPerGameCap: opts?.legsPerGameCap,
+    maxPropsPerGameCap: opts?.maxPropsPerGameCap,
+    onRejected: opts?.onRejected,
   });
   return grounded.picks;
 }

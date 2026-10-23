@@ -184,3 +184,52 @@ test("NHL prop missing team evidence is excluded even with a plausible game", ()
   assert.equal(out.replacedCount,1);
   assert.equal(out.picks[0]?.player,"Verified Player");
 });
+
+// Anonymous fixtures reproduce the final-refill fault without production data.
+for (const sport of ["nba", "wnba", "ncaab", "nfl", "ncaaf", "mlb", "nhl", "soccer", "tennis", "ufc"]) {
+  test(`${sport}: final refill cannot bypass ladder, athlete or same-game prop limits`, () => {
+    const seat = (player: string, line: number, game = "Away @ Home") => prop({
+      sport, player, game, teamAbbr: "HOME", market: "Points", propMarketKey: "player_points",
+      propSide: "Over", propLine: line, pick: `${player} Over ${line} Points`,
+    });
+    const first = seat("Player A", 8.5);
+    const duplicate = seat("Player A", 18.5);
+    const otherStat = { ...seat("Player A", 1.5), market: "Assists", propMarketKey: "player_assists" };
+    const second = seat("Player B", .5);
+    const excess = seat("Player C", 9.5);
+    const independent = seat("Player D", 10.5, "Other Away @ Other Home");
+    const reasons: string[] = [];
+    const result = applyDeliveryGroundingGate({
+      picks: [first, duplicate, otherStat, second, excess],
+      qualifiedCandidates: [duplicate, otherStat, excess, independent], target: 5,
+      onRejected: (_p, reason) => reasons.push(reason),
+    });
+    assert.deepEqual(result.picks.map(p => p.player), ["Player A", "Player B", "Player D"]);
+    assert.equal(result.shortfall, 2);
+    assert.ok(reasons.includes("duplicate_market_ladder"));
+    assert.ok(reasons.includes("same_player_exposure"));
+    assert.ok(reasons.includes("same_game_prop_cap"));
+  });
+}
+
+test("final refill enforces opposite-side conflicts and preserves explicit game-line caps", () => {
+  const leg = (pick: string, market = "Spread") => ({ game: "Dallas Cowboys @ New York Giants", market, pick, odds: -110 });
+  const result = applyDeliveryGroundingGate({ picks: [leg("Cowboys -3.5")],
+    qualifiedCandidates: [leg("Giants +3.5"), leg("Cowboys ML", "Moneyline"), leg("Over 40.5", "Total")],
+    target: 5, legsPerGameCap: 1 });
+  assert.equal(result.picks.length, 1);
+});
+
+test("provider athlete identity blocks display aliases without conflating sports", () => {
+  const base = prop({ game: "Away @ Home", teamAbbr: "HOME", player: "Full Player", athleteId: "42", sport: "nba" });
+  const alias = { ...base, player: "F. Player", market: "Assists", propMarketKey: "player_assists" };
+  const otherSport = { ...alias, sport: "wnba", game: "Other Away @ Other Home" };
+  const result = applyDeliveryGroundingGate({ picks: [base], qualifiedCandidates: [alias, otherSport], target: 5 });
+  assert.deepEqual(result.picks.map(p => p.sport), ["nba", "wnba"]);
+});
+
+test("explicit single-event ceilings remain distinct from generic slate ceilings", () => {
+  const picks = Array.from({length: 4}, (_, i) => prop({game: "Away @ Home", teamAbbr: "HOME", player: `Player ${i}`, pick: `Player ${i} Over 1.5`, propLine: 1.5}));
+  assert.equal(applyDeliveryGroundingGate({picks, target: 5}).picks.length, 2);
+  assert.equal(applyDeliveryGroundingGate({picks, target: 5, maxPropsPerGameCap: 4}).picks.length, 4);
+});

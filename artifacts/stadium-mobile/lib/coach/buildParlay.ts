@@ -146,6 +146,9 @@ import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
+import { evaluateCoachQualification } from "@/lib/coach/qualifyCoachCandidate";
+import { p0UnvalidatedSimDecision } from "@/lib/coachP0UnvalidatedTotals";
+import { shouldActivateSingleEventSeating, singleEventCapsForTarget } from "@/lib/singleEventSeating";
 import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
 import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
@@ -499,6 +502,7 @@ async function buildCoachParlayImpl(opts: {
     !propsOnly &&
     !gameLinesOnly &&
     askRequiresFootballPropMix(opts.askText);
+  const terminalSeatCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(target) : null;
   const collegeTeamMarketStacks = askAllowsCollegeTeamMarketStacks(opts.askText);
   const legsPerGameCap = legsPerGameCapForAsk(target, {
     gameLinesOnly,
@@ -1105,6 +1109,8 @@ async function buildCoachParlayImpl(opts: {
       picks,
       qualifiedCandidates: [],
       target,
+      legsPerGameCap: terminalSeatCaps?.maxGameEventLines ?? legsPerGameCap,
+      maxPropsPerGameCap: terminalSeatCaps?.maxProps,
     });
     picks = filterPreparedDeliveryPicks(deliveryGrounding.picks, inputs.espnGames);
     const shortfall = resolveCoachParlayShortfallLead({
@@ -1543,12 +1549,35 @@ async function buildCoachParlayImpl(opts: {
   // ALT/backfill/recovery/top-up cannot bypass: this is the last seat check.
   // Final pregame + quality + grounding re-check (incl. ALT). Games can tip
   // during a long scan; unknown startsAt stays (enrichment gaps ≠ started).
+  const terminalConstraintReasons = new Set<string>();
+  const deliveryEligible = (pick: ParsedPick) => {
+    const quality = evaluateCoachQualification(pick, { requestStyle: "normal" });
+    const issues = opts.propAudit?.deliveryIssues(pick) ?? [];
+    if (quality.status === "qualified" && !p0UnvalidatedSimDecision(pick) &&
+        Number.isFinite(pick.odds) && pick.odds !== 0 && !issues.length) return true;
+    terminalConstraintReasons.add("final_quality_or_evidence");
+    opts.propAudit?.observe(pick, "delivery_blocked", `delivery_blocked:${issues.join(",") || quality.reason}`);
+    return false;
+  };
+  picks = picks.filter(deliveryEligible);
   picks = revalidateCoachTerminalDeliveryPicks(picks, {
     target,
-    qualifiedCandidates: [
-      ...(scan?.qualifiedCandidates ?? []),
-      ...((latest as FullBoardScanResult | null)?.qualifiedCandidates ?? []),
-    ],
+    // A replacement must obey every preceding ask/slate/sport belt too.
+    qualifiedCandidates: filterPreparedDeliveryPicks(
+      filterPicksByAllowedSports(
+        filterPicksForCoachAskTeams(
+          filterPicksForSlateDay(
+            filterPicksByAskMarketConstraint([
+              ...(scan?.qualifiedCandidates ?? []),
+              ...((latest as FullBoardScanResult | null)?.qualifiedCandidates ?? []),
+            ], marketConstraint), inputs.slateDay), teamScope, inputs.excludedTeams),
+        askSportScope, inputs.espnGames), inputs.espnGames).filter(deliveryEligible),
+    legsPerGameCap: terminalSeatCaps?.maxGameEventLines ?? legsPerGameCap,
+    maxPropsPerGameCap: terminalSeatCaps?.maxProps,
+    onRejected: (pick, reason) => {
+      terminalConstraintReasons.add(reason);
+      opts.propAudit?.observe(pick, "delivery_blocked", `ticket_constraint:${reason}`);
+    },
   });
   picks = filterPreparedDeliveryPicks(picks, inputs.espnGames);
   if (picks.length) rememberParlayBuild(picks);
@@ -1591,7 +1620,10 @@ async function buildCoachParlayImpl(opts: {
     picks,
     propPoolSize,
     propsPending,
-    shortfallLead: teamMiss || teamShortfall || shortfall,
+    shortfallLead: teamMiss || teamShortfall ||
+      (!propsPending && picks.length < target && terminalConstraintReasons.size
+        ? `Returned ${picks.length} of ${target} requested picks after quality, matchup, and correlation checks. No filler was added.`
+        : shortfall),
     // Note-only: full N/N tickets must not paint budget-stop copy even when
     // the scan phase flagged timedOut during the finalization reserve.
     timedOut: timed.timedOut && picks.length < target,
@@ -1657,18 +1689,37 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
   const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  const safePicks = (picks: ParsedPick[]) => picks.filter(p => {
+  const terminalTarget = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
+  const terminalConstraint = parseCoachAskMarketConstraint(opts.askText);
+  const terminalGameCap = legsPerGameCapForAsk(terminalTarget, {
+    gameLinesOnly: terminalConstraint.gameLinesOnly && !terminalConstraint.propsOnly,
+    maxGames: terminalConstraint.maxGames,
+    collegeTeamMarketStacks: askAllowsCollegeTeamMarketStacks(opts.askText),
+  });
+  const terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
+  const safePicks = (picks: ParsedPick[]) => applyDeliveryGroundingGate({
+    target: terminalTarget, legsPerGameCap: terminalCaps?.maxGameEventLines ?? terminalGameCap,
+    maxPropsPerGameCap: terminalCaps?.maxProps,
+    onRejected: (pick, reason) => audit.observe(pick, "delivery_blocked", `ticket_constraint:${reason}`),
+    picks: dedupePicksByMarketLadder(picks.filter(p => {
     const issues = audit.deliveryIssues(p);
+    // Early recovery and partial-return paths share the final quality authority.
+    // Never trust an attached qualified stamp after the score/quote has changed.
+    const quality = evaluateCoachQualification(p, { requestStyle: "normal" });
+    if (quality.status !== "qualified") issues.push(`quality_${quality.reason}`);
+    if (p0UnvalidatedSimDecision(p)) issues.push("unvalidated_market");
+    if (!Number.isFinite(p.odds) || p.odds === 0) issues.push("invalid_price");
     if (!issues.length) return true;
     audit.observe(p, "delivery_blocked", `delivery_blocked:${issues.join(",")}`);
     return false;
-  });
+  })),
+  }).picks;
   try {
     const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
       onPartialPicks: opts.onPartialPicks ? picks => opts.onPartialPicks?.(safePicks(picks)) : undefined });
     const picks = safePicks(result.picks);
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some props could not be verified, so I left them out.` : result.note };
+    return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
   } catch (e) {
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
