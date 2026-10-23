@@ -1,6 +1,7 @@
 /**
  * Phase 2.2 — athlete identity resolution.
- * Fast path: stamped athleteId (no provider).
+ * Fast path: stamped athleteId skips identity lookup; MLB with complete side
+ * context also skips roster enrichment unless a supplied position needs verification.
  * Miss path: dedicated identity cache → roster → ESPN search,
  * concurrency 4 + in-flight coalesce by canonical identity key.
  * Never fabricates IDs; never caches nulls.
@@ -394,9 +395,15 @@ async function stampSideContextFromRoster(
     }
     let byAthlete = new Map<string, { teamId: string; position?: string | null }>();
     try {
-      const byName = await loadRosterMap(home, away);
-      for (const v of byName.values()) {
-        if (v.athleteId) byAthlete.set(v.athleteId, v);
+      const needsRoster = sport !== "mlb" || group.some((p) => {
+        const own = String(p.playerTeamId ?? derivePlayerTeamId(p, home, away)).trim();
+        return p.position != null || !String(p.athleteId ?? "").trim() || (own !== home && own !== away);
+      });
+      if (needsRoster) {
+        const byName = await loadRosterMap(home, away);
+        for (const v of byName.values()) {
+          if (v.athleteId) byAthlete.set(v.athleteId, v);
+        }
       }
     } catch {
       byAthlete = new Map();
@@ -404,7 +411,7 @@ async function stampSideContextFromRoster(
     for (const p of group) {
       const athleteId = String(p.athleteId ?? "").trim();
       const fromRoster = athleteId ? byAthlete.get(athleteId) ?? null : null;
-      const playerTeamId = p.playerTeamId ?? fromRoster?.teamId;
+      const playerTeamId = p.playerTeamId ?? fromRoster?.teamId ?? (derivePlayerTeamId(p, home, away) || null);
       out.push(stampPropSideContext({ ...p, position: fromRoster?.position ?? null }, home, away, playerTeamId));
     }
   }

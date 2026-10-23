@@ -50,8 +50,16 @@ describe("buildTennisPickAnalysis", () => {
     );
     const pre = await buildTennisPickAnalysis(m, { away: { bio: null, career: null }, home: { bio: null, career: null } }, 4);
     assert.ok(pre.unavailableFactors.length > 5);
-    assert.ok(passesTennisDataGate(pre));
+    assert.ok(pre.dataCoveragePct < 15);
+    assert.equal(passesTennisDataGate(pre), false);
   });
+});
+
+it("accepts tennis evidence when both players have sampled form and the existing coverage floor is met", async () => {
+  const form = [{date: "2026-01-01", opponent: "Other", win: true, score: "6-4 6-3", round: null}];
+  const pre = await buildTennisPickAnalysis(matchup(player({name: "A", recentForm: form}), player({name: "B", recentForm: form})), {away:{bio:null,career:null},home:{bio:null,career:null}}, 4);
+  assert.ok(pre.dataCoveragePct >= 15);
+  assert.equal(passesTennisDataGate(pre), true);
 });
 
 describe("buildTennisRecommendations", () => {

@@ -60,3 +60,13 @@ test("trimLockedContextForDirectOpenAI enforces byte budget", () => {
   assert.ok(JSON.stringify(trimmed).length < JSON.stringify(ctx).length);
   assert.ok(JSON.stringify(trimmed).length <= 28_000);
 });
+
+// This regression intentionally stays below the global size cap.
+test("direct OpenAI keeps core rules while removing unrelated short-prompt sections", () => {
+  const prompt = "You are Stadium Edge.\nHOME-RUN EVALUATION RULE: only relevant to HR asks\nCURRENT ROSTER / LIVE DATA OVERRIDE: provider facts are authoritative\nREQUEST TYPES — sized requests keep the requested count";
+  const result = coachSystemPromptForProvider("openai", prompt, "four NBA picks");
+  assert.doesNotMatch(result, /HOME-RUN EVALUATION/);
+  assert.match(result, /CURRENT ROSTER \/ LIVE DATA OVERRIDE/);
+  assert.match(result, /sized requests keep the requested count/);
+  assert.equal(coachSystemPromptForProvider("openai", "Simple core instructions", "hi"), "Simple core instructions");
+});

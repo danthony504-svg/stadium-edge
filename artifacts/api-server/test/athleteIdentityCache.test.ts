@@ -132,6 +132,9 @@ test("stamped athleteId → zero provider calls (fast path)", async () => {
     assert.equal(stats.stampedFastPath, 2);
     assert.equal(props[0]?.athleteId, "5085893");
     assert.equal(props[1]?.athleteId, "4743772");
+    assert.equal(props[0]?.opponentTeamId, "5");
+    assert.equal(props[0]?.playerTeamId, "4");
+    assert.equal(props[0]?.isHome, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
