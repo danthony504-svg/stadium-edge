@@ -1,3 +1,5 @@
+import { fetchEspnScoreboardDays } from "./espnScoreboardFetch.js";
+import { espnScoreboardDayKeys } from "./espnScoreboardWindow.js";
 import { cachedJson } from "./sports.js";
 
 // ---------------------------------------------------------------------------
@@ -314,10 +316,9 @@ export async function loadTennisGames(): Promise<TennisGameRow[]> {
     const seen = new Set<string>();
     for (const tour of TOURS) {
       try {
-        const j = await fetchJson(
-          `https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${dateRange}&limit=200`,
-        );
-        for (const e of j?.events || []) {
+        const events = await fetchEspnScoreboardDays<any>(`tennis/${tour}`,
+          espnScoreboardDayKeys(now.getTime()));
+        for (const e of events) {
           for (const g of e?.groupings || []) {
             for (const c of g?.competitions || []) {
               const id = c?.id != null ? String(c.id) : "";

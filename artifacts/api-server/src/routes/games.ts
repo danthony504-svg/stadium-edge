@@ -1,3 +1,4 @@
+import { fetchEspnScoreboardDays } from "../lib/espnScoreboardFetch.js";
 import { attachPreparedGameContexts, schedulePreparedGameContexts } from "../lib/preparedGameContext.js";
 import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
@@ -246,17 +247,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
           return (await r.json()) as { events?: EspnEvent[] };
         };
         const loadPath = async (p: string): Promise<EspnEvent[]> => {
-          const batches = await Promise.all(
-            dayKeys.map(async (day) => {
-              try {
-                const data = await fetchEspn(p, `?dates=${day}`);
-                return data.events ?? [];
-              } catch {
-                return [] as EspnEvent[];
-              }
-            }),
-          );
-          const merged = mergeEspnEventsById(batches);
+          const batches = await fetchEspnScoreboardDays<EspnEvent>(p, dayKeys).catch(() => []);
+          const merged = mergeEspnEventsById([batches]);
           if (merged.length > 0) return merged;
           // Fallback: ESPN's default response (next scheduled batch).
           try {
@@ -396,14 +388,8 @@ router.get("/sports/odds-espn", async (req, res): Promise<void> => {
     return;
   }
   try {
-    // Scoreboard window: yesterday → +7 days, same as /sports/games so live
-    // games that started yesterday UTC are still included.
-    const fmt = (d: Date) =>
-      `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
+    const dayKeys = espnScoreboardDayKeys(Date.now());
+    const dateRange = `${dayKeys[0]}-${dayKeys[dayKeys.length - 1]}`;
 
     type ScoreboardEvent = {
       id: string;
@@ -424,12 +410,9 @@ router.get("/sports/odds-espn", async (req, res): Promise<void> => {
     const scoreboard = await cachedJson<{ events?: ScoreboardEvent[] }>(
       `scoreboard-odds:${path}:${dateRange}`,
       60 * 1000,
-      async () => {
-        const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${dateRange}&limit=200`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`ESPN ${r.status}`);
-        return (await r.json()) as { events?: ScoreboardEvent[] };
-      },
+      async () => ({ events: mergeEspnEventsById([
+        await fetchEspnScoreboardDays<ScoreboardEvent>(path, dayKeys),
+      ]) }),
     );
 
     // Skip finished games entirely. Cap at 40 events per sport so we don't
