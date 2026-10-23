@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { pool } from "@workspace/db";
 import { applyNotificationLogMigration } from "./lib/notificationLogMigration.js";
+import { applyOperationalSchemaMigration } from "./lib/operationalSchemaMigration.js";
 import app from "./app";
 import {
   queueNcaafResearchValidation,
@@ -68,6 +69,16 @@ if (process.env.APPLY_NOTIF_LOG_MIGRATION === "true") {
   } finally {
     client.release();
   }
+}
+
+// One-time, production-name-guarded repair of missing operational tables.
+if (process.env.APPLY_OPERATIONAL_SCHEMA_MIGRATION === "true") {
+  const client = await pool.connect();
+  try {
+    await applyOperationalSchemaMigration(client, await readFile(new URL(
+      "../../../lib/db/migrations/20261023_create_missing_operational_tables.sql", import.meta.url), "utf8"));
+    logger.info("operational schema migration complete");
+  } finally { client.release(); }
 }
 
 const server = app.listen(port, (err) => {

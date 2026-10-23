@@ -330,3 +330,19 @@ test("rushing/receiving stop and budget flush reject unrelated markets including
     }
   }
 });
+
+
+test("stop and budget flush preserve explicit single-event prop ceilings", () => {
+  const picks = Array.from({length:4},(_,i)=>({
+    isProp:true, sport:"nba", game:"Dallas Mavericks @ Indiana Pacers", market:"Points",
+    pick:`Player ${i} Over 10.5 Points`, player:`Player ${i}`, teamAbbr:"IND",
+    propMarketKey:"player_points", grade:"B", confidencePct:65,
+  }));
+  for (const messageFallback of [false,true]) {
+    const out = resolveCoachTerminalPicks({
+      bufferedPicks:messageFallback?[]:picks, messagePicks:messageFallback?picks:[],
+      askText:"5 leg Pacers single game", requestedLegs:5,
+    });
+    assert.equal(out.length,4);
+  }
+});

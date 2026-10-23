@@ -1,3 +1,5 @@
+import { legsPerGameCapForAsk } from "./parlayCorrelationScore.ts";
+import { shouldActivateSingleEventSeating, singleEventCapsForTarget } from "./singleEventSeating.ts";
 /**
  * Coach ticket publish policy — hold pick cards until the build finishes.
  *
@@ -19,6 +21,7 @@
  */
 
 import {
+  askAllowsCollegeTeamMarketStacks,
   askRequiresFootballPropMix,
   finalizeFootballPropMixPicks,
   finalizeGeneralPropMixPicks,
@@ -204,6 +207,16 @@ export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
 
   const target = opts.requestedLegs ?? picks.length;
   const constraint = parseCoachAskMarketConstraint(opts.askText);
+  const singleEventCaps = shouldActivateSingleEventSeating(opts.askText)
+    ? singleEventCapsForTarget(target) : null;
+  const deliveryCaps = {
+    legsPerGameCap: singleEventCaps?.maxGameEventLines ?? legsPerGameCapForAsk(target, {
+      gameLinesOnly: constraint.gameLinesOnly && !constraint.propsOnly,
+      maxGames: constraint.maxGames,
+      collegeTeamMarketStacks: askAllowsCollegeTeamMarketStacks(opts.askText),
+    }),
+    maxPropsPerGameCap: singleEventCaps?.maxProps,
+  };
   picks = filterPicksByAskMarketConstraint(picks, constraint);
   const qualifiedCandidates = filterPicksByAskMarketConstraint(
     [...(opts.qualifiedCandidates ?? [])],
@@ -214,6 +227,7 @@ export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
       revalidateCoachTerminalDeliveryPicks(picks, {
         target: picks.length,
         qualifiedCandidates,
+        ...deliveryCaps,
       }),
       constraint,
     );
@@ -229,7 +243,7 @@ export function resolveCoachTerminalPicks<T extends CoachFlushPick>(opts: {
   }
 
   return filterPicksByAskMarketConstraint(
-    revalidateCoachTerminalDeliveryPicks(picks, { target, qualifiedCandidates }),
+    revalidateCoachTerminalDeliveryPicks(picks, { target, qualifiedCandidates, ...deliveryCaps }),
     constraint,
   );
 }

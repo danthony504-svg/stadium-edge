@@ -39,6 +39,9 @@ echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health ==
 (
   cd "$API"
   node --import ./test/register-hooks.mjs --test \
+    test/espnScoreboardFetch.test.ts \
+    test/operationalSchemaMigration.test.ts \
+    test/singleFlight.test.ts \
     test/reliabilitySanitize.test.ts \
     test/reliabilityCrashMeta.test.ts \
     test/reliabilityAbuse.test.ts \

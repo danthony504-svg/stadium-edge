@@ -1,3 +1,4 @@
+import { createSingleFlight } from "./singleFlight.js";
 import type { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
 import { cacheGet, cacheSet, rateLimitHit } from "./store.js";
@@ -121,6 +122,7 @@ export const ESPN_SOCCER_SCOREBOARD_PATHS: readonly string[] = [
 // Cache is backed by the shared store (in-memory by default; Redis when
 // REDIS_URL is set so multiple instances share one cache). cachedJson keeps the
 // fetch-on-miss contract callers already rely on.
+const cachedJsonFlight = createSingleFlight();
 export async function cachedJson<T>(
   key: string,
   ttlMs: number,
@@ -128,9 +130,14 @@ export async function cachedJson<T>(
 ): Promise<T> {
   const hit = await cacheGet<T>(key);
   if (hit !== undefined) return hit;
-  const value = await fetcher();
-  await cacheSet(key, value, ttlMs);
-  return value;
+  return cachedJsonFlight(key, async () => {
+    // Another request may have completed while the first cache read yielded.
+    const sharedHit = await cacheGet<T>(key);
+    if (sharedHit !== undefined) return sharedHit;
+    const value = await fetcher();
+    await cacheSet(key, value, ttlMs);
+    return value;
+  });
 }
 
 // Sliding-window rate limiter for expensive routes.

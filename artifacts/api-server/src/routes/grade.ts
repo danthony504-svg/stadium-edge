@@ -1,3 +1,5 @@
+import { fetchEspnScoreboardDays } from "../lib/espnScoreboardFetch.js";
+import { espnScoreboardDayKeys } from "../lib/espnScoreboardWindow.js";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { playerPeriodGameLog, soccerPlayerGameLog } from "../lib/statmuse";
@@ -50,13 +52,8 @@ async function fetchFinals(sportPath: string): Promise<FinalGame[]> {
   const data = await cachedJson<{ events?: EspnScoreEvent[] }>(
     `grade-finals:${sportPath}:${dateRange}`,
     60 * 1000,
-    async () => {
-      // limit=300 so a busy 11-day MLB window (~15 games/day) isn't truncated.
-      const url = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard?dates=${dateRange}&limit=300`;
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`ESPN ${r.status}`);
-      return (await r.json()) as { events?: EspnScoreEvent[] };
-    },
+    async () => ({ events: await fetchEspnScoreboardDays<EspnScoreEvent>(
+      sportPath, espnScoreboardDayKeys(now.getTime(), 10, 1)), }),
   );
   const out: FinalGame[] = [];
   for (const e of data.events ?? []) {
@@ -127,12 +124,8 @@ async function fetchGolfWinners(): Promise<GolfWinner[]> {
   const data = await cachedJson<{ events?: EspnGolfEvent[] }>(
     `grade-golf:${dateRange}`,
     60 * 1000,
-    async () => {
-      const url = `https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard?dates=${dateRange}`;
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`ESPN golf ${r.status}`);
-      return (await r.json()) as { events?: EspnGolfEvent[] };
-    },
+    async () => ({ events: await fetchEspnScoreboardDays<EspnGolfEvent>(
+      "golf/pga", espnScoreboardDayKeys(now.getTime(), 14, 1)), }),
   );
   const out: GolfWinner[] = [];
   for (const e of data.events ?? []) {
