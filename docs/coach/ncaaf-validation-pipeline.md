@@ -23,3 +23,9 @@ The candidate still requires its existing minimum overtime sample. Historical fi
 Verify the deployed commit, API health, protected endpoint authentication, and the durable latest/slot reports. A processed slot with explicit withheld forecasts proves the pipeline ran; it does not prove the model passed. A later cron invocation should skip the same completed slot without another charged odds attempt.
 
 To disable collection, set `NCAAF_RESEARCH_PIPELINE_ENABLED=false` and redeploy. Existing research data remains intact and the production NCAAF release gate stays unchanged.
+
+### Production follow-up
+
+Retry caps also apply to abandoned `running` slots with no completion timestamp; backoff uses the prior start time when no finish time exists. A hard kill cannot reset a slot's attempt budget.
+
+Runtime verification also found the existing notification dedupe table missing. The separate create-only `20261023_create_notif_log.sql` migration matches the checked-in Drizzle schema. Explicitly setting `APPLY_NOTIF_LOG_MIGRATION=true` runs it on a dedicated connection before API readiness, checks the production database name, bounds DDL locks/runtime, and rolls back on failure. Repeated execution preserves existing rows and composite-key dedupe. Disable that flag after verifying the schema. This repair does not enqueue or send a notification.
