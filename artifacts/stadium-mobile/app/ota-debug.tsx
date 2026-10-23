@@ -1,4 +1,5 @@
 import { readCoachPropAuditReport } from "@/lib/coachPropAuditStore";
+import { downloadCoachPropAudit } from "@/lib/coachPropAuditExport";
 import { shouldShowOtaHomeDiagnostics } from "@/lib/navMenuAuth";
 import * as Clipboard from "expo-clipboard";
 import Feather from "@expo/vector-icons/Feather";
@@ -375,6 +376,7 @@ function OtaDebugScreenInner() {
   );
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [auditExportBusy, setAuditExportBusy] = useState(false);
   const [staticLoading, setStaticLoading] = useState(true);
   const [liveProbeLoading, setLiveProbeLoading] = useState(false);
 
@@ -1031,12 +1033,37 @@ function OtaDebugScreenInner() {
           </Pressable>
 
           {shouldShowOtaHomeDiagnostics(diag.channel, __DEV__) && (
-            <Pressable
-              onPress={() => { void readCoachPropAuditReport().then(report => Clipboard.setStringAsync(report)).then(() => setStatus("Copied latest prop audit")).catch(() => setStatus("Could not copy prop audit")); }}
-              style={{ paddingVertical: 12, alignItems: "center" }}
-            >
-              <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>Copy latest prop audit</Text>
-            </Pressable>
+            <View>
+              <Pressable
+                disabled={auditExportBusy}
+                accessibilityRole="button"
+                onPress={() => {
+                  if (auditExportBusy) return;
+                  setAuditExportBusy(true);
+                  void downloadCoachPropAudit().then(result => {
+                    setStatus(result === "empty" ? "Build a Coach ticket first, then download its report."
+                      : result === "saved" ? "Prop audit downloaded."
+                      : result === "shared" ? "Prop audit shared or saved."
+                      : "Download cancelled.");
+                  }).catch(() => setStatus("Could not download the report. You can still copy it below."))
+                    .finally(() => setAuditExportBusy(false));
+                }}
+                style={{ paddingVertical: 14, alignItems: "center", opacity: auditExportBusy ? 0.5 : 1 }}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>
+                  {auditExportBusy ? "Preparing report…" : "Download latest prop audit"}
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 4 }}>
+                  Save to Files or share the report as a file.
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { void readCoachPropAuditReport().then(report => Clipboard.setStringAsync(report)).then(() => setStatus("Copied latest prop audit")).catch(() => setStatus("Could not copy prop audit")); }}
+                style={{ paddingVertical: 12, alignItems: "center" }}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>Copy latest prop audit</Text>
+              </Pressable>
+            </View>
           )}
 
           <Pressable
