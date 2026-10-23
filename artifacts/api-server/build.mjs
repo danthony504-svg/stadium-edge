@@ -21,6 +21,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/cfbdHistoryImport.ts"),
       path.resolve(artifactDir, "src/ncaafBacktest.ts"),
       path.resolve(artifactDir, "src/ncaafFullGameBacktest.ts"),
+      path.resolve(artifactDir, "src/ncaafForecastJournal.ts"),
       path.resolve(artifactDir, "src/ncaafOpponentDevelopment.ts"),
       path.resolve(artifactDir, "src/ncaafVenueMetadata.ts"),
       path.resolve(artifactDir, "src/ncaafVenueDevelopment.ts"),
