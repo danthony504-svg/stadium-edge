@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { gameValueForMarket, computeAmbiguous } from "../src/lib/propStatValue.ts";
 
 const API = "https://stadium-edge.onrender.com/api";
+const request = (url: string) => fetch(url, { signal: AbortSignal.timeout(20_000) });
 
 function americanToProb(odds: number): number {
   if (odds > 0) return 100 / (odds + 100);
@@ -35,8 +36,8 @@ function gradable(hit: number | null): boolean {
   return hit != null && Number.isFinite(hit) && hit > 0 && hit < 1;
 }
 
-test("WNBA live board: count props with gradable client sim + positive edge", async () => {
-  const oddsRes = await fetch(`${API}/sports/odds?sport=wnba`);
+test("WNBA live board: count props with gradable client sim + positive edge", { skip: process.env.RUN_LIVE_PROBES !== "1", timeout: 120_000 }, async (t) => {
+  const oddsRes = await request(`${API}/sports/odds?sport=wnba`);
   assert.equal(oddsRes.ok, true);
   const oddsGames = (await oddsRes.json()) as Array<{
     id: string;
@@ -44,11 +45,13 @@ test("WNBA live board: count props with gradable client sim + positive edge", as
     awayTeam: string;
     commenceTime: string;
   }>;
-  assert.ok(oddsGames.length > 0, "expected WNBA odds games");
+  assert.ok(Array.isArray(oddsGames), "WNBA odds response must be an array");
+  if (!oddsGames.length) { t.skip("No posted WNBA games on the live board"); return; }
 
-  const espnRes = await fetch(
+  const espnRes = await request(
     "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
   );
+  assert.equal(espnRes.ok, true, "WNBA scoreboard request failed");
   const espn = (await espnRes.json()) as {
     events?: Array<{
       id: string;
@@ -87,8 +90,8 @@ test("WNBA live board: count props with gradable client sim + positive edge", as
       q.set("homeTeamId", ids.homeTeamId);
       q.set("awayTeamId", ids.awayTeamId);
     }
-    const propsRes = await fetch(`${API}/sports/props?${q.toString()}`);
-    if (!propsRes.ok) continue;
+    const propsRes = await request(`${API}/sports/props?${q.toString()}`);
+    assert.equal(propsRes.ok, true, `WNBA props request failed: HTTP ${propsRes.status}`);
     const body = (await propsRes.json()) as {
       props?: Array<{
         player: string;
@@ -100,6 +103,7 @@ test("WNBA live board: count props with gradable client sim + positive edge", as
       }>;
     };
 
+    assert.ok(Array.isArray(body.props), "WNBA props response must include a props array");
     const historyCache = new Map<string, { stats?: Record<string, string> }[]>();
 
     for (const p of body.props ?? []) {
@@ -110,15 +114,16 @@ test("WNBA live board: count props with gradable client sim + positive edge", as
 
         let athleteId = p.athleteId;
         if (!athleteId) {
-          const sr = await fetch(`${API}/sports/player-search?query=${encodeURIComponent(p.player)}`);
+          const sr = await request(`${API}/sports/player-search?query=${encodeURIComponent(p.player)}`);
+          assert.equal(sr.ok, true, `WNBA player search failed: HTTP ${sr.status}`);
           const sj = (await sr.json()) as { results?: Array<{ athleteId: string; sport: string }> };
           athleteId = sj.results?.find((r) => r.sport === "wnba")?.athleteId ?? null;
         }
         if (!athleteId) continue;
 
         if (!historyCache.has(athleteId)) {
-          const hr = await fetch(`${API}/sports/player-history?sport=wnba&athleteId=${athleteId}`);
-          if (!hr.ok) continue;
+          const hr = await request(`${API}/sports/player-history?sport=wnba&athleteId=${athleteId}`);
+          assert.equal(hr.ok, true, `WNBA player history failed: HTTP ${hr.status}`);
           const hj = (await hr.json()) as { recent?: { stats?: Record<string, string> }[] };
           historyCache.set(athleteId, hj.recent ?? []);
         }
@@ -148,5 +153,5 @@ test("WNBA live board: count props with gradable client sim + positive edge", as
     JSON.stringify({ scanned, withHistory, gradableSims, positiveEdge, samples }, null, 2),
   );
   // Honest board may still be 0 on a efficient night — test documents live counts.
-  assert.ok(scanned > 0, "expected to scan posted WNBA prop sides");
+  if (!scanned) t.skip("Live WNBA games exist, but no priced player prop sides are posted");
 });

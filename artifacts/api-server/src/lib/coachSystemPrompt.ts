@@ -90,7 +90,8 @@ export function coachSystemPromptForProvider(
   latestUser: string,
 ): string {
   if (provider !== "openai") return fullPrompt;
-  if (fullPrompt.length <= DIRECT_OPENAI_CHAR_BUDGET) return fullPrompt;
+  // Apply request-specific omissions even below the size cap. Irrelevant
+  // sections still consume tokens and can conflict with the current request.
 
   let trimmed = joinSections(
     splitPromptSections(fullPrompt).filter((s) => !shouldOmitSection(s.header, latestUser)),

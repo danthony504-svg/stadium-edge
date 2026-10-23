@@ -9,7 +9,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "start:coach-slate-worker": "node --enable-source-maps ./dist/coachSlateWorker.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'",
+    "test:live:wnba": "RUN_LIVE_PROBES=1 node --import ./test/register-hooks.mjs --test test/wnbaBoardQualifyProbe.test.ts"
   },
   "dependencies": {
     "@clerk/express": "^2.1.22",
