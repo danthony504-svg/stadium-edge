@@ -192,13 +192,23 @@ async function main() {
         "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
       )
     ).rows[0]?.value;
-    const season = new Date().getUTCFullYear(),
-      base = (
-        await db.query(
-          "SELECT key,value FROM public.app_kv WHERE key LIKE $1 ORDER BY key DESC LIMIT 1",
-          [`research:ncaaf:history-summary:${season}:%`],
-        )
-      ).rows[0];
+    const seasonArg = process.argv.indexOf("--season");
+    const season =
+      seasonArg < 0
+        ? new Date().getUTCFullYear()
+        : Number(process.argv[seasonArg + 1]);
+    if (
+      !Number.isSafeInteger(season) ||
+      season < 2021 ||
+      season > new Date().getUTCFullYear()
+    )
+      throw Error("repair_invalid_season");
+    const base = (
+      await db.query(
+        "SELECT key,value FROM public.app_kv WHERE key LIKE $1 ORDER BY key DESC LIMIT 1",
+        [`research:ncaaf:history-summary:${season}:%`],
+      )
+    ).rows[0];
     if (
       !live ||
       !base ||
@@ -219,7 +229,16 @@ async function main() {
       teams.some((id) => !/^\d+$/.test(id))
     )
       throw Error("repair_team_budget");
-    const day = new Date().toISOString().slice(0, 10),
+    const slotArg = process.argv.indexOf("--capture-slot"),
+      slot = slotArg < 0 ? null : process.argv[slotArg + 1];
+    if (
+      slot !== null &&
+      (!/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/.test(slot) ||
+        !Number.isFinite(Date.parse(slot)) ||
+        Date.parse(slot) > Date.now())
+    )
+      throw Error("repair_invalid_capture_slot");
+    const day = slot ?? new Date().toISOString().slice(0, 10),
       ids = new Set(),
       sourceKeys = [],
       failures = [];
