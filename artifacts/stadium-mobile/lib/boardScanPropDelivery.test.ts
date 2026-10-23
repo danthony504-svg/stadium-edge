@@ -1315,3 +1315,13 @@ test("empty source board is not reported as a failed quality bar", () => {
   assert.match(buildFinalCoachParlayNote({...opts, picks: [{market: "Spread"}], shortfallLead: "One pick qualified."}), /One pick qualified/);
   assert.doesNotMatch(buildFinalCoachParlayNote({...opts, propPoolSize: 5, propsPending: true}), /No usable odds/);
 });
+
+
+test("empty source board preserves the requested-team miss", () => {
+  const note = buildFinalCoachParlayNote({target: 2, picks: [], propPoolSize: 0, propsPending: false,
+    shortfallLead: "No AI-backed picks cleared the quality bar.",
+    emptyBoardScopeLead: "No posted odds were found for the requested team.",
+    failureReason: {code: "NO_ODDS_GAMES", detail: "internal only"}});
+  assert.equal(note, "No posted odds were found for the requested team.");
+  assert.doesNotMatch(note, /requested sport|quality bar/);
+});
