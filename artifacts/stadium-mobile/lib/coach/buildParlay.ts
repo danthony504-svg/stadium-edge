@@ -1163,7 +1163,8 @@ async function buildCoachParlayImpl(opts: {
         picks,
         propPoolSize,
         propsPending: false,
-        shortfallLead: teamMiss || teamShortfall || shortfall,
+        emptyBoardScopeLead: teamMiss || teamShortfall,
+    shortfallLead: teamMiss || teamShortfall || shortfall,
         propsOnly: true,
         requirePropMix: false,
       });
@@ -1620,6 +1621,7 @@ async function buildCoachParlayImpl(opts: {
     picks,
     propPoolSize,
     propsPending,
+    emptyBoardScopeLead: teamMiss || teamShortfall,
     shortfallLead: teamMiss || teamShortfall ||
       (!propsPending && picks.length < target && terminalConstraintReasons.size
         ? `Returned ${picks.length} of ${target} requested picks after quality, matchup, and correlation checks. No filler was added.`

@@ -1102,6 +1102,8 @@ export function buildFinalCoachParlayNote(opts: {
   propPoolSize: number;
   propsPending: boolean;
   shortfallLead: string;
+  /** Preserve a requested-team miss ahead of a general empty-board message. */
+  emptyBoardScopeLead?: string;
   timedOut?: boolean;
   budgetMs?: number;
   scanMissing?: boolean;
@@ -1116,6 +1118,13 @@ export function buildFinalCoachParlayNote(opts: {
    */
   requirePropMix?: boolean;
 }): string {
+  // An empty source board is not evidence that evaluated picks failed quality.
+  // Do not infer an offseason or outage: either can produce unavailable odds.
+  if (opts.picks.length === 0 && opts.propPoolSize === 0 &&
+      !opts.propsPending && opts.failureReason?.code === "NO_ODDS_GAMES") {
+    return sanitizeCoachUserNote(opts.emptyBoardScopeLead?.trim() ||
+      "No usable odds were available for the requested sport and time window. No ticket was built. Try another date or sport.");
+  }
   const propLike = countPropLikePicks(opts.picks);
   const propsPendingLead =
     opts.propPoolSize > 0 && propLike === 0 && opts.propsPending

@@ -1302,3 +1302,26 @@ test("five-leg budget note: full ticket before / at / after deadline", () => {
   assert.match(afterEmpty, /Stopped at the 75s delivery budget/i);
   assert.match(afterEmpty, /cleared so far/i);
 });
+
+
+test("empty source board is not reported as a failed quality bar", () => {
+  const opts = {target: 2, picks: [], propPoolSize: 0, propsPending: false,
+    shortfallLead: "No AI-backed picks cleared the quality bar.",
+    failureReason: {code: "NO_ODDS_GAMES" as const, detail: "internal only"}};
+  const note = buildFinalCoachParlayNote(opts);
+  assert.match(note, /No usable odds.*requested sport and time window/);
+  assert.doesNotMatch(note, /quality bar|NO_ODDS_GAMES|internal only/);
+  assert.match(note, /No ticket was built/);
+  assert.match(buildFinalCoachParlayNote({...opts, picks: [{market: "Spread"}], shortfallLead: "One pick qualified."}), /One pick qualified/);
+  assert.doesNotMatch(buildFinalCoachParlayNote({...opts, propPoolSize: 5, propsPending: true}), /No usable odds/);
+});
+
+
+test("empty source board preserves the requested-team miss", () => {
+  const note = buildFinalCoachParlayNote({target: 2, picks: [], propPoolSize: 0, propsPending: false,
+    shortfallLead: "No AI-backed picks cleared the quality bar.",
+    emptyBoardScopeLead: "No posted odds were found for the requested team.",
+    failureReason: {code: "NO_ODDS_GAMES", detail: "internal only"}});
+  assert.equal(note, "No posted odds were found for the requested team.");
+  assert.doesNotMatch(note, /requested sport|quality bar/);
+});
