@@ -48,8 +48,12 @@ test("rankPropPoolEntries prefers higher edge when composite ties", () => {
   assert.equal(ranked[0]?.player, "Alpha");
 });
 
-test("propSimBatchLimitForLegs grows with leg count", () => {
-  assert.equal(propSimBatchLimitForLegs(3), 18);
+test("propSimBatchLimitForLegs preserves the 20-candidate floor and grows within its cap", () => {
+  assert.equal(propSimBatchLimitForLegs(3), 20);
+  for (const legs of [1, 2, 3, 4, 5, 6, 8, 10, 15]) {
+    assert.ok(propSimBatchLimitForLegs(legs) >= 20);
+    assert.ok(propSimBatchLimitForLegs(legs) <= 48);
+  }
   assert.equal(propSimBatchLimitForLegs(15), 42);
   assert.ok(propSimBatchLimitForLegs(15) > propSimBatchLimitForLegs(3));
   assert.ok(propSimBatchLimitForLegs(25) <= 48);
