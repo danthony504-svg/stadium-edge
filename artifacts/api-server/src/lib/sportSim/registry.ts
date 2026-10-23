@@ -4,7 +4,7 @@ import { runGameMonteCarlo, type GameSimResult } from "../gameMonteCarlo.js";
 import type { SportSimContext, SportSimModelId } from "./types.js";
 import { MODEL_LABELS } from "./shared.js";
 import { runMlbInningSim } from "./mlbInningSim.js";
-import { runPossessionSim } from "./nbaPossessionSim.js";
+import { runBasketballScoreSim } from "./nbaPossessionSim.js";
 import { runNflDriveSim } from "./nflDriveSim.js";
 import { runNhlShiftSim } from "./nhlShiftSim.js";
 import { runSoccerXgSim } from "./soccerXgSim.js";
@@ -15,8 +15,9 @@ export { MODEL_LABELS };
 export function sportSimModelForSport(sport: string): SportSimModelId {
   const s = sport.toLowerCase();
   if (s === "mlb" || s.startsWith("baseball")) return "mlb-inning";
-  if (s === "nba") return "nba-possession";
-  if (s === "wnba") return "wnba-possession";
+  if (s === "nba") return "nba-score-v2";
+  if (s === "wnba") return "wnba-score-v2";
+  if (s === "ncaab") return "ncaab-score-v2";
   if (s === "nfl" || s === "ncaaf") return "nfl-drive";
   if (s === "nhl") return "nhl-shift";
   if (s === "soccer") return "soccer-xg";
@@ -34,11 +35,12 @@ export function runSportGameMonteCarlo(ctx: SportSimContext): (GameSimResult & {
     case "mlb-inning":
       result = runMlbInningSim(ctx);
       break;
-    case "nba-possession":
-      result = runPossessionSim(ctx, "nba-possession");
+    case "nba-score-v2":
+      result = runBasketballScoreSim(ctx);
       break;
-    case "wnba-possession":
-      result = runPossessionSim(ctx, "wnba-possession");
+    case "ncaab-score-v2":
+    case "wnba-score-v2":
+      result = runBasketballScoreSim(ctx);
       break;
     case "nfl-drive":
       result = runNflDriveSim(ctx);

@@ -157,3 +157,17 @@ test("gameLineLegBucket shares bucket for fuzzy game labels on same team", () =>
   );
   assert.equal(a, b);
 });
+
+test("basketball blocks scaled periods and legacy models before every hit-rate fallback", () => {
+  const fg=gamePick({sport:"nba",game:"Boston Celtics @ New York Knicks",market:"Total",pick:"Under 238.5"});
+  const q=buildGameCoverQuery(fg)!;
+  const modern={...sim,sport:"nba",simModel:"nba-score-v2",coverHitRates:{[q.id]:0.6}};
+  assert.equal(gameSimHitForPick(fg,modern),0.6);
+  assert.equal(gameSimHitForPick(fg,{...modern,simModel:"nba-possession"}),null);
+  assert.equal(gameSimHitForPick(fg,{...modern,simModel:undefined}),null);
+  for (const market of ["Q1 Spread","1H Spread","Q4 Spread"]) {
+    const period=gamePick({sport:"nba",game:fg.game,market,pick:"Knicks +7.5"});
+    const query=buildGameCoverQuery(period)!;
+    assert.equal(gameSimHitForPick(period,{...modern,coverHitRates:{[query.id]:0.95}}),null);
+  }
+});

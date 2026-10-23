@@ -105,7 +105,7 @@ export function maxLegsPerThinStatMarket(target: number): number {
  * slate fills both seats with totals/spreads and ships zero props.
  * Soft correlation still penalizes same-game prop stacks.
  *
- * Pass `override` when the ask is game-lines-only / few-game stack so
+ * Pass `override` when the ask explicitly requests a few-game stack so
  * period/alt rungs can fill a deep ticket without inventing filler.
  */
 export function maxLegsPerGame(target: number, override?: number | null): number {
@@ -116,7 +116,7 @@ export function maxLegsPerGame(target: number, override?: number | null): number
   return 99;
 }
 
-/** Compute per-game cap from ask intent (no props / from N games). */
+/** Raise the generic cap only for an explicit game-count constraint. */
 export function legsPerGameCapForAsk(
   target: number,
   opts?: {
@@ -133,7 +133,7 @@ export function legsPerGameCapForAsk(
     const base = Math.max(maxLegsPerGame(target), Math.ceil(target / games));
     return Math.max(base, Math.min(target, 4));
   }
-  if (!opts?.gameLinesOnly && (opts?.maxGames == null || opts.maxGames <= 0)) {
+  if (opts?.maxGames == null || opts.maxGames <= 0) {
     return null;
   }
   const games = Math.max(1, opts?.maxGames ?? 2);

@@ -2,8 +2,9 @@
 
 export type SportSimModelId =
   | "mlb-inning"
-  | "nba-possession"
-  | "wnba-possession"
+  | "nba-score-v2"
+  | "wnba-score-v2"
+  | "ncaab-score-v2"
   | "nfl-drive"
   | "nhl-shift"
   | "soccer-xg"
@@ -14,8 +15,9 @@ export type SportSimModelId =
 
 const LABELS: Record<SportSimModelId, string> = {
   "mlb-inning": "MLB inning-by-inning (run expectancy + bullpen fatigue)",
-  "nba-possession": "NBA possession-by-possession (pace + fouls)",
-  "wnba-possession": "WNBA possession-by-possession (pace + fouls)",
+  "nba-score-v2": "NBA observed-score distribution",
+  "wnba-score-v2": "WNBA observed-score distribution",
+  "ncaab-score-v2": "College basketball observed-score distribution",
   "nfl-drive": "NFL drive-by-drive (play calling + clock)",
   "nhl-shift": "NHL shift-by-shift (goalie performance)",
   "soccer-xg": "Soccer xG + possession model",
@@ -28,8 +30,9 @@ const LABELS: Record<SportSimModelId, string> = {
 export function sportSimModelForSport(sport: string): SportSimModelId {
   const s = sport.toLowerCase();
   if (s === "mlb") return "mlb-inning";
-  if (s === "nba") return "nba-possession";
-  if (s === "wnba") return "wnba-possession";
+  if (s === "nba") return "nba-score-v2";
+  if (s === "wnba") return "wnba-score-v2";
+  if (s === "ncaab") return "ncaab-score-v2";
   if (s === "nfl" || s === "ncaaf") return "nfl-drive";
   if (s === "nhl") return "nhl-shift";
   if (s === "soccer") return "soccer-xg";

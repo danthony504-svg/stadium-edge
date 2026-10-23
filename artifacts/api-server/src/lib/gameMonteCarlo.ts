@@ -88,12 +88,19 @@ function teamMean(forPts: number | null, oppAgainst: number | null, fallback: nu
   return parts.reduce((a, b) => a + b, 0) / parts.length;
 }
 
+/** No basketball quarter/half or race grading from scaled full-game draws. */
+export function gameCoverQuerySupported(sport: string, q: GameCoverQuery): boolean {
+  if (!["nba", "wnba", "ncaab"].includes(sport.toLowerCase())) return true;
+  return q.kind !== "raceTo" && (q.period == null || q.period === "fg");
+}
+
 export function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
   sport = "nba",
 ): boolean {
+  if (!gameCoverQuerySupported(sport, q)) return false;
   if (q.kind === "raceTo") {
     const target = q.raceTarget ?? 0;
     const side = q.teamSide ?? "home";
@@ -150,6 +157,7 @@ export function deriveCoverHitRates(
   if (!n || n !== outcomes.awayScores.length) return {};
   const rates: Record<string, number> = {};
   for (const q of queries) {
+    if (!gameCoverQuerySupported(sport, q)) continue;
     let hits = 0;
     for (let i = 0; i < n; i++) {
       if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport)) hits += 1;

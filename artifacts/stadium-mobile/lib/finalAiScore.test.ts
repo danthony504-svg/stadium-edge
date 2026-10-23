@@ -57,6 +57,7 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
   const score = buildFinalAiScore({
     pick: {
       game: "Away Team @ Home Team",
+      sport: "mlb",
       market: "Moneyline",
       pick: "Home Team ML",
       odds: -110,

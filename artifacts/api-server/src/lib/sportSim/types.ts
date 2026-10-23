@@ -14,8 +14,9 @@ export type SportSimContext = {
 
 export type SportSimModelId =
   | "mlb-inning"
-  | "nba-possession"
-  | "wnba-possession"
+  | "nba-score-v2"
+  | "wnba-score-v2"
+  | "ncaab-score-v2"
   | "nfl-drive"
   | "nhl-shift"
   | "soccer-xg"

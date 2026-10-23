@@ -78,8 +78,9 @@ export function simCount(ctx: SportSimContext): number {
 
 export const MODEL_LABELS: Record<SportSimModelId, string> = {
   "mlb-inning": "MLB inning-by-inning (run expectancy + bullpen fatigue)",
-  "nba-possession": "NBA possession-by-possession (pace + fouls)",
-  "wnba-possession": "WNBA possession-by-possession (pace + fouls)",
+  "nba-score-v2": "NBA observed-score distribution",
+  "wnba-score-v2": "WNBA observed-score distribution",
+  "ncaab-score-v2": "College basketball observed-score distribution",
   "nfl-drive": "NFL drive-by-drive (play calling + clock)",
   "nhl-shift": "NHL shift-by-shift (goalie performance)",
   "soccer-xg": "Soccer xG + possession model",

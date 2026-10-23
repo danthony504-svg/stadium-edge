@@ -55,11 +55,11 @@ test("per-prop evidence distinguishes quick, deep, unavailable and empirical sou
 });
 
 test("shared empirical fallbacks cannot retain a failed server's 10k count or deep/cache status", () => {
-  const history={recent:[{stats:{PTS:"20",REB:"10",AST:"0",STL:"0",BLK:"0"}},{stats:{PTS:"20",REB:"9",AST:"0",STL:"0",BLK:"0"}}]};
+  const history={recent:Array.from({length:10},(_,i)=>({stats:{PTS:"20",REB:i%2?"9":"10",AST:"0",STL:"0",BLK:"0"}}))};
   const failed=row({hitProbability:null,simulations:10000,cached:true});
   const local=localPropSimulation(history,{player:"Player",market:failed.market,line:0.5,side:"Over"});
   for(const fallback of [mergePropSimWithLocal(failed,local)!,enrichPropSimResults([failed],{Player:history})[0]!]) {
-    assert.equal(fallback.hitProbability,0.5);
+    assert.ok(Math.abs(fallback.hitProbability!-0.54)<1e-12);
     assert.equal(fallback.simulations,0);
     assert.equal(fallback.tier,"quick");
     assert.equal(fallback.cached,false);

@@ -330,6 +330,12 @@ export function fgExpectedFromPeriodAverages(
   return null;
 }
 
+/** No basketball quarter/half or race grading from scaled full-game draws. */
+export function gameCoverQuerySupported(sport: string, q: GameCoverQuery): boolean {
+  if (!["nba", "wnba", "ncaab"].includes(sport.toLowerCase())) return true;
+  return q.kind !== "raceTo" && (q.period == null || q.period === "fg");
+}
+
 function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
@@ -337,6 +343,7 @@ function coverQueryHits(
   sport = "nba",
   periodProfile?: PeriodOffenseDefenseProfile | null,
 ): boolean {
+  if (!gameCoverQuerySupported(sport, q)) return false;
   if (q.kind === "raceTo") {
     const target = q.raceTarget ?? 0;
     const side = q.teamSide ?? "home";
@@ -403,6 +410,7 @@ export function deriveCoverHitRatesFromOutcomes(
   if (!n || n !== outcomes.awayScores.length) return {};
   const rates: Record<string, number> = {};
   for (const q of queries) {
+    if (!gameCoverQuerySupported(sport, q)) continue;
     let hits = 0;
     for (let i = 0; i < n; i++) {
       if (
@@ -677,6 +685,9 @@ export function gameSimHitForPick(
   if (!simMarketMappingIsValid(pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;
+  const sport = (pick.sport ?? "").toLowerCase();
+  if (!gameCoverQuerySupported(sport, query)) return null;
+  if (["nba", "wnba", "ncaab"].includes(sport) && sim!.simModel !== `${sport}-score-v2`) return null;
   // Period on the query must match a supported sport period — no FG fallback grade.
   if (query.period && query.period !== "fg" && !sportSupportsPeriod(pick.sport ?? "", query.period)) {
     return null;
