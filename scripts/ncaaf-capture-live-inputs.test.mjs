@@ -3,6 +3,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
+  espnBoardDay,
   upcomingOdds,
   pairMarkets,
   buildLiveArchive,
@@ -190,4 +191,29 @@ test("default CLI is plan-only without database or provider credentials", () => 
   assert.equal(r.planOnly, true);
   assert.equal(r.maximumOddsRequests, 1);
   assert.equal(r.automaticUnlock, false);
+});
+
+test("ESPN board days use Eastern midnight across daylight-saving changes", () => {
+  assert.equal(espnBoardDay("2026-10-24T00:30:00Z"), "2026-10-23");
+  assert.equal(espnBoardDay("2026-12-05T00:30:00Z"), "2026-12-04");
+  assert.equal(espnBoardDay("2026-10-24T18:00:00Z"), "2026-10-24");
+  assert.throws(() => espnBoardDay("invalid"));
+});
+test("repeated board evidence preserves earliest receipt but conflicting identities reject", () => {
+  const { game, event, capture } = fixture(),
+    first = capture({ events: [event] }),
+    later = { ...first, receivedAt: "2026-10-23T12:01:00Z" };
+  const r = buildLiveArchive(capture([game]), [later, first]);
+  assert.equal(r.matched.length, 1);
+  assert.equal(r.matched[0].target.scoreboardObservedAt, first.receivedAt);
+  const changed = structuredClone(event);
+  changed.competitions[0].competitors[0].team.id = "900";
+  assert.throws(
+    () =>
+      buildLiveArchive(capture([game]), [
+        first,
+        capture({ events: [changed] }),
+      ]),
+    /conflicting/,
+  );
 });
