@@ -1,4 +1,8 @@
 import app from "./app";
+import {
+  queueNcaafResearchValidation,
+  stopNcaafResearchValidation,
+} from "./lib/ncaafResearchScheduler.js";
 import { logger } from "./lib/logger";
 import { getCronHealth } from "./lib/notifyJobs";
 
@@ -42,7 +46,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -50,4 +54,12 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   void logCronHealthOnBoot();
+  queueNcaafResearchValidation();
+});
+
+process.once("SIGTERM", () => {
+  stopNcaafResearchValidation();
+  server.close(() => process.exit(0));
+  const deadline = setTimeout(() => process.exit(0), 25_000);
+  deadline.unref();
 });
