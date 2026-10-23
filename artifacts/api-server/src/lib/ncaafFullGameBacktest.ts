@@ -26,7 +26,7 @@ export function readFullGameReplayArchive(raw:unknown):FullGameReplayArchive{
  for(const q of a.quotes){const f=q&&forecasts.get(key(q));if(!f||!q.bookmaker?.trim()||!["ml","spread","total"].includes(q.market)||q.settlement!=="full_game_including_overtime"||!validPrice(q.firstPrice)||!validPrice(q.secondPrice)||!validTime(q.observedAt)||time(q.observedAt)>time(f.forecastAt)||(q.market==="ml"?q.line!==null:!Number.isFinite(q.line))||(q.market==="total"&&q.line!<0))throw Error("fullgame_invalid_quote");const k=JSON.stringify([key(q),q.bookmaker,q.market]),prior=quotes.get(k);if(prior&&canon(prior)!==canon(q))throw Error("fullgame_ambiguous_quote");quotes.set(k,q);}
  return {version:1,games:[...games.values()],forecasts:[...forecasts.values()],quotes:[...quotes.values()]};
 }
-export function priorRegulationTeamSample(games:TimedGame[],target:TimedGame,f:ForecastJournal,id:string){
+export function priorRegulationTeamSample(games:TimedGame[],target:Pick<TimedGame,"season"|"eventId">,f:ForecastJournal,id:string){
  const rows=games.filter(g=>g.season===target.season&&key(g)!==key(target)&&time(g.observedAt)<=time(f.inputCutoffAt)&&time(g.completedAt)<time(f.forecastAt)&&(g.homeId===id||g.awayId===id)&&(g.overtime===false||(g.overtime===true&&g.regulationHomePoints!=null&&g.regulationAwayPoints!=null)));
  if(rows.length<3)return null;
  const points=(g:TimedGame,own:boolean)=>{const h=g.overtime?g.regulationHomePoints!:g.homePoints,a=g.overtime?g.regulationAwayPoints!:g.awayPoints;return g.homeId===id?(own?h:a):(own?a:h);};
