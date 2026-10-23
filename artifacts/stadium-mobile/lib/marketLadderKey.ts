@@ -4,6 +4,8 @@
 // "Dallas Cowboys -8.5" collapse to one full-game seating ladder.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { propMarketLabel } from "./propMarketLabel.ts";
+import { propSharedDistributionMarketKey } from "./propSharedDistribution.ts";
 import { marketFamily } from "./altLinePool.ts";
 import { isTeamTotalMarket } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
@@ -67,13 +69,16 @@ export function marketLadderKey(pick: {
   isProp?: boolean;
   player?: string | null;
   propSide?: string | null;
+  propMarketKey?: string | null;
 }): string {
   const gameKey = canonicalGameKey(pick.game);
   if (pick.isProp) {
     const player = norm(pick.player ?? pick.pick.split(/\s+/)[0] ?? "");
     // Strip alt suffix so main + alt rungs of the same participant+stat+side
     // share one seating ladder (score pool still distinguishes via score key).
-    const market = norm(pick.market)
+    const market = norm(pick.propMarketKey
+      ? propMarketLabel(propSharedDistributionMarketKey(pick.propMarketKey))
+      : pick.market)
       .replace(/\balternate\b/g, " ")
       .replace(/\balt\b/g, " ")
       .replace(/\s+/g, " ")
@@ -106,6 +111,7 @@ export function marketLadderScoreKey(pick: {
   isProp?: boolean;
   player?: string | null;
   propSide?: string | null;
+  propMarketKey?: string | null;
   propLine?: number | null;
 }): string {
   return `${marketLadderKey(pick)}|${postedLineKey(pick)}`;
@@ -120,6 +126,7 @@ export function wouldRepeatMarketLadder(
     isProp?: boolean;
     player?: string | null;
     propSide?: string | null;
+  propMarketKey?: string | null;
   },
   ticket: readonly {
     game: string;
@@ -128,6 +135,7 @@ export function wouldRepeatMarketLadder(
     isProp?: boolean;
     player?: string | null;
     propSide?: string | null;
+  propMarketKey?: string | null;
   }[],
 ): boolean {
   if (!ticket.length) return false;

@@ -20,6 +20,8 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/scoreBreakdownCrash.test.ts \
     lib/startupCrashPath.test.ts \
     lib/installGlobalCrashHandlers.test.ts \
+    lib/nbaAuditRepair.test.ts \
+    lib/postLeanFinalFill.test.ts \
     lib/coachPropAudit.test.ts \
     lib/coachRequestIntegrity.test.ts \
     lib/coachUefaScope.test.ts \

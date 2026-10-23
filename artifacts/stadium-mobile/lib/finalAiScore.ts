@@ -6,6 +6,7 @@ import {
   combinePickScore,
   gradeFromComposite,
   scoreSimulation,
+  scoreLineValue,
   type CombinedPickScore,
   type PickSubScores,
 } from "./pickScore.ts";
@@ -160,16 +161,26 @@ export function buildFinalAiScore(input: {
 }): FinalAiScore {
   const simHit = simHitForPick(input.pick, input.gameSim, input.propSimHit);
   const propProbabilityProvenance = input.propProbabilityProvenance ?? null;
+  // All prop value/grading must use the same approved probability and exact
+  // price shown on the card, after context adjustments and safety clipping.
+  const odds = input.pick.isProp ? input.pick.odds ?? input.odds : input.odds;
+  const propImplied = odds != null ? impliedProb(odds) : NaN;
+  const edgePct = input.pick.isProp && simHit != null && Number.isFinite(propImplied)
+    ? Math.round((simHit - propImplied) * 1000) / 10
+    : input.edgePct;
+  const rubricScores = input.pick.isProp && simHit != null
+    ? { ...input.rubricScores, lineValue: scoreLineValue(edgePct), simulation: scoreSimulation(simHit) }
+    : input.rubricScores;
   const rubric = combinePickScore(
-    input.rubricScores,
-    input.edgePct,
-    input.odds,
+    rubricScores,
+    edgePct,
+    odds,
     input.fairProb,
   );
 
   const { simAligned, highRiskValuePlay } = (() => {
-    if (input.pick.isProp && simHit != null && input.odds != null) {
-      const implied = impliedProb(input.odds);
+    if (input.pick.isProp && simHit != null && odds != null) {
+      const implied = impliedProb(odds);
       if (Number.isFinite(implied)) {
         return { simAligned: simHit > implied, highRiskValuePlay: false };
       }
@@ -188,23 +199,23 @@ export function buildFinalAiScore(input: {
     {
       key: "lineValue",
       label: "Line Value",
-      score: input.rubricScores.lineValue,
+      score: rubricScores.lineValue,
       display:
         rubric.edgePct != null ? `${rubric.edgePct > 0 ? "+" : ""}${rubric.edgePct}%` : undefined,
     },
-    { key: "matchup", label: "Matchup", score: input.rubricScores.matchup },
-    { key: "trend", label: "Recent Form", score: input.rubricScores.trend },
-    { key: "injury", label: "Injuries", score: input.rubricScores.injury },
+    { key: "matchup", label: "Matchup", score: rubricScores.matchup },
+    { key: "trend", label: "Recent Form", score: rubricScores.trend },
+    { key: "injury", label: "Injuries", score: rubricScores.injury },
     { key: "sharpMoney", label: "Sharp Money", score: null, display: "No feed" },
     { key: "lineMovement", label: "Line Movement", score: null, display: "No feed" },
-    { key: "lineShopping", label: "Line Shopping", score: input.rubricScores.lineShopping },
+    { key: "lineShopping", label: "Line Shopping", score: rubricScores.lineShopping },
   ];
 
   let propHolistic: PropHolisticScore | null = null;
   if (input.pick.isProp) {
     propHolistic = buildPropHolisticScore({
       ...input.propHolisticContext,
-      rubricScores: input.rubricScores,
+      rubricScores: rubricScores,
       edgePct: rubric.edgePct,
       simHit,
       probabilitySource: propProbabilityProvenance?.source ?? null,
@@ -237,7 +248,7 @@ export function buildFinalAiScore(input: {
       }
       if (hf.key === "opponentTendency" && hf.present && hf.score != null) {
         const mu = factors.find((f) => f.key === "matchup");
-        if (mu && (input.rubricScores.matchup == null || hf.score > (mu.score ?? 0))) {
+        if (mu && (rubricScores.matchup == null || hf.score > (mu.score ?? 0))) {
           mu.score = hf.score;
           mu.display = hf.display;
           mu.label = "Opponent Tendency";
@@ -260,7 +271,7 @@ export function buildFinalAiScore(input: {
     ? propHolisticRecommends(input.pick, propHolistic, {
         edgePct: rubric.edgePct,
         simHit,
-        odds: input.odds,
+        odds: odds,
       })
     : gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
       (rubric.edgePct ?? 0) > 0 &&

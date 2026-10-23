@@ -10,7 +10,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
-import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import {
@@ -171,11 +171,12 @@ function buildFillPool(
  */
 export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
   const { target } = opts;
-  if (target < 3 || opts.picks.length >= target) {
-    return opts.picks.slice(0, Math.max(0, target));
+  const distinctPicks = dedupePicksByMarketLadder(opts.picks);
+  if (target < 3 || distinctPicks.length >= target) {
+    return distinctPicks.slice(0, Math.max(0, target));
   }
 
-  let current = opts.picks.slice();
+  let current = distinctPicks;
   // At most a few rounds so greedy adds that fail the opposite-side belt can be
   // replaced by the next eligible distinct-period / prop candidate.
   for (let round = 0; round < 3 && current.length < target; round++) {
