@@ -1,6 +1,17 @@
 /** Prop-pool load policy for greenfield Coach builds. */
 
-/** Prefer skipping a second full prop fan-out when the pool is already loaded. */
-export function shouldSkipScannerPropExpand(propPoolSize: number): boolean {
-  return propPoolSize >= 40;
+/** A completed full-board pass stays complete even when few/no prices are posted.
+ * Pool size cannot distinguish an unrequested board from an empty response.
+ */
+export function shouldSkipScannerPropExpand(propPoolSize: number, fullBoardAttempted = false): boolean {
+  return fullBoardAttempted || propPoolSize >= 40;
+}
+
+/** Apply the existing college-prop exclusion before paying for event requests. */
+export function propBoardGamesForScope<T extends { sport: string }>(
+  games: T[],
+  scope: { gameLinesOnly: boolean; allowNcaafPlayerProps: boolean },
+): T[] {
+  if (scope.gameLinesOnly) return [];
+  return scope.allowNcaafPlayerProps ? games : games.filter((game) => game.sport !== "ncaaf");
 }

@@ -24,6 +24,8 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/coachRequestIntegrity.test.ts \
     lib/coachUefaScope.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
+    lib/coach/boardLoadConcurrency.test.ts \
+    lib/propRequestCooldown.test.ts \
     lib/coachReliabilityReporter.test.ts
   node --import ./test/register-hooks.mjs --test \
     --test-name-pattern='normalizeCombinedPickScore|ScoreBreakdown crash|mixed list|reproduces device|fix:|mixed VirtualizedList' \

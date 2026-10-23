@@ -214,6 +214,8 @@ export type RealGameEntry = {
 // rejects, converting a hung link into the same graceful "narrower pool" path.
 const REQUEST_TIMEOUT_MS = 12000;
 
+import { propRequestCooldown } from "./propRequestCooldown";
+
 import {
   classifyCoachContextPath,
   withCoachContextCache,
@@ -253,6 +255,7 @@ async function getJsonUncached<T>(
   let lastErr: unknown = new Error(`request failed: ${path}`);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new Error(`aborted: ${path}`);
+    propRequestCooldown.assertAllowed(path);
     try {
       const res = await withTimeout(
         expoFetch(`${API_BASE}${path}`, {
@@ -265,13 +268,18 @@ async function getJsonUncached<T>(
       if (res.ok) {
         return await withTimeout(res.json() as Promise<T>, timeoutMs, `${path} (body)`);
       }
+      // A prop-board 429 covers every event on this route, not just this URL.
+      // Do not triple each fan-out request while the same bucket is exhausted.
+      if (res.status === 429 && propRequestCooldown.block(path, res.headers.get("retry-after"))) {
+        throw new Error("HTTP 429 prop route cooldown");
+      }
       // Only 429 (rate limit) and 5xx (server/upstream blip) are transient.
       if (res.status !== 429 && res.status < 500) throw new Error(`HTTP ${res.status}`);
       lastErr = new Error(`HTTP ${res.status}`);
       if (attempt < MAX_ATTEMPTS) await sleepBackoff(attempt);
     } catch (e) {
       // A genuine caller abort (unmount / cancel) must never be retried.
-      if (signal?.aborted) throw e;
+      if (signal?.aborted || propRequestCooldown.isBlocked(path)) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       // A deterministic HTTP error we threw above (any non-429/5xx) → propagate.
       if (/^HTTP (?!429|5\d\d)/.test(msg)) throw e;

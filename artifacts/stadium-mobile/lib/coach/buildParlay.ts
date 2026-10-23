@@ -70,7 +70,7 @@ import {
   markCoachPending,
   type CoachRequestTiming,
 } from "@/lib/coach/coachRequestDeadline";
-import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
+import { shouldSkipScannerPropExpand, propBoardGamesForScope } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
@@ -196,7 +196,7 @@ function countPropLike(picks: ParsedPick[]): number {
   return picks.filter((p) => !!p.isProp).length;
 }
 
-async function loadScanInputs(
+export async function loadScanInputs(
   signal: AbortSignal,
   requestedLegs: number,
   askText: string | null | undefined,
@@ -226,14 +226,15 @@ async function loadScanInputs(
       ? `Loading ${sports[0]!.toUpperCase()} board…`
       : "Loading tonight's board…",
   );
-  const [espnGamesRaw, oddsRaw, liveFeed] = await Promise.all([
+  // Live enrichment must not serialize the start of the full prop-board load.
+  const liveFeedPromise = getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] }));
+  const [espnGamesRaw, oddsRaw] = await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>
       rows.flat(),
     ),
     Promise.all(sports.map((s) => getOdds(s, signal).catch(() => [] as OddsGame[]))).then((rows) =>
       filterBettableOddsGames(rows.flat()),
     ),
-    getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] })),
   ]);
 
   // "6 leg Saints" / "4 leg Troy" → keep only that franchise's matchup.
@@ -261,9 +262,16 @@ async function loadScanInputs(
   );
 
   onStatus?.("Loading player props and alt lines across the board…");
-  let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
+  const constraint = parseCoachAskMarketConstraint(askText, priorUserTexts);
+  const gameLinesOnly = constraint.gameLinesOnly && !constraint.propsOnly;
+  const propOddsGames = propBoardGamesForScope(oddsGames, {
+    gameLinesOnly,
+    allowNcaafPlayerProps: askAllowsNcaafPlayerProps(askText),
+  });
+  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
   );
+  const liveFeed = await liveFeedPromise;
   const rawPropPool = propPool;
   // Belt: drop any row whose kickoff slipped outside the requested local day.
   propPool = filterOddsForSlateDay(propPool, slateDay);
@@ -1211,14 +1219,13 @@ async function buildCoachParlayImpl(opts: {
     };
   }
 
-  // Allowlisted / props-only pools must not re-expand to the full board
-  // (filtered yards pools are often < 40 and would otherwise undo the allowlist).
-  // Game-lines-only (team props / no player props) must not re-fetch player props.
+  // loadScanInputs already attempted every eligible prop event. A thin/empty
+  // response is not a reason to repeat the fan-out inside this same request.
   const skipPropExpand =
     propsOnly ||
     gameLinesOnly ||
     marketConstraint.allowedMarketKeys != null ||
-    shouldSkipScannerPropExpand(propPoolSize);
+    shouldSkipScannerPropExpand(propPoolSize, true);
 
   let latest: FullBoardScanResult | null = null;
   markCoachPending(timing, "scan");

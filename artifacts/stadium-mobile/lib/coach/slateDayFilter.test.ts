@@ -260,7 +260,7 @@ test("buildCoachParlay wires slate-day filter before props + game lines", () => 
   assert.match(src, /slateDayFromThread\(askText/);
   assert.match(src, /filterOddsGamesForSlateDay\(oddsGames,\s*slateDay\)/);
   assert.match(src, /filterOddsForSlateDay\(espnGames,\s*slateDay\)/);
-  assert.match(src, /fetchFullBoardPropPool\(oddsGames,\s*espnGames/);
+  assert.match(src, /fetchFullBoardPropPool\(propOddsGames,\s*espnGames/);
   // Prop pool + live odds also day-scoped; final belt after recovery/staging.
   assert.match(src, /propPool = filterOddsForSlateDay\(propPool,\s*slateDay\)/);
   assert.match(src, /filterOddsForSlateDay\(liveFeed\.odds/);
