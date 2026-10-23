@@ -45,3 +45,7 @@ node dist/ncaafForecastJournal.mjs /private/path/history.json \
 Here `history.json` contains `{ "games": [...] }` with authentic timed `TimedGame` rows, not invented timestamps. Without `--execute` this performs database reads and a plan only. Add `--execute` only after the plan passes to write the forecast. The adapter verifies raw response hashes, exact quote prices/lines, source freshness and ESPN identities, attaches original live responses, and reads the durable injury archive. It does not fetch, infer or backfill missing historical inputs. A ruleset label still needs external verification; a supplied label does not certify compatibility.
 
 This connects captured current quotes to the recorder. Verified historical game availability, regulation/OT evidence, model calibration, automated forecast scheduling and the multi-season acceptance test remain separate requirements. Do not deploy a forecast cron that repeatedly fails for missing history.
+
+### ESPN day-boundary correction
+
+Current-quote collection now selects ESPN board dates in `America/New_York`, including DST, rather than using UTC kickoff dates. This prevents evening games after UTC midnight from requesting the next local board. Repeated identical identities across board responses preserve the earliest actual receipt; conflicting identities still reject. Old raw archives remain unchanged; a new current capture is needed to benefit from this correction.

@@ -14,6 +14,18 @@ const validPrice = (value) => Number.isFinite(value) && Math.abs(value) >= 100;
 const validTime = (value) =>
   typeof value === "string" && Number.isFinite(Date.parse(value));
 
+export function espnBoardDay(kickoff) {
+  if (!validTime(kickoff)) throw Error("live_invalid_kickoff");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(kickoff));
+  const part = (key) => parts.find((p) => p.type === key).value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function upcomingOdds(raw, observedAt) {
   const games = JSON.parse(raw),
     ids = new Set();
@@ -179,9 +191,23 @@ export function buildLiveArchive(oddsCapture, scoreboardCaptures) {
         };
         const hits = index.get(key) ?? new Map();
         const old = hits.get(event.id);
-        if (old && JSON.stringify(old) !== JSON.stringify(entry))
+        const identity = (value) =>
+          JSON.stringify([
+            value.eventId,
+            value.season,
+            value.homeId,
+            value.awayId,
+            Date.parse(value.kickoff),
+            value.status,
+          ]);
+        if (old && identity(old) !== identity(entry))
           throw Error("live_conflicting_event_evidence");
-        hits.set(event.id, entry);
+        if (
+          !old ||
+          Date.parse(entry.scoreboardObservedAt) <
+            Date.parse(old.scoreboardObservedAt)
+        )
+          hits.set(event.id, entry);
         index.set(key, hits);
       }
   }
@@ -323,7 +349,7 @@ async function main() {
     const days = [
       ...new Set(
         upcomingOdds(odds.rawResponse, odds.receivedAt).map((g) =>
-          new Date(g.commence_time).toISOString().slice(0, 10),
+          espnBoardDay(g.commence_time),
         ),
       ),
     ].sort();
