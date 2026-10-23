@@ -14,6 +14,7 @@ type CorrelationPick = {
   isProp?: boolean;
   player?: string | null;
   sport?: string;
+  athleteId?: string | null;
 };
 
 const normGame = (g: string) =>
@@ -224,7 +225,17 @@ export function wouldRepeatPlayerProp(
   if (!candidate.isProp) return false;
   const key = propPlayerKey(candidate);
   if (!key) return false;
-  return ticket.some((l) => l.isProp && propPlayerKey(l) === key);
+  return ticket.some((l) => {
+    if (!l.isProp) return false;
+    // Provider athlete identity survives abbreviations/accents in display names.
+    // ESPN ids are sport-scoped: equal ids in different leagues are not proof
+    // that these are the same person. Missing ids retain the name safety belt.
+    if (candidate.athleteId && l.athleteId && candidate.sport && l.sport) {
+      return candidate.sport.toLowerCase() === l.sport.toLowerCase() &&
+        String(candidate.athleteId) === String(l.athleteId);
+    }
+    return propPlayerKey(l) === key;
+  });
 }
 
 /** Max player-prop legs from one matchup (separate from game-line cap). */

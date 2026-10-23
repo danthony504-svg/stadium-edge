@@ -12,6 +12,11 @@ import {
   pickHasPlayerGameGroundingMismatch,
   type CoachReliabilityGroundingPick,
 } from "./coachReliabilityGrounding.ts";
+import { marketLadderKey } from "./marketLadderKey.ts";
+import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame,
+  wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
+import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
+import { wouldConflictOppositeSideSamePeriod } from "./postLeanFinalFill.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
 export type DeliveryGroundingResult<T extends GroundablePick> = {
@@ -69,17 +74,37 @@ export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
   picks: readonly T[];
   qualifiedCandidates?: readonly T[] | null;
   target: number;
+  legsPerGameCap?: number | null;
+  maxPropsPerGameCap?: number | null;
+  onRejected?: (pick: T, reason: string) => void;
 }): DeliveryGroundingResult<T> {
   const target =
     typeof opts.target === "number" && Number.isFinite(opts.target)
       ? Math.max(0, Math.floor(opts.target))
       : 0;
+  // Grounding is the LAST refill path. It must use the same hard ticket
+  // constraints as staging; a different line/price is not an independent seat.
+  const shape = (p: GroundablePick) => ({ ...p, game: p.game ?? "", market: p.market ?? "",
+    pick: p.pick ?? "", player: p.player ?? undefined, propMarketKey: p.propMarketKey ?? undefined, athleteId: p.athleteId ?? undefined, isProp: p.isProp === true, sport: p.sport ?? "", odds: p.odds ?? 0 });
+  const blockedReason = (p: T, ticket: T[]): string | null => {
+    const candidate = shape(p), current = ticket.map(shape);
+    // Provisional buffers can lack a market/game; absence is not a duplicate.
+    if (!candidate.game || !candidate.market || !candidate.pick) return null;
+    if (current.some(x => marketLadderKey(x) === marketLadderKey(candidate))) return "duplicate_market_ladder";
+    if (wouldRepeatPlayerProp(candidate, current)) return "same_player_exposure";
+    if (wouldExceedMaxPropsPerGame(candidate, current, opts.maxPropsPerGameCap ?? maxPropsPerGame(target))) return "same_game_prop_cap";
+    if (wouldExceedMaxLegsPerGame(candidate, current, maxLegsPerGame(target, opts.legsPerGameCap))) return "same_game_line_cap";
+    if (wouldStackSameTeamTeamTotals(candidate, current)) return "same_team_total_stack";
+    if (wouldConflictOppositeSideSamePeriod(candidate, current)) return "opposite_side_same_period";
+    return null;
+  };
   const incoming = opts.picks.slice();
   let affectedGame: string | null = null;
   let removedCount = 0;
   const kept: T[] = [];
   for (const p of incoming) {
     if (unsafePlayerGameSeat(p)) {
+      opts.onRejected?.(p, "player_game_grounding");
       removedCount += 1;
       if (!affectedGame) {
         const g = String(p.game ?? "").trim();
@@ -87,7 +112,9 @@ export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
       }
       continue;
     }
-    kept.push(p);
+    const reason = blockedReason(p, kept);
+    if (reason) opts.onRejected?.(p, reason);
+    else kept.push(p);
   }
 
   const used = new Set(kept.map(pickLegFingerprint));
@@ -99,7 +126,8 @@ export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
       if (out.length >= target) break;
       const fp = pickLegFingerprint(cand);
       if (used.has(fp)) continue;
-      if (unsafePlayerGameSeat(cand)) continue;
+      const reason = unsafePlayerGameSeat(cand) ? "player_game_grounding" : blockedReason(cand, out);
+      if (reason) { opts.onRejected?.(cand, reason); continue; }
       used.add(fp);
       out.push(cand);
       replacedCount += 1;

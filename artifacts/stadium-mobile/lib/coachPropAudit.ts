@@ -18,6 +18,8 @@ export type PropAuditReport = {
   terminal: "completed" | "timed_out" | "cancelled" | "error";
   rows: PropAuditRow[]; counts: Record<string, number>; omittedObservations: number;
   coverage: "request_pipeline_only"; verificationLimits: string[];
+  /** Final builder delivery, after terminal constraints; not a candidate count. */
+  deliveredPickCount?: number; deliveredPropKeys?: string[];
 };
 const MAX_ROWS = 50_000;
 const latest: PropAuditReport[] = [];
@@ -76,6 +78,8 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
     if (closed) return;
     // Scalar snapshots prevent deferred review observing another scan's mutation.
     for (const p of picks) observe(p, "selected", "selected");
+    const deliveredPickCount = picks.length;
+    const deliveredPropKeys = picks.filter(p => p.isProp).map(propAuditKey);
     closed = true;
     const pending = entries.values();
     const rows: PropAuditRow[] = [];
@@ -86,7 +90,7 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
       for (let i = 0; i < 100; i++) {
         const item = pending.next();
         if (item.done) {
-          const report: PropAuditReport = { version: 1, requestId, startedAt, finishedAt, terminal, rows, counts, omittedObservations, coverage: "request_pipeline_only", verificationLimits: ["No additional provider refresh or simulation rerun", "Quote freshness cannot be verified without source timestamps", "Missing data remains unknown; not-selected does not imply a losing bet"] };
+          const report: PropAuditReport = { version: 1, requestId, startedAt, finishedAt, terminal, rows, counts, omittedObservations, deliveredPickCount, deliveredPropKeys, coverage: "request_pipeline_only", verificationLimits: ["No additional provider refresh or simulation rerun", "Quote freshness cannot be verified without source timestamps", "Missing data remains unknown; not-selected does not imply a losing bet"] };
           latest.push(report); latest.sort((a, b) => b.startedAt.localeCompare(a.startedAt)); latest.splice(2);
           try { publish?.(report); } catch { /* audit persistence cannot affect Coach */ }
           entries.clear(); quotes.clear();

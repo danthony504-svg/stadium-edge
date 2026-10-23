@@ -291,8 +291,9 @@ test("grounding refill must never reintroduce started or weak qualified backups"
   const future = new Date(Date.now() + 4 * 3600_000).toISOString();
   const past = new Date(Date.now() - 3600_000).toISOString();
   const pick = (id: string, startsAt: string, grade = "B", confidencePct = 60) => ({
-    id, pick: id, isProp: false, market: "Moneyline", game: "Yankees @ Red Sox",
-    teamAbbr: "NYY", startsAt, grade, confidencePct,
+    id, pick: id === "good" ? "Yankees ML" : "Dodgers ML", isProp: false, market: "Moneyline",
+    game: id === "good" ? "Yankees @ Red Sox" : "Dodgers @ Giants",
+    teamAbbr: id === "good" ? "NYY" : "LAD", startsAt, grade, confidencePct,
   });
   const result = revalidateCoachTerminalDeliveryPicks([pick("good", future)], {
     target: 2,
