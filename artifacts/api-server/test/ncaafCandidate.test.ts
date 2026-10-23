@@ -21,3 +21,7 @@ test("thin inputs fail; sparse venue splits use larger sample",()=>{
 });
 test("seeded candidate reproducible without global RNG mutation",()=>{const rng=Math.random;assert.deepEqual(runNcaafCandidate(input),runNcaafCandidate(input));assert.equal(Math.random,rng);});
 test("report 10k CPU cost, zero network",()=>{const start=performance.now();assert.ok(runNcaafCandidate(input));console.log(`NCAAF candidate 10000 draws: ${(performance.now()-start).toFixed(2)}ms`);});
+
+test("non-integer and non-finite sample counts are not real history",()=>{
+ for(const games of [NaN,Infinity,3.5,-1]){assert.equal(runNcaafCandidate({...input,home:{...input.home,games}}),null);assert.equal(chooseSampleMean({overall:{ptsFor:28,ptsAgainst:21,games}}),null);}
+});

@@ -114,7 +114,7 @@ test("milestone fallback cannot invent rare-event probabilities from thin or one
   const history = (values:number[]) => ({labels:["PTS","REB","AST","STL","BLK"],recent:values.map(v=>({stats:{PTS:"20",REB:v?"10":"9",AST:v?"10":"9",STL:"0",BLK:"0"}}))});
   for (const market of ["player_double_double","player_triple_double"]) {
     const args={player:"Player",market,line:0.5,side:"Over" as const};
-    for (const values of [[0,0,0],Array(10).fill(0),Array(10).fill(1)]) assert.equal(localPropSimulation(history(values),args),null);
+    for (const values of [[0,0,0],Array(10).fill(0),Array(10).fill(1)]) assert.equal(localPropSimulation(history(values),args)?.hitProbability,null);
     const mixed=[1,0,1,0,0,1,0,0,1,0];
     const yes=localPropSimulation(history(mixed),args)!;
     const no=localPropSimulation(history(mixed),{...args,side:"Under"})!;

@@ -18,6 +18,11 @@ export type HistoricalNcaafGame = {
   predictedAwayScore: number;
   injurySourceTimestamp: string | null;
   source: string;
+  forecastAt?: string;
+  inputCutoffAt?: string;
+  quoteObservedAt?: string;
+  settlement?: "full_game_including_overtime" | "regulation_only";
+  modelVersion?: string;
 };
 export type HistoricalAcceptance = {
   eligible: boolean;
@@ -36,7 +41,8 @@ export function evaluateHistoricalNcaafAcceptance(
   if (opts.exactLineBindingVerified !== true) reasons.push("exact_line_binding_unverified");
   if (opts.injuryConservatismVerified !== true) reasons.push("injury_conservatism_unverified");
   if (opts.humanSignoff !== true) reasons.push("human_signoff_required");
-  const minimum = opts.minimumHoldoutGames ?? 500;
+  const requested = opts.minimumHoldoutGames ?? 500;
+  const minimum = Number.isSafeInteger(requested) ? Math.max(500, requested) : 500;
   if (games.length < minimum) reasons.push("insufficient_independent_holdout");
   if (new Set(games.map(g => g.gameId)).size !== games.length) reasons.push("duplicate_game_ids");
   if (new Set(games.map(g => g.season)).size < 2) reasons.push("multi_season_holdout_required");
@@ -50,6 +56,13 @@ export function evaluateHistoricalNcaafAcceptance(
     reasons.push("unverified_or_incomplete_history");
   if (games.some(g => !g.injurySourceTimestamp || !Number.isFinite(Date.parse(g.injurySourceTimestamp))))
     reasons.push("missing_injury_provenance");
+  if (games.some(g => g.settlement !== "full_game_including_overtime" || !g.modelVersion?.trim() || g.homeScore === g.awayScore)) reasons.push("full_game_settlement_unverified");
+  if (new Set(games.map(g=>g.modelVersion)).size > 1) reasons.push("mixed_model_versions");
+  if (games.some(g => {
+    const kickoff=Date.parse(g.playedAt), forecast=Date.parse(g.forecastAt ?? ""), cutoff=Date.parse(g.inputCutoffAt ?? ""), quote=Date.parse(g.quoteObservedAt ?? ""), injury=Date.parse(g.injurySourceTimestamp ?? "");
+    return ![kickoff,forecast,cutoff,quote,injury].every(Number.isFinite) || cutoff>forecast || forecast>=kickoff || quote>forecast || injury>forecast;
+  })) reasons.push("pregame_evidence_timing_unverified");
+  if (games.some(g=>Math.abs(g.closingHomePrice)<100 || Math.abs(g.closingAwayPrice)<100 || g.predictedHomeScore<0 || g.predictedAwayScore<0)) reasons.push("invalid_prices_or_projections");
   if (!validProbability(opts.marketBaselineBrier ?? NaN))
     reasons.push("missing_independent_market_baseline");
   // Exact spread push is excluded from Brier scoring, never counted as a loss.
@@ -62,6 +75,7 @@ export function evaluateHistoricalNcaafAcceptance(
   }, 0) / settled.length : null;
   const mae = valid.length ? valid.reduce((sum, g) =>
     sum + Math.abs(g.predictedHomeScore - g.homeScore) + Math.abs(g.predictedAwayScore - g.awayScore), 0) / (2 * valid.length) : null;
+  if (settled.length < minimum) reasons.push("insufficient_settled_holdout");
   if (brier === null) reasons.push("no_settled_spread_games");
   else if (opts.marketBaselineBrier !== undefined && brier > opts.marketBaselineBrier)
     reasons.push("calibration_worse_than_market");

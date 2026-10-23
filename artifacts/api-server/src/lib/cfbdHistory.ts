@@ -3,7 +3,7 @@ import {saveCfbdArchive} from "./cfbdArchive.js";
 import {createHash} from "node:crypto";
 import {mkdir,writeFile} from "node:fs/promises";
 import {resolve,join} from "node:path";
-export type CfbdGame={eventId:string;season:number;kickoff:string;homeId:string;awayId:string;homePoints:number;awayPoints:number;overtime:boolean|null};
+export type CfbdGame={eventId:string;season:number;kickoff:string;homeId:string;awayId:string;homePoints:number;awayPoints:number;overtime:boolean|null;regulationHomePoints?:number|null;regulationAwayPoints?:number|null};
 export type CfbdQuote={eventId:string;provider:string;homeSpread:number|null;total:number|null;homeMoneyline:number|null;awayMoneyline:number|null;quoteObservedAt:null;isVerifiedClosing:false};
 const finite=(v:unknown):v is number=>typeof v==="number"&&Number.isFinite(v);
 const numericId=(v:unknown):boolean=>(typeof v==="number"&&Number.isSafeInteger(v)&&v>0)||(typeof v==="string"&&/^\d+$/.test(v));
@@ -16,7 +16,10 @@ export function normalizeCfbdHistory(gamesRaw:unknown,linesRaw:unknown,year:numb
   if(g.completed!==true||!Number.isFinite(Date.parse(g.startDate))||Date.parse(g.startDate)>=observedAt||!finite(g.homePoints)||!finite(g.awayPoints)||g.homePoints<0||g.awayPoints<0){reject("not_completed_with_real_scores");continue;}
   if(seen.has(String(g.id))){reject("duplicate_game");continue;}seen.add(String(g.id));
   const periods=Array.isArray(g.homeLineScores)&&Array.isArray(g.awayLineScores)?Math.max(g.homeLineScores.length,g.awayLineScores.length):null;
-  games.push({eventId:String(g.id),season:year,kickoff:g.startDate,homeId:String(g.homeId),awayId:String(g.awayId),homePoints:g.homePoints,awayPoints:g.awayPoints,overtime:periods==null?null:periods>4?true:periods===4?false:null});
+  const sum=(v:unknown):number|null=>Array.isArray(v)&&v.length>=4&&v.every(x=>Number.isSafeInteger(x)&&x>=0)?v.slice(0,4).reduce((n:number,x:number)=>n+x,0):null;
+  const hr=sum(g.homeLineScores),ar=sum(g.awayLineScores);
+  const consistent=hr!=null&&ar!=null&&hr<=g.homePoints&&ar<=g.awayPoints&&(periods===4?hr===g.homePoints&&ar===g.awayPoints:periods!=null&&periods>4&&hr===ar&&g.homePoints!==g.awayPoints);
+  games.push({eventId:String(g.id),season:year,kickoff:g.startDate,homeId:String(g.homeId),awayId:String(g.awayId),homePoints:g.homePoints,awayPoints:g.awayPoints,overtime:periods==null?null:periods>4?true:periods===4?false:null,regulationHomePoints:consistent?hr:null,regulationAwayPoints:consistent?ar:null});
  }
  const byId=new Map(games.map(g=>[g.eventId,g]));const quoteKeys=new Set<string>();
  for(const row of linesRaw){

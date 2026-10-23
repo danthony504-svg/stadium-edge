@@ -58,7 +58,7 @@ export function localPropSimulation(
   let tdReliability: number | null = null;
   if (/^player_(?:double|triple)_double(?:_alternate)?$/.test(args.market)) {
     // Match the server's evidence policy; local fallback must not recreate a prior.
-    if (vals.length < 10 || vals.some(v => v !== 0 && v !== 1) || !vals.includes(0) || !vals.includes(1)) return null;
+    if (vals.length < 10 || vals.some(v => v !== 0 && v !== 1) || !vals.includes(0) || !vals.includes(1)) return { hitProbability:null, sampleGames:vals.length, mostLikelyLine:null, medianProjection:null, confidenceScore:null };
     const rate = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
     const yes = 0.4 * rate(vals.slice(0, 5)) + 0.3 * rate(vals.slice(0, 10)) + 0.3 * rate(vals);
     hitProb = args.side === "Under" ? 1 - yes : yes;
@@ -99,13 +99,20 @@ export function localPropSimulation(
   };
 }
 
+function withheldServer(server: PropSimulationResult): PropSimulationResult {
+  return { ...server, simulations:0, cached:false, hitProbability:null, mostLikelyLine:null, meanProjection:null, medianProjection:null, confidenceScore:null, stdDev:null, percentiles:null, nullReason:server.nullReason || "insufficient_sample" };
+}
 /** Merge server MC with local history fallback (prop detail + simulator). */
 export function mergePropSimWithLocal(
   server: PropSimulationResult | null | undefined,
   local: ReturnType<typeof localPropSimulation>,
 ): PropSimulationResult | null {
   if (!server && !local) return null;
-  if (!local || local.hitProbability == null) return server ?? null;
+  const milestone = /^player_(?:double|triple)_double(?:_alternate)?$/.test(server?.market ?? "");
+  if (!local || local.hitProbability == null) {
+    if (server && milestone && server.sampleGames < 10) return withheldServer(server);
+    return server ? (server.hitProbability == null ? withheldServer(server) : server) : null;
+  }
   if (!server) {
     return {
       key: "local-history-fallback",
@@ -126,7 +133,7 @@ export function mergePropSimWithLocal(
       tier: "quick",
     };
   }
-  if (server.hitProbability != null && server.sampleGames >= LOCAL_PROP_SIM_MIN_SAMPLE) {
+  if (server.hitProbability != null && server.sampleGames >= (milestone ? 10 : LOCAL_PROP_SIM_MIN_SAMPLE)) {
     return server;
   }
   return {
@@ -150,31 +157,8 @@ export function enrichPropSimResults(
   rows: PropSimulationResult[],
   histories: Record<string, LocalHistorySlice>,
 ): PropSimulationResult[] {
-  return rows.map((r) => {
-    if (r.hitProbability != null && r.sampleGames >= LOCAL_PROP_SIM_MIN_SAMPLE) return r;
-    const hist =
-      Object.entries(histories).find(([k]) => k.startsWith(`${r.player}#`))?.[1] ??
-      histories[r.player];
-    const local = localPropSimulation(hist, {
-      player: r.player,
-      market: r.market,
-      line: r.line,
-      side: r.side,
-    });
-    if (!local || local.hitProbability == null) return r;
-    return {
-      ...r,
-      simulations: 0,
-      cached: false,
-      hitProbability: local.hitProbability,
-      sampleGames: local.sampleGames,
-      mostLikelyLine: local.mostLikelyLine,
-      medianProjection: local.medianProjection,
-      meanProjection: local.medianProjection,
-      confidenceScore: local.confidenceScore,
-      stdDev: null,
-      percentiles: null,
-      tier: "quick",
-    };
+  return rows.map(r => {
+    const hist = Object.entries(histories).find(([k]) => k.startsWith(`${r.player}#`))?.[1] ?? histories[r.player];
+    return mergePropSimWithLocal(r, localPropSimulation(hist, { player:r.player, market:r.market, line:r.line, side:r.side })) ?? r;
   });
 }
