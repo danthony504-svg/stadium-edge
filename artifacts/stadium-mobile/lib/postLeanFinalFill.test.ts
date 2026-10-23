@@ -181,6 +181,9 @@ test("four picks + FG alt leftovers → fills without period markets", () => {
     simHit: 0.928,
     composite: 8.4,
   });
+  // This leftover belongs to another matchup: four pre-seated legs already
+  // exhaust the first game's cap. The test must not require relaxing that cap.
+  fgAltA.game = "Tampa Bay Buccaneers @ New Orleans Saints";
   const fgAltB = gl("Alt Spread", "Cowboys +14.5", -320, {
     grade: "B",
     edgePct: 12,
@@ -202,6 +205,17 @@ test("four picks + FG alt leftovers → fills without period markets", () => {
     assert.ok(p.odds != null && p.odds !== 0);
   }
   assert.ok(out.some((p) => p.pick === "Buccaneers +18.5" || p.pick === "Cowboys +14.5"));
+});
+
+test("a full raw ticket containing duplicate rungs releases a seat before qualified top-up", () => {
+  const a = { ...prop("Test Player", "Rec Yds", "Test Player Over 24.5 Rec Yds", -110), propMarketKey: "Rec Yds" };
+  const alt = { ...a, market: "Alternate Receiving Yards", propLine: 30.5, pick: "Test Player Over 30.5 Rec Yds" };
+  const b = { ...gl("Moneyline", "Buffalo Bills ML", -110), game: "Miami Dolphins @ Buffalo Bills" };
+  const c = { ...gl("Moneyline", "New Orleans Saints ML", -110), game: "Los Angeles Rams @ New Orleans Saints" };
+  const out = topUpAfterMlLean({ picks: [a, alt, b], qualifiedCandidates: [a, alt, b, c], target: 3 });
+  assert.equal(out.length, 3);
+  assert.equal(out.filter(p => p.isProp && p.player === "Test Player").length, 1);
+  assert.ok(out.some(p => p.pick === c.pick));
 });
 
 test("no eligible remaining candidates → unchanged short ticket", () => {

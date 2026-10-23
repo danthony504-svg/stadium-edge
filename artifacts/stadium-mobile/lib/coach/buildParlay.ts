@@ -1509,6 +1509,8 @@ async function buildCoachParlayImpl(opts: {
   // Post-lean final fill — reuse production top-up / progressive GL raise on
   // already-qualified leftovers. Skip while props are still scoring so we do
   // not pack GL seats before skill props land. Never re-runs mlLean.
+  // Duplicate rungs must release seats BEFORE testing whether top-up is needed.
+  picks = dedupePicksByMarketLadder(picks);
   if (picks.length < target && !propsPending && !propsOnly) {
     const fillPool = [
       ...(scan?.qualifiedCandidates ?? []),
