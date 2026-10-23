@@ -124,3 +124,7 @@ test("default CLI is plan-only with no required credentials", () => {
   assert.equal(r.paidOddsRequests, 0);
   assert.equal(r.automaticUnlock, false);
 });
+test('combined runner defaults to a plan without provider/database calls',()=>{
+ const env={...process.env};delete env.DATABASE_URL;delete env.ODDS_API_KEY;
+ const r=JSON.parse(execFileSync('bash',['scripts/ncaaf-run-coverage-repair.sh'],{env,encoding:'utf8'}));assert.equal(r.planOnly,true);assert.equal(r.maximumPaidOddsRequests,1);assert.equal(r.automaticUnlock,false);
+});
