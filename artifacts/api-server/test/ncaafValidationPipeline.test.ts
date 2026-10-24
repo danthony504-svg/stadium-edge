@@ -613,3 +613,26 @@ test("settlement storage failure preserves collection report and retry throttle"
   );
   assert.deepEqual(db.values.get("research:ncaaf:pipeline:latest"), prior);
 });
+
+test("conference collector failure does not block existing forecast recording", async () => {
+  const { db } = fixture();
+  let conferenceCalls = 0;
+  const result = await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name, args) => {
+      if (name === "ncaaf-conference-availability.mjs") {
+        conferenceCalls++;
+        assert.deepEqual(args, [
+          "--capture-slot",
+          researchSlot(new Date(db.now)),
+        ]);
+        throw Error("conference provider unavailable");
+      }
+    },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(conferenceCalls, 1);
+  assert.equal(result.forecastsRecorded, 1);
+  assert.equal(result.blockers.conference_availability_capture_failed, 1);
+  assert.equal(result.releaseEligible, false);
+});
