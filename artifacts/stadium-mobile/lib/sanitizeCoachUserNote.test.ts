@@ -147,3 +147,9 @@ test("derive + format traces still work for logs (not wiped from formatters)", (
   assert.equal(reason?.code, "PROP_POOL_EMPTY");
   assert.match(formatCoachScanFailureTrace(reason!), /PROP_POOL_EMPTY/);
 });
+
+test("timed-out shortfalls cannot masquerade as an exhausted quality scan", () => {
+  const note = buildFinalCoachParlayNote({target: 2, picks: [], propPoolSize: 0, propsPending: false, shortfallLead: "No AI-backed picks cleared the quality bar.", timedOut: true, budgetMs: 45000, scanMissing: false});
+  assert.match(note, /time limit before the scan finished/);
+  assert.doesNotMatch(note, /No AI-backed picks cleared/);
+});

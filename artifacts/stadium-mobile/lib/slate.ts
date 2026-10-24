@@ -507,11 +507,25 @@ export function mentionsPropIntent(text?: string | null): boolean {
 // Keep "with player props" OUT of this helper: that means a prop-heavy mixed
 // ticket, where player props should be included first but team/game props can
 // still fill the requested count.
+export function wantsExplicitGamePropMix(text?: string | null): boolean {
+  const t = String(text ?? "").toLowerCase();
+  return /\b(?:mix(?:ed|ing)?|combin(?:e|ing|ation))\b/.test(t) &&
+    /\b(?:game[-\s]*lines?|moneylines?|spreads?|team[-\s]*lines?)\b/.test(t) &&
+    /\bplayer\s+props?\b/.test(t);
+}
+
+export function satisfiesExplicitGamePropMix(text: string | null | undefined, picks: readonly {isProp?: boolean}[]): boolean {
+  return !wantsExplicitGamePropMix(text) || (picks.some(p => p.isProp === true) && picks.some(p => !p.isProp));
+}
+
 export function wantsPropsOnly(text?: string | null): boolean {
   // "9 lag NFL player prop" — honor lag typo the same as parseRequestedLegs.
   const t = String(text || "")
     .toLowerCase()
     .replace(/\b(\d{1,3})\s*[-\s]?\s*lags?\b/g, "$1 leg");
+  // A mix of game lines and player props must use board-mix routing.
+  // A mix of player props alone must remain props-only.
+  if (wantsExplicitGamePropMix(t)) return false;
   // Explicit no-prop / game-lines asks never mean props-only.
   if (/\bno\s+player\s+props?\b/.test(t)) return false;
   if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
