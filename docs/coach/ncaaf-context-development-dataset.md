@@ -21,3 +21,12 @@ All records are `datasetRole:development_only`; they are not independent holdout
 `node scripts/ncaaf-context-dataset.mjs` is plan-only. `--execute` uses the existing production database credentials and an advisory lock, bounds targets to 128 and raw usage archives per target to ten, and saves its status at `research:ncaaf:context-dataset:latest`. The existing opt-in background worker invokes the assembler once per collection slot. Assembly errors are reported without stopping the original forecasting/settlement pipeline.
 
 Fit and held-out testing remain unavailable until genuine completed development examples and a separate, prospectively defined holdout exist. No training metrics, injury effects or acceptance results may be inferred from synthetic tests or unfinished games. The 500-game/two-season, market-baseline, source review and release-signoff requirements are unchanged.
+
+
+## Version 2 usage coverage
+
+The bounded usage collector reads authenticated conference targets and known prior-game results, then requests missing detailed summaries for the latest three distinct prior games per team. It claims at most 64 event attempts across a collection slot before provider calls, uses two concurrent ten-second requests, rejects identity/score/empty-player mismatches, and saves original bytes with honest receipt timestamps. A per-slot lock and durable claims prevent retry storms. No paid odds request is made. The assembler itself still uses cached sources only.
+
+A source-labelled anonymous Team row with a negative provider ID is not an athlete. Its counts are retained as unattributed/unknown when all rows still sum to the official total. A real athlete with a missing jersey retains observed usage but cannot inherit a report identity from the missing jersey. Exempt and unrecognized statuses remain unknown.
+
+Improved records use `context-input:v2` / `ncaaf-participation-availability-v2`. Version 1 records remain immutable. Outcome labelling supports both versions. Dataset reporting counts distinct event IDs across versions; two feature records for one game are not two independent training/validation games. Development and holdout roles remain separate. This change does not fit injury coefficients, change saved forecasts or lift a release gate.

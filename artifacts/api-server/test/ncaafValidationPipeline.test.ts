@@ -655,3 +655,21 @@ test("context assembly failure stays separate from original forecast availabilit
   assert.equal(result.blockers.context_dataset_assembly_failed, 1);
   assert.equal(result.releaseEligible, false);
 });
+
+test("usage capture failure cannot stop original forecast recording or context assembly", async () => {
+  const { db } = fixture();
+  let contexts = 0;
+  const result = await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name) => {
+      if (name === "ncaaf-capture-usage.mjs")
+        throw Error("provider unavailable");
+      if (name === "ncaaf-context-dataset.mjs") contexts++;
+    },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(contexts, 1);
+  assert.equal(result.forecastsRecorded, 1);
+  assert.equal(result.blockers.usage_evidence_capture_failed, 1);
+  assert.equal(result.releaseEligible, false);
+});

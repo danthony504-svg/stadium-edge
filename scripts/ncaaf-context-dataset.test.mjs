@@ -312,3 +312,47 @@ test("usage selection always chooses earliest receipt despite unordered correcte
     0,
   );
 });
+
+test("anonymous Team rows and missing jerseys retain authentic counts as unknown attribution", () => {
+  const c = capture(),
+    p = JSON.parse(c.rawResponse),
+    g = p.boxscore.players[0].statistics[0];
+  g.totals = ["6/12"];
+  g.athletes.push({
+    athlete: { id: "-100", displayName: " Team" },
+    stats: ["0/2"],
+  });
+  const rawResponse = JSON.stringify(p),
+    a = {
+      ...c,
+      rawResponse,
+      sha256: createHash("sha256").update(rawResponse).digest("hex"),
+    };
+  const u = usageFromSummary(a, target, "2026-10-24T03:00:00Z").teams[0].usage
+    .passingAttempts;
+  assert.equal(u.total, 12);
+  assert.equal(u.unattributed, 2);
+  assert.equal(u.players.length, 1);
+  const rows = usage();
+  for (const r of rows) {
+    r.teams[0].usage.passingAttempts.total = 12;
+    r.teams[0].usage.passingAttempts.unattributed = 2;
+  }
+  const f = contextFeatures(binding, rows).sides[0].features.passingAttempts;
+  assert.equal(f.shares.out, 0.5);
+  assert.equal(f.shares.unknown, 0.5);
+  const missing = capture(),
+    m = JSON.parse(missing.rawResponse);
+  delete m.boxscore.players[0].statistics[0].athletes[0].athlete.jersey;
+  const bytes = JSON.stringify(m),
+    result = usageFromSummary(
+      {
+        ...missing,
+        rawResponse: bytes,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+      target,
+      "2026-10-24T03:00:00Z",
+    );
+  assert.equal(result.teams[0].usage.passingAttempts.players[0].jersey, null);
+});
