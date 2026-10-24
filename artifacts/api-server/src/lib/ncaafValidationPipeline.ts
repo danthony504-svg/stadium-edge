@@ -236,6 +236,11 @@ export async function runNcaafValidationPipeline({
       ]);
     }
     try {
+      await runCollector("ncaaf-capture-usage.mjs", ["--capture-slot", slot]);
+    } catch {
+      fail("usage_evidence_capture_failed");
+    }
+    try {
       await runCollector("ncaaf-context-dataset.mjs", []);
     } catch {
       fail("context_dataset_assembly_failed");

@@ -12,6 +12,7 @@ const allowed = new Set([
   "ncaaf-capture-injuries.mjs",
   "ncaaf-conference-availability.mjs",
   "ncaaf-context-dataset.mjs",
+  "ncaaf-capture-usage.mjs",
   "ncaaf-repair-team-history.mjs",
 ]);
 async function runCollector(name: string, args: string[]) {

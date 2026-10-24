@@ -91,15 +91,25 @@ export function usageFromSummary(capture, target, cutoff) {
         players = [],
         seen = new Set();
       let sum = 0,
+        unattributed = 0,
         valid = total !== null;
       for (const row of group.athletes) {
         const a = row.athlete,
           n = count(row.stats?.[index], spec.part);
         if (
+          a &&
+          norm(a.displayName) === "team" &&
+          /^-\d+$/.test(a.id ?? "") &&
+          n !== null
+        ) {
+          sum += n;
+          unattributed += n;
+          continue;
+        }
+        if (
           !a ||
           !/^\d+$/.test(a.id ?? "") ||
           !norm(a.displayName) ||
-          !/^\d+$/.test(String(a.jersey ?? "")) ||
           n === null ||
           seen.has(a.id)
         ) {
@@ -111,11 +121,14 @@ export function usageFromSummary(capture, target, cutoff) {
         players.push({
           athleteId: a.id,
           name: a.displayName,
-          jersey: String(a.jersey),
+          jersey: /^\d+$/.test(String(a.jersey ?? ""))
+            ? String(a.jersey)
+            : null,
           count: n,
         });
       }
-      usage[metric] = valid && sum === total ? { total, players } : null;
+      usage[metric] =
+        valid && sum === total ? { total, players, unattributed } : null;
     }
     if (teams.some((t) => t.teamId === teamId))
       throw Error("context_duplicate_usage_team");
@@ -183,10 +196,12 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
         };
         continue;
       }
-      let total = 0;
+      let total = 0,
+        unattributed = 0;
       const players = new Map();
       for (const { metric: m } of relevant) {
         total += m.total;
+        unattributed += m.unattributed ?? 0;
         for (const p of m.players) {
           const k = p.athleteId;
           let x = players.get(k);
@@ -195,7 +210,8 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
             players.set(k, x);
           }
           x.count += p.count;
-          x.identities.add(norm(p.name) + ":" + p.jersey);
+          if (p.jersey !== null)
+            x.identities.add(norm(p.name) + ":" + p.jersey);
         }
       }
       const statuses = {
@@ -205,7 +221,7 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
         doubtful: 0,
         out: 0,
         game_time_decision: 0,
-        unknown: 0,
+        unknown: unattributed,
       };
       let identified = 0;
       const owners = new Map();
@@ -236,6 +252,7 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
         total,
         identifiedAthletes: identified,
         observedAthletes: players.size,
+        unattributedCount: unattributed,
         shares:
           total > 0
             ? Object.fromEntries(
@@ -258,7 +275,7 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
     throw Error("context_duplicate_team");
   return {
     version: 1,
-    featureVersion: "ncaaf-participation-availability-v1",
+    featureVersion: "ncaaf-participation-availability-v2",
     datasetRole: "development_only",
     researchOnly: true,
     target: {
@@ -446,7 +463,7 @@ async function main() {
         if (seen.has(b.target.eventId)) continue;
         seen.add(b.target.eventId);
         if (seen.size > 128) throw Error("context_target_budget");
-        const key = `research:ncaaf:context-input:v1:2026:${b.target.eventId}`;
+        const key = `research:ncaaf:context-input:v2:2026:${b.target.eventId}`;
         if (
           (await db.query("SELECT key FROM public.app_kv WHERE key=$1", [key]))
             .rowCount
@@ -527,7 +544,7 @@ async function main() {
         ? priorStatus.labelCursor
         : "";
     const pendingQuery =
-      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE i.key LIKE 'research:ncaaf:context-input:v1:2026:%' AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
+      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE (i.key LIKE 'research:ncaaf:context-input:v1:2026:%' OR i.key LIKE 'research:ncaaf:context-input:v2:2026:%') AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
     let inputs = (await db.query(pendingQuery, [labelCursor])).rows;
     if (!inputs.length && labelCursor)
       inputs = (await db.query(pendingQuery, [""])).rows;
@@ -580,10 +597,19 @@ async function main() {
         pendingOutcomes++;
       }
     }
+    const uniqueDevelopmentEvents = Number(
+      (
+        await db.query(
+          "SELECT count(DISTINCT value->'target'->>'eventId') AS events FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v1:2026:%' OR key LIKE 'research:ncaaf:context-input:v2:2026:%'",
+        )
+      ).rows[0].events,
+    );
     const result = {
       researchOnly: true,
       state: "processed",
       inputsRecorded: recorded,
+      featureVersion: "ncaaf-participation-availability-v2",
+      uniqueDevelopmentEvents,
       blockers,
       outcomesRecorded,
       labelCursor,
