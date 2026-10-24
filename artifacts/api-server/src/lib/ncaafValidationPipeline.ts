@@ -196,6 +196,17 @@ export async function runNcaafValidationPipeline({
       await put("research:ncaaf:pipeline:latest", state);
       await runCollector("ncaaf-capture-live-inputs.mjs", []);
     }
+    // Supplementary research evidence must not block existing collection/scoring.
+    state.phase = "conference_availability";
+    await put("research:ncaaf:pipeline:latest", state);
+    try {
+      await runCollector("ncaaf-conference-availability.mjs", [
+        "--capture-slot",
+        slot,
+      ]);
+    } catch {
+      fail("conference_availability_capture_failed");
+    }
     let live = await latest("research:ncaaf:live-inputs:");
     if (!live || Date.parse(live.value.odds?.receivedAt) < Date.parse(slot))
       fail("current_slot_quote_archive_missing");
