@@ -39,6 +39,8 @@ export const ADJUSTED_FEATURE_NAMES = [
 export const ADJUSTED_EVALUATION_POLICY = Object.freeze({
   version: "ncaaf-primary-spread-evaluation-v1",
   market: "spread",
+  secondaryMarkets: ["ml", "total"],
+  marketEvaluation: "separate_market_samples_and_baselines",
   bookmakerPriority: [
     "fanduel",
     "draftkings",
@@ -60,7 +62,7 @@ export function primaryAdjustedQuote<
     line: number | null;
     observedAt: string;
   },
->(quotes: T[]): T | null {
+>(quotes: T[], market: "ml" | "spread" | "total" = "spread"): T | null {
   const order = (book: string) => {
     const i = (
       ADJUSTED_EVALUATION_POLICY.bookmakerPriority as readonly string[]
@@ -69,7 +71,11 @@ export function primaryAdjustedQuote<
   };
   return (
     quotes
-      .filter((q) => q.market === "spread" && Number.isFinite(q.line))
+      .filter(
+        (q) =>
+          q.market === market &&
+          (market === "ml" ? q.line === null : Number.isFinite(q.line)),
+      )
       .sort(
         (a, b) =>
           order(a.bookmaker) - order(b.bookmaker) ||

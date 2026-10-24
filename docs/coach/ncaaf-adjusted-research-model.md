@@ -18,7 +18,7 @@ The protocol uses the database clock after fitting and preserves 10,000 draws, f
 
 ## Frozen evaluation policy
 
-The artifact predeclares a primary full-game spread pair per model/event, using fixed bookmaker priority, lexical fallback and ascending home line when multiple lines exist. The chosen exact pair is saved before kickoff and verified during settlement. Outcomes and model probabilities never enter quote selection. Pushes are excluded, bookmaker duplicates do not create extra games, and forecasts without a primary spread cannot qualify for that primary evaluation. This prevents choosing a favorable book/line retrospectively; it does not establish independent acceptance or validate the model.
+The artifact predeclares a primary full-game spread pair per model/event and separate ML/total evaluation pairs, using fixed bookmaker priority, lexical fallback and ascending home line when multiple lines exist. The chosen exact pair is saved before kickoff and verified during settlement. Outcomes and model probabilities never enter quote selection. Pushes are excluded, bookmaker duplicates do not create extra games, and forecasts without a primary spread cannot qualify for that primary evaluation. Each market requires its own sample and baseline checks; spread acceptance does not approve ML or totals. This prevents choosing a favorable book/line retrospectively; it does not establish independent acceptance or validate the model.
 
 ## Prospective journal
 

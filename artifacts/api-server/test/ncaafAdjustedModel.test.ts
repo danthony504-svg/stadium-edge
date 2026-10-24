@@ -517,4 +517,11 @@ test("primary validation quote selection is fixed before outcomes and never coun
     primaryAdjustedQuote([{ ...quotes[0], market: "ml", line: null }]),
     null,
   );
+  assert.equal(
+    primaryAdjustedQuote([{ ...quotes[0], market: "ml", line: null }], "ml")
+      ?.bookmaker,
+    "zzz",
+  );
+  assert.equal(r.evaluationPairs?.spread?.line, -3);
+  assert.equal(r.evaluationPairs?.ml, null);
 });

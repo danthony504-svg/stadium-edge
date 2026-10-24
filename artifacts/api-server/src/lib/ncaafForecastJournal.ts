@@ -203,6 +203,26 @@ export function prepareForwardForecast(
     };
   });
   const primary = adjusted ? primaryAdjustedQuote(markets) : null;
+  const pairIdentity = (q: (typeof markets)[number] | null) =>
+    q
+      ? {
+          bookmaker: q.bookmaker,
+          market: q.market,
+          line: q.line,
+          firstPrice: q.firstPrice,
+          secondPrice: q.secondPrice,
+          observedAt: q.observedAt,
+        }
+      : null;
+  const evaluationPairs = adjusted
+    ? Object.fromEntries(
+        (["ml", "spread", "total"] as const).map((m) => [
+          m,
+          pairIdentity(primaryAdjustedQuote(markets, m)),
+        ]),
+      )
+    : undefined;
+
   return {
     version: 1,
     researchOnly: true,
@@ -220,6 +240,7 @@ export function prepareForwardForecast(
           protocolSha256: adjusted.protocolSha256,
           datasetRole: "independent_holdout" as const,
           modelLimitations: adjusted.model.limitations,
+          evaluationPairs,
           evaluationPair: primary
             ? {
                 bookmaker: primary.bookmaker,
@@ -313,6 +334,29 @@ export function scoreRecordedForecast(
       canonicalEvidenceJson(record.evaluationPair)
     )
       throw Error("journal_adjusted_evaluation_pair_changed");
+    const evaluationPairs = Object.fromEntries(
+      (["ml", "spread", "total"] as const).map((m) => {
+        const q = primaryAdjustedQuote(record.markets, m);
+        return [
+          m,
+          q
+            ? {
+                bookmaker: q.bookmaker,
+                market: q.market,
+                line: q.line,
+                firstPrice: q.firstPrice,
+                secondPrice: q.secondPrice,
+                observedAt: q.observedAt,
+              }
+            : null,
+        ];
+      }),
+    );
+    if (
+      canonicalEvidenceJson(evaluationPairs) !==
+      canonicalEvidenceJson(record.evaluationPairs)
+    )
+      throw Error("journal_adjusted_market_selection_changed");
     validateAdjustedEvidence(e, t, record.forecastAt);
   }
   const checked = readFullGameReplayArchive({
