@@ -330,6 +330,41 @@ export function outcomeFromSettlement(context, settlement, now) {
     releaseEligible: false,
   };
 }
+export function selectUsageArchives(summaries, target, cutoff) {
+  if (!Number.isFinite(Date.parse(cutoff)))
+    throw Error("context_invalid_cutoff");
+  const chosen = new Map();
+  for (const id of [target.homeId, target.awayId]) {
+    const candidates = summaries
+      .filter(
+        (r) =>
+          Array.isArray(r.games) &&
+          r.games.length === 1 &&
+          r.games[0].season === target.season &&
+          r.games[0].eventId !== target.eventId &&
+          [r.games[0].homeId, r.games[0].awayId].includes(id) &&
+          Date.parse(r.received_at) <= Date.parse(cutoff) &&
+          Date.parse(r.games[0].kickoff) < Date.parse(cutoff),
+      )
+      .sort(
+        (x, y) =>
+          Date.parse(y.games[0].kickoff) - Date.parse(x.games[0].kickoff) ||
+          Date.parse(x.received_at) - Date.parse(y.received_at) ||
+          (x.key < y.key ? -1 : x.key > y.key ? 1 : 0),
+      );
+    const ids = new Set();
+    for (const r of candidates) {
+      if (ids.has(r.games[0].eventId)) continue;
+      ids.add(r.games[0].eventId);
+      const old = chosen.get(r.games[0].eventId);
+      if (!old || Date.parse(r.received_at) < Date.parse(old.received_at))
+        chosen.set(r.games[0].eventId, r);
+      if (ids.size === 5) break;
+    }
+  }
+
+  return [...chosen.values()];
+}
 async function main() {
   if (!process.argv.includes("--execute")) {
     console.log(
@@ -420,39 +455,9 @@ async function main() {
           continue;
         }
         try {
-          const chosen = new Map();
-          for (const id of [b.target.homeId, b.target.awayId]) {
-            const candidates = summaries
-              .filter(
-                (r) =>
-                  Array.isArray(r.games) &&
-                  r.games.length === 1 &&
-                  r.games[0].season === 2026 &&
-                  r.games[0].eventId !== b.target.eventId &&
-                  [r.games[0].homeId, r.games[0].awayId].includes(id) &&
-                  Date.parse(r.received_at) <= Date.parse(now) &&
-                  Date.parse(r.games[0].kickoff) < Date.parse(now),
-              )
-              .sort(
-                (x, y) =>
-                  Date.parse(y.games[0].kickoff) -
-                  Date.parse(x.games[0].kickoff),
-              );
-            const ids = new Set();
-            for (const r of candidates) {
-              if (ids.has(r.games[0].eventId)) continue;
-              ids.add(r.games[0].eventId);
-              const old = chosen.get(r.games[0].eventId);
-              if (
-                !old ||
-                Date.parse(r.received_at) < Date.parse(old.received_at)
-              )
-                chosen.set(r.games[0].eventId, r);
-              if (ids.size === 5) break;
-            }
-          }
+          const chosen = selectUsageArchives(summaries, b.target, now);
           const usage = [];
-          for (const r of chosen.values()) {
+          for (const r of chosen) {
             const capture = (
               await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
                 r.key,
