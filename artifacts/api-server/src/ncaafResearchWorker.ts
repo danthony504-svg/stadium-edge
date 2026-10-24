@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { runNcaafValidationPipeline } from "./lib/ncaafValidationPipeline.js";
+import { recordOvertimeTransferForecasts } from "./lib/ncaafOvertimeTransferJournal.js";
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const allowed = new Set([
   "ncaaf-capture-history.mjs",
@@ -86,6 +87,16 @@ async function main() {
           : null;
       },
     });
+    if (process.env.NCAAF_RESEARCH_OT_TRANSFER_ENABLED === "true") {
+      const transfer = await recordOvertimeTransferForecasts(db, true);
+      console.log(
+        JSON.stringify({
+          component: "ncaaf-ot-transfer",
+          state: transfer.state,
+          releaseEligible: false,
+        }),
+      );
+    }
     console.log(
       JSON.stringify({
         component: "ncaaf-research-pipeline",

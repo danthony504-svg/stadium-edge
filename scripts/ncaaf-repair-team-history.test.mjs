@@ -124,7 +124,48 @@ test("default CLI is plan-only with no required credentials", () => {
   assert.equal(r.paidOddsRequests, 0);
   assert.equal(r.automaticUnlock, false);
 });
-test('combined runner defaults to a plan without provider/database calls',()=>{
- const env={...process.env};delete env.DATABASE_URL;delete env.ODDS_API_KEY;
- const r=JSON.parse(execFileSync('bash',['scripts/ncaaf-run-coverage-repair.sh'],{env,encoding:'utf8'}));assert.equal(r.planOnly,true);assert.equal(r.maximumPaidOddsRequests,1);assert.equal(r.automaticUnlock,false);
+test("combined runner defaults to a plan without provider/database calls", () => {
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  delete env.ODDS_API_KEY;
+  const r = JSON.parse(
+    execFileSync("bash", ["scripts/ncaaf-run-coverage-repair.sh"], {
+      env,
+      encoding: "utf8",
+    }),
+  );
+  assert.equal(r.planOnly, true);
+  assert.equal(r.maximumPaidOddsRequests, 1);
+  assert.equal(r.automaticUnlock, false);
+});
+
+test("historical event identities survive a provider current-season container label", () => {
+  const p = {
+    team: { id: "1" },
+    season: { year: 2026 },
+    events: [
+      {
+        id: "99",
+        season: { year: 2025 },
+        competitions: summary().header.competitions,
+      },
+    ],
+  };
+  assert.deepEqual(scheduleCompletedEvents(JSON.stringify(p), "1", 2025, now), [
+    "99",
+  ]);
+  assert.deepEqual(
+    scheduleCompletedEvents(JSON.stringify(p), "1", 2026, now),
+    [],
+  );
+  p.events[0].season.year = 2024;
+  assert.deepEqual(
+    scheduleCompletedEvents(JSON.stringify(p), "1", 2025, now),
+    [],
+  );
+  delete p.events[0].season;
+  assert.deepEqual(
+    scheduleCompletedEvents(JSON.stringify(p), "1", 2025, now),
+    [],
+  );
 });

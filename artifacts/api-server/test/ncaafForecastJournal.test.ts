@@ -152,3 +152,128 @@ test("settlement scores frozen probabilities and excludes pushes; mismatched and
     scoreRecordedForecast(record, { ...win, eventId: "888" }),
   );
 });
+
+import {
+  canonicalEvidenceJson,
+  overtimeSupportFromArchive,
+  verifyOvertimeSupportArchive,
+  OT_TRANSFER_MODEL_VERSION,
+} from "../src/lib/ncaafOvertimeTransfer.js";
+function transferFixture() {
+  const f = fixture();
+  f.target.ruleset = "ncaa-football-season-2026-unverified";
+  const all = f.games.map((g) => ({ ...g, ruleset: f.target.ruleset }));
+  f.games = all.slice(0, 22);
+  const old = all.slice(6, 20).map((g) => ({
+    ...g,
+    season: 2025,
+    ruleset: "ncaa-football-season-2025-unverified",
+    kickoff: "2025-09-01T12:00:00Z",
+    completedAt: "2025-09-01T16:00:00Z",
+  }));
+  f.overtimeSupport = overtimeSupportFromArchive(
+    "research:ncaaf:history-summary:2025:fixture",
+    { games: old },
+  );
+  return f;
+}
+test("OT transfer is a separate forward research model with the same 30-unique-record floor", () => {
+  const f = transferFixture();
+  const r = prepareForwardForecast(f, now);
+  assert.equal(r.modelVersion, OT_TRANSFER_MODEL_VERSION);
+  assert.equal(r.productionReady, false);
+  assert.equal(r.validationReady, false);
+  assert.equal(r.automaticUnlock, false);
+  assert.equal(r.overtimeTransferReview?.transferCalibrationVerified, false);
+  const roundTrip = JSON.parse(JSON.stringify(r.input), (_k, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).reverse())
+      : v,
+  );
+  assert.equal(
+    r.inputSha256,
+    createHash("sha256").update(canonicalEvidenceJson(roundTrip)).digest("hex"),
+  );
+  assert.equal(r.inputHashFormat, "canonical-json-sha256-v1");
+  assert.equal(r.input.games.length, 22);
+  assert.equal(r.input.overtimeSupport?.games.length, 14);
+  const thin = structuredClone(f);
+  thin.overtimeSupport!.games.pop();
+  assert.throws(
+    () => prepareForwardForecast(thin, now),
+    /insufficient_candidate_evidence/,
+  );
+  const dup = structuredClone(f);
+  dup.overtimeSupport!.games = Array(14).fill(dup.overtimeSupport!.games[0]);
+  assert.throws(
+    () => prepareForwardForecast(dup, now),
+    /insufficient_candidate_evidence/,
+  );
+});
+test("unreviewed years, mismatched archive references, and future OT observations reject", () => {
+  for (const change of [
+    (f: ForecastInput) => {
+      f.overtimeSupport!.games[0].season = 2024;
+    },
+    (f: ForecastInput) => {
+      f.target.season = 2027;
+    },
+    (f: ForecastInput) => {
+      f.overtimeSupport!.sourceKey = "research:ncaaf:history-summary:2024:x";
+    },
+    (f: ForecastInput) => {
+      f.overtimeSupport!.games[0].observedAt = f.target.kickoff;
+    },
+  ]) {
+    const f = transferFixture();
+    change(f);
+    assert.throws(() => prepareForwardForecast(f, now));
+  }
+  const f = transferFixture();
+  const value = { games: f.overtimeSupport!.games };
+  const valid = overtimeSupportFromArchive(f.overtimeSupport!.sourceKey, value);
+  verifyOvertimeSupportArchive(valid, value);
+  const reordered = JSON.parse(JSON.stringify(valid), (_k, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).reverse())
+      : v,
+  );
+  verifyOvertimeSupportArchive(reordered, value);
+  assert.throws(
+    () =>
+      verifyOvertimeSupportArchive(
+        { ...valid, sourceSha256: "0".repeat(64) },
+        value,
+      ),
+    /archive_mismatch/,
+  );
+});
+
+test("transfer settlements score frozen probabilities without re-running the simulator", async () => {
+  const { scoreRecordedForecast } =
+    await import("../src/lib/ncaafForecastJournal.js");
+  const f = transferFixture();
+  const record = { ...prepareForwardForecast(f, now), recordedAt: now };
+  record.markets[0].conditionalWinProbability = 0.8;
+  const outcome = {
+    ...f.games[0],
+    ...f.target,
+    homePoints: 35,
+    awayPoints: 21,
+    regulationHomePoints: 35,
+    regulationAwayPoints: 21,
+    overtime: false,
+    completedAt: "2026-10-24T22:00:00Z",
+    observedAt: "2026-10-24T23:00:00Z",
+  };
+  assert.ok(
+    Math.abs(scoreRecordedForecast(record, outcome)[0].modelBrier! - 0.04) <
+      1e-12,
+  );
+  assert.throws(() =>
+    scoreRecordedForecast(
+      { ...record, modelVersion: "unreviewed-version" },
+      outcome,
+    ),
+  );
+});

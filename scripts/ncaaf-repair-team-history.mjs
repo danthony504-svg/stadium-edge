@@ -10,7 +10,8 @@ export function scheduleCompletedEvents(raw, teamId, season, receivedAt) {
   const p = JSON.parse(raw);
   if (
     p.team?.id !== teamId ||
-    p.season?.year !== season ||
+    !Number.isSafeInteger(season) ||
+    season < 2021 ||
     !Array.isArray(p.events) ||
     !iso(receivedAt)
   )
