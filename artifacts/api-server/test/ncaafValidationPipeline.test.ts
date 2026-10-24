@@ -563,3 +563,53 @@ test("collector failure cannot prevent an already eligible forecast settlement",
     1,
   );
 });
+
+test("settlement storage failure preserves collection report and retry throttle", async () => {
+  const { db } = fixture();
+  const prior = {
+    state: "processed",
+    finishedAt: db.now,
+    forecastsRecorded: 29,
+  };
+  db.values.set("research:ncaaf:pipeline:latest", structuredClone(prior));
+  const original = db.query.bind(db);
+  let pendingReads = 0;
+  db.query = async (sql, p = []) => {
+    if (sql.startsWith("SELECT f.key")) {
+      pendingReads++;
+      throw Error("database unavailable");
+    }
+    return original(sql, p);
+  };
+  await assert.rejects(
+    runNcaafValidationPipeline({
+      db,
+      runCollector: async () => {},
+      fetchOutcome: async () => null,
+    }),
+  );
+  assert.deepEqual(db.values.get("research:ncaaf:pipeline:latest"), prior);
+  const failed = db.values.get("research:ncaaf:settlement-check:latest");
+  assert.equal(failed.state, "failed");
+  assert.equal(Date.parse(failed.startedAt), Date.parse(db.now));
+  db.values.set(
+    `research:ncaaf:pipeline:slot:${researchSlot(new Date(db.now))}`,
+    prior,
+  );
+  assert.equal(
+    (
+      await runNcaafValidationPipeline({
+        db,
+        runCollector: async () => {},
+        fetchOutcome: async () => null,
+      })
+    ).state,
+    "skipped_completed_slot",
+  );
+  assert.equal(
+    pendingReads,
+    1,
+    "failed settlement check keeps its 30-minute backoff",
+  );
+  assert.deepEqual(db.values.get("research:ncaaf:pipeline:latest"), prior);
+});

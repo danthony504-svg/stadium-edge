@@ -337,6 +337,19 @@ export async function runNcaafValidationPipeline({
     await put("research:ncaaf:pipeline:latest", result);
     return result;
   } catch (e) {
+    if (!slotKey) {
+      // A settlement failure is not a collection failure. Preserve the last
+      // collection report and the pre-call attempt timestamp for retry throttling.
+      const attempt = await get("research:ncaaf:settlement-check:latest");
+      await put("research:ncaaf:settlement-check:latest", {
+        ...attempt,
+        state: "failed",
+        finishedAt: await clock(),
+        reason: "settlement_check_or_storage_failed",
+        releaseEligible: false,
+      });
+      throw e;
+    }
     const failed = {
       ...state,
       slot,
