@@ -301,6 +301,31 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
     releaseEligible: false,
   };
 }
+/** Do not freeze an incomplete first holdout context; later slots must be able to retry. */
+export function assertRecordableHoldout(record, history) {
+  if (record.datasetRole !== "holdout_context") return;
+  if (typeof record.target?.neutralSite !== "boolean" || record.sides?.length !== 2)
+    throw Error("context_holdout_venue_or_sides_missing");
+  for (const side of record.sides) {
+    for (const family of Object.keys(metrics)) {
+      const f = side.features?.[family];
+      if (f?.coverage !== "observed_participation" || f.games < 3 || !f.shares)
+        throw Error("context_holdout_usage_incomplete");
+    }
+    const prior = history.games.filter(g =>
+      record.historySourceEvidence.priorEventIds.includes(g.eventId) &&
+      g.season === record.target.season && g.eventId !== record.target.eventId &&
+      g.overtime === false &&
+      Number.isFinite(g.homePoints) && Number.isFinite(g.awayPoints) &&
+      Date.parse(g.observedAt) <= Date.parse(record.capturedAt) &&
+      Date.parse(g.completedAt) < Date.parse(record.capturedAt) &&
+      Date.parse(g.kickoff) + 86400000 < Date.parse(record.target.kickoff) &&
+      (g.homeId === side.teamId || g.awayId === side.teamId));
+    if (new Set(prior.map(g => g.eventId)).size < 3)
+      throw Error("context_holdout_history_incomplete");
+  }
+}
+
 export function outcomeFromSettlement(context, settlement, now) {
   const t = context.target,
     source = settlement?.source;
@@ -544,6 +569,7 @@ async function main() {
             liveArchiveKey: live.key,
             usageArchiveKeys: usage.map((g) => g.archiveKey),
           });
+          assertRecordableHoldout(record, history.value);
           const saved = await db.query(
             "INSERT INTO public.app_kv(key,value) SELECT $1,$2::jsonb || jsonb_build_object('recordedAt',clock_timestamp()) WHERE clock_timestamp() < $3::timestamptz ON CONFLICT(key) DO NOTHING RETURNING key",
             [key, JSON.stringify(record), b.target.kickoff],

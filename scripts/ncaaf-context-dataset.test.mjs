@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  assertRecordableHoldout,
   usageFromSummary,
   contextFeatures,
   outcomeFromSettlement,
@@ -355,4 +356,27 @@ test("anonymous Team rows and missing jerseys retain authentic counts as unknown
       "2026-10-24T03:00:00Z",
     );
   assert.equal(result.teams[0].usage.passingAttempts.players[0].jersey, null);
+});
+
+
+test("incomplete first holdout contexts defer writing until usage and history can be prewarmed", () => {
+  const record = contextFeatures(binding, usage(), "2026-10-24T04:00:00Z");
+  record.datasetRole = "holdout_context";
+  record.target.neutralSite = false;
+  record.capturedAt = "2026-10-24T04:00:00Z";
+  const games = Array.from({length: 3}, (_, i) => ({
+    eventId: String(i + 100), season: 2026, homeId: "1", awayId: "2",
+    kickoff: "2026-10-01T00:00:00Z", completedAt: "2026-10-01T04:00:00Z",
+    observedAt: "2026-10-02T00:00:00Z", overtime: false, homePoints: 21, awayPoints: 14,
+  }));
+  record.historySourceEvidence = {priorEventIds: games.map(g => g.eventId)};
+  // A missing usage family must not poison the immutable first-record key.
+  const incomplete = structuredClone(record);
+  incomplete.sides[0].features.receptions = {coverage: "unknown", games: 0, shares: null};
+  assert.throws(() => assertRecordableHoldout(incomplete, {games}), /usage_incomplete/);
+  // Once authentic coverage arrives, a later attempt can pass without rewriting a row.
+  for (const side of record.sides) for (const family of ["passingAttempts", "carries", "receptions"])
+    side.features[family] = {coverage: "observed_participation", games: 3, shares: {unknown: 1}};
+  assert.throws(() => assertRecordableHoldout(record, {games: []}), /history_incomplete/);
+  assert.doesNotThrow(() => assertRecordableHoldout(record, {games}));
 });
