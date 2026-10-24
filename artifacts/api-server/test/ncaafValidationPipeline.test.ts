@@ -766,3 +766,12 @@ test("forecast processing and counts use the fresh slate rather than cached prew
   assert.equal(result.forecastsRecorded + result.forecastsWithheld + result.forecastsAlreadyPresent,2);
   assert.equal(result.releaseEligible,false);
 });
+
+test("a stale prior-slot archive cannot masquerade as a successful fresh capture", async () => {
+  const { db } = fixture();
+  const row=[...db.values].find(([k])=>k.startsWith("research:ncaaf:live-inputs:"))!;
+  row[1].odds.receivedAt="2026-10-23T13:59:00Z";
+  await assert.rejects(()=>runNcaafValidationPipeline({db,runCollector:async()=>{},fetchOutcome:async()=>null}),/current_slot_quote_archive_missing/);
+  assert.equal(db.values.get("research:ncaaf:pipeline:latest").state,"failed");
+  assert.equal([...db.values.keys()].filter(k=>k.startsWith("research:ncaaf:forecast:")).length,0);
+});
