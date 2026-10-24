@@ -52,6 +52,11 @@ export async function recordOvertimeTransferForecasts(
     const matches = live.value.matched;
     if (!Array.isArray(matches) || matches.length > 128)
       throw Error("transfer_target_budget");
+    const implementationCommit = /^[a-f0-9]{40}$/.test(
+      process.env.RENDER_GIT_COMMIT ?? "",
+    )
+      ? process.env.RENDER_GIT_COMMIT
+      : null;
     const errors: Record<string, number> = {};
     let eligible = 0,
       recorded = 0,
@@ -104,6 +109,7 @@ export async function recordOvertimeTransferForecasts(
         );
         input.overtimeSupport = support;
         Object.assign(input, {
+          implementationCommit,
           liveSourceEvidence: { key: live.key, sha256: digest(live.value) },
           historySourceEvidence: {
             key: history.key,
@@ -143,6 +149,7 @@ export async function recordOvertimeTransferForecasts(
       state: "processed",
       planOnly: !execute,
       modelVersion: OT_TRANSFER_MODEL_VERSION,
+      implementationCommit,
       matchedEvents: matches.length,
       eligible,
       recorded,

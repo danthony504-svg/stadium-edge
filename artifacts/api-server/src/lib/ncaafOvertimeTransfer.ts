@@ -68,10 +68,13 @@ function canonical(value: unknown): unknown {
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([k, v]) => [k, canonical(v)]),
     );
   return value;
+}
+export function canonicalEvidenceJson(value: unknown): string {
+  return JSON.stringify(canonical(value));
 }
 export function overtimeSupportFromArchive(
   sourceKey: string,

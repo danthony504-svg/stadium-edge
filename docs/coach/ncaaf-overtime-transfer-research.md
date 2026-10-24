@@ -26,7 +26,10 @@ The version `ncaaf-observed-ot-transfer-research-v2` uses 2026-only regulation t
 samples and a separate support reference to authenticated 2025 overtime results.
 It never edits the original season labels. Each model input freezes both cohorts,
 the source references/hashes, the procedural review, the quote and injury receipt
-times, and the genuinely current forecast time. Only 2025 support for 2026 targets
+times, and the genuinely current forecast time. The deployed implementation commit is
+frozen when Render supplies it; missing identity stays null. New input hashes use
+recursive sorted-key JSON so PostgreSQL jsonb key ordering does not invalidate
+unchanged evidence. Only 2025 support for 2026 targets
 is permitted. Earlier years and future seasons require a new review/version.
 
 ## Execution and safeguards

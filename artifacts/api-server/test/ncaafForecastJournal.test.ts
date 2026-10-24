@@ -154,6 +154,7 @@ test("settlement scores frozen probabilities and excludes pushes; mismatched and
 });
 
 import {
+  canonicalEvidenceJson,
   overtimeSupportFromArchive,
   verifyOvertimeSupportArchive,
   OT_TRANSFER_MODEL_VERSION,
@@ -184,6 +185,16 @@ test("OT transfer is a separate forward research model with the same 30-unique-r
   assert.equal(r.validationReady, false);
   assert.equal(r.automaticUnlock, false);
   assert.equal(r.overtimeTransferReview?.transferCalibrationVerified, false);
+  const roundTrip = JSON.parse(JSON.stringify(r.input), (_k, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).reverse())
+      : v,
+  );
+  assert.equal(
+    r.inputSha256,
+    createHash("sha256").update(canonicalEvidenceJson(roundTrip)).digest("hex"),
+  );
+  assert.equal(r.inputHashFormat, "canonical-json-sha256-v1");
   assert.equal(r.input.games.length, 22);
   assert.equal(r.input.overtimeSupport?.games.length, 14);
   const thin = structuredClone(f);

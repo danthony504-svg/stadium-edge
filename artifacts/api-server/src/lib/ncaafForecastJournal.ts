@@ -8,6 +8,7 @@ import {
 } from "./ncaafFullGameBacktest.js";
 import { runNcaafFullGameCandidate } from "./sportSim/ncaafFullGameCandidate.js";
 import {
+  canonicalEvidenceJson,
   researchOvertimeSupport,
   OT_TRANSFER_REGIME,
   OT_TRANSFER_MODEL_VERSION,
@@ -196,8 +197,15 @@ export function prepareForwardForecast(
     injurySourceTimestamp: injury.observedAt,
     absentTeamStatus: "unknown",
     sourceProvenance: "requires_independent_review",
+    ...(input.overtimeSupport
+      ? { inputHashFormat: "canonical-json-sha256-v1" }
+      : {}),
     inputSha256: createHash("sha256")
-      .update(JSON.stringify(input))
+      .update(
+        input.overtimeSupport
+          ? canonicalEvidenceJson(input)
+          : JSON.stringify(input),
+      )
       .digest("hex"),
     input,
   };
