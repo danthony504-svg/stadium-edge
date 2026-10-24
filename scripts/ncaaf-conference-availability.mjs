@@ -411,6 +411,7 @@ async function main() {
         .rows[0].ok
     )
       throw Error("conference_capture_overlap");
+    let captureFailed = false;
     for (const conference of CONFERENCES) {
       const attemptKey = `research:ncaaf:conference-capture-slot:${conference}:${slot}`;
       const claimed = await db.query(
@@ -486,6 +487,7 @@ async function main() {
           }),
         );
       } catch {
+        captureFailed = true;
         await db.query(
           "UPDATE public.app_kv SET value=$2::jsonb,updated_at=now() WHERE key=$1",
           [
@@ -507,6 +509,7 @@ async function main() {
         );
       }
     }
+    if (captureFailed) process.exitCode = 1;
   } finally {
     await db.end();
   }
