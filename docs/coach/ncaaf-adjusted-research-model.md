@@ -16,6 +16,10 @@ The worker first authenticates the prepared development manifest and rechecks th
 
 The protocol uses the database clock after fitting and preserves 10,000 draws, full-game settlement, 500 independent games and two seasons. A changed predictive implementation halts journal recording pending review. The source fingerprint spans the model, feature builder, journal and distribution/source helpers; unrelated app deployments do not alter it. A future season or changed ruleset still requires explicit compatibility work and review. The inherited OT transfer implementation currently supports 2026 research only; this change does not certify or silently extend it to later seasons.
 
+## Frozen evaluation policy
+
+The artifact predeclares a primary full-game spread pair per model/event, using fixed bookmaker priority, lexical fallback and ascending home line when multiple lines exist. The chosen exact pair is saved before kickoff and verified during settlement. Outcomes and model probabilities never enter quote selection. Pushes are excluded, bookmaker duplicates do not create extra games, and forecasts without a primary spread cannot qualify for that primary evaluation. This prevents choosing a favorable book/line retrospectively; it does not establish independent acceptance or validate the model.
+
 ## Prospective journal
 
 Existing pre-freeze contexts stay development-only. New contexts captured after the frozen pointer exists are assigned `holdout_context` with the exact model/protocol hashes. They cannot enter development preparation or development outcome labeling. The new journal only consumes those new contexts after the actual candidate registration time, fresh captured odds and authenticated sources. It makes no extra provider/paid-odds calls.

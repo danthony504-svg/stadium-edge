@@ -36,6 +36,49 @@ export const ADJUSTED_FEATURE_NAMES = [
   "venue_home_margin",
   ...FAMILY_NAMES.flatMap((f) => STATUSES.map((s) => `${f}:${s}`)),
 ];
+export const ADJUSTED_EVALUATION_POLICY = Object.freeze({
+  version: "ncaaf-primary-spread-evaluation-v1",
+  market: "spread",
+  bookmakerPriority: [
+    "fanduel",
+    "draftkings",
+    "betmgm",
+    "betrivers",
+    "caesars",
+    "williamhill_us",
+    "fanatics",
+  ],
+  fallback: "lexical_bookmaker",
+  multipleLines: "ascending_home_line",
+  pushes: "excluded",
+  count: "one_game_per_model_event",
+} as const);
+export function primaryAdjustedQuote<
+  T extends {
+    bookmaker: string;
+    market: string;
+    line: number | null;
+    observedAt: string;
+  },
+>(quotes: T[]): T | null {
+  const order = (book: string) => {
+    const i = (
+      ADJUSTED_EVALUATION_POLICY.bookmakerPriority as readonly string[]
+    ).indexOf(book);
+    return i < 0 ? 1000 : i;
+  };
+  return (
+    quotes
+      .filter((q) => q.market === "spread" && Number.isFinite(q.line))
+      .sort(
+        (a, b) =>
+          order(a.bookmaker) - order(b.bookmaker) ||
+          a.bookmaker.localeCompare(b.bookmaker) ||
+          a.line! - b.line! ||
+          a.observedAt.localeCompare(b.observedAt),
+      )[0] ?? null
+  );
+}
 export const MIN_ADJUSTED_DEVELOPMENT_GAMES = ADJUSTED_FEATURE_NAMES.length + 2;
 export const adjustedHash = (v: unknown) =>
   createHash("sha256").update(canonicalEvidenceJson(v)).digest("hex");
@@ -217,6 +260,7 @@ export type AdjustedModel = {
   productionReady: false;
   validationReady: false;
   overtimeSupport: OvertimeSupport;
+  evaluationPolicy: typeof ADJUSTED_EVALUATION_POLICY;
   limitations: string[];
 };
 function solve(a: number[][], b: number[]) {
@@ -372,6 +416,7 @@ export function fitAdjustedModel(
     productionReady: false,
     validationReady: false,
     overtimeSupport: meta.overtimeSupport,
+    evaluationPolicy: JSON.parse(JSON.stringify(ADJUSTED_EVALUATION_POLICY)),
     limitations: [
       "observational_regulation_score_fit_not_causal_injury_estimates",
       "fixed_experimental_ridge_not_holdout_tuned",
@@ -399,6 +444,8 @@ export function validateAdjustedModel(model: AdjustedModel, hash: string) {
     canonicalEvidenceJson(model.featureNames) !==
       canonicalEvidenceJson(ADJUSTED_FEATURE_NAMES) ||
     model.ridge !== 4 ||
+    canonicalEvidenceJson(model.evaluationPolicy) !==
+      canonicalEvidenceJson(ADJUSTED_EVALUATION_POLICY) ||
     model.researchOnly !== true ||
     model.productionReady !== false ||
     model.validationReady !== false ||

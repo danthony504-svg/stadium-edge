@@ -17,6 +17,7 @@ import {
 } from "./ncaafOvertimeTransfer.js";
 import {
   ADJUSTED_MODEL_VERSION,
+  primaryAdjustedQuote,
   validateAdjustedEvidence,
   contextScoreFeatures,
   predictAdjustedMeans,
@@ -201,6 +202,7 @@ export function prepareForwardForecast(
         pushes === sim.draws ? null : wins / (sim.draws - pushes),
     };
   });
+  const primary = adjusted ? primaryAdjustedQuote(markets) : null;
   return {
     version: 1,
     researchOnly: true,
@@ -218,6 +220,16 @@ export function prepareForwardForecast(
           protocolSha256: adjusted.protocolSha256,
           datasetRole: "independent_holdout" as const,
           modelLimitations: adjusted.model.limitations,
+          evaluationPair: primary
+            ? {
+                bookmaker: primary.bookmaker,
+                market: primary.market,
+                line: primary.line,
+                firstPrice: primary.firstPrice,
+                secondPrice: primary.secondPrice,
+                observedAt: primary.observedAt,
+              }
+            : null,
         }
       : {}),
     ...(input.overtimeSupport
@@ -285,6 +297,22 @@ export function scoreRecordedForecast(
       })
     )
       throw Error("journal_adjusted_quote_binding_changed");
+    const primary = primaryAdjustedQuote(record.markets);
+    const identity = primary
+      ? {
+          bookmaker: primary.bookmaker,
+          market: primary.market,
+          line: primary.line,
+          firstPrice: primary.firstPrice,
+          secondPrice: primary.secondPrice,
+          observedAt: primary.observedAt,
+        }
+      : null;
+    if (
+      canonicalEvidenceJson(identity) !==
+      canonicalEvidenceJson(record.evaluationPair)
+    )
+      throw Error("journal_adjusted_evaluation_pair_changed");
     validateAdjustedEvidence(e, t, record.forecastAt);
   }
   const checked = readFullGameReplayArchive({

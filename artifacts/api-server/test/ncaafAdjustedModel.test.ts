@@ -10,6 +10,7 @@ import {
   predictAdjustedMeans,
   contextScoreFeatures,
   validateAdjustedModel,
+  primaryAdjustedQuote,
   type AdjustedTrainingGame,
   type ContextFeatures,
 } from "../src/lib/ncaafAdjustedModel.js";
@@ -486,4 +487,34 @@ test("a frozen first candidate is preserved without refitting on newly available
   assert.equal(result.state, "frozen_candidate_preserved");
   assert.equal(JSON.stringify(c.model), before);
   assert.deepEqual(writes, ["research:ncaaf:adjusted-model:latest"]);
+});
+
+test("primary validation quote selection is fixed before outcomes and never counts bookmaker duplicates as games", () => {
+  const quotes = [
+    { bookmaker: "zzz", market: "spread", line: 7.5, observedAt: forecastAt },
+    {
+      bookmaker: "draftkings",
+      market: "spread",
+      line: 7,
+      observedAt: forecastAt,
+    },
+    {
+      bookmaker: "fanduel",
+      market: "spread",
+      line: 7.5,
+      observedAt: forecastAt,
+    },
+    { bookmaker: "fanduel", market: "spread", line: 7, observedAt: forecastAt },
+  ];
+  const chosen = primaryAdjustedQuote(quotes);
+  assert.equal(chosen?.bookmaker, "fanduel");
+  assert.equal(chosen?.line, 7);
+  assert.deepEqual(chosen, primaryAdjustedQuote([...quotes].reverse()));
+  const r = forecast();
+  assert.equal(r.evaluationPair?.bookmaker, "SYNTHETIC_BOOK");
+  assert.equal(r.evaluationPair?.line, -3);
+  assert.equal(
+    primaryAdjustedQuote([{ ...quotes[0], market: "ml", line: null }]),
+    null,
+  );
 });
