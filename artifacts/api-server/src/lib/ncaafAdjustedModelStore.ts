@@ -213,6 +213,8 @@ export async function fitAndFreezeContextModel(db: ResearchDb, root: string) {
         )
           throw Error("adjusted_incomplete_training_features");
         const o = label.outcome;
+        if (typeof o.overtime !== "boolean")
+          throw Error("adjusted_unknown_overtime_label");
         games.push({
           id: `${o.season}:${o.eventId}`,
           inputSha256: example.inputSha256,
@@ -376,7 +378,16 @@ export async function recordAdjustedContextForecasts(
         "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:injuries:%' ORDER BY key DESC LIMIT 1",
       )
     ).rows[0];
-    if (!live || !injury) throw Error("adjusted_current_inputs_missing");
+    if (!live || !injury) {
+      const result = {
+        state: "waiting_for_current_inputs",
+        checkedAt: await clock(),
+        recorded: 0,
+        releaseEligible: false,
+      };
+      await put("research:ncaaf:adjusted-journal:latest", result);
+      return result;
+    }
     const contexts = (
       await db.query(
         "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v2:%' AND value->>'datasetRole'='holdout_context' AND (value->'target'->>'kickoff')::timestamptz>clock_timestamp() ORDER BY value->'target'->>'kickoff',key LIMIT 128",

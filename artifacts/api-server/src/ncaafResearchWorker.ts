@@ -113,6 +113,7 @@ async function main() {
         runNcaafValidationPipeline({
           db,
           collectionEnabled: Boolean(process.env.ODDS_API_KEY?.trim()),
+          onQuotesReady: () => recordAdjustedContextForecasts(db, repoRoot),
           runCollector,
           fetchOutcome,
         }),

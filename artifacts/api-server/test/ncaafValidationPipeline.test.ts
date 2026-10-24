@@ -728,3 +728,21 @@ test("missing odds credentials preserve collection slots while settlement mainte
   assert.ok(calls > 0);
   assert.equal(restored.forecastsRecorded, 1);
 });
+
+test("prewarms slow evidence before the single odds capture and journals immediately after local assembly", async () => {
+  const { db } = fixture();
+  const calls: string[] = [];
+  await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name) => { calls.push(name); },
+    onQuotesReady: async () => { calls.push("adjusted-journal"); },
+    fetchOutcome: async () => null,
+  });
+  const odds = calls.indexOf("ncaaf-capture-live-inputs.mjs");
+  assert.equal(calls.filter(x => x === "ncaaf-capture-live-inputs.mjs").length, 1);
+  for (const slow of ["ncaaf-conference-availability.mjs", "ncaaf-repair-team-history.mjs", "ncaaf-capture-usage.mjs"]) {
+    assert.ok(calls.indexOf(slow) >= 0 && calls.indexOf(slow) < odds);
+  }
+  assert.equal(calls[odds + 1], "ncaaf-context-dataset.mjs");
+  assert.equal(calls[odds + 2], "adjusted-journal");
+});

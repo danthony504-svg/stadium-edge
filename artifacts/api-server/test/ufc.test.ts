@@ -137,16 +137,24 @@ describe("classifyFighterStyle", () => {
 });
 
 describe("runFightMonteCarlo", () => {
-  it("runs 10k draws and returns probabilities", () => {
+  it("runs 10k draws and returns probabilities", (t) => {
     const away = fighter({ name: "Away" });
     const home = fighter({
       name: "Home",
       record: { wins: 5, losses: 8, draws: 0, winPct: 38.5 },
     });
     const lean = computeFightLean(away, home);
-    const sim = runFightMonteCarlo({ away, home, lean }, 1000);
-    assert.equal(sim.simulations, 1000);
-    assert.ok(sim.awayWinProbability > sim.homeWinProbability);
+    // Direction belongs to the analytic model; sampling can reverse a small edge.
+    const input = { away, home, lean };
+    assert.ok(awayWinProbFromFight(input) > 0.5);
+    let seed = 123456789;
+    t.mock.method(Math, "random", () => {
+      seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    });
+    const sim = runFightMonteCarlo(input, 10000);
+    assert.equal(sim.simulations, 10000);
+    assert.ok(Math.abs(sim.awayWinProbability - awayWinProbFromFight(input)) < 0.03);
     assert.ok(sim.confidenceScore >= 5 && sim.confidenceScore <= 95);
   });
 
