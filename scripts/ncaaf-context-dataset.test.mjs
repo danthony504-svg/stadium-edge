@@ -5,6 +5,7 @@ import {
   usageFromSummary,
   contextFeatures,
   outcomeFromSettlement,
+  selectUsageArchives,
 } from "./ncaaf-context-dataset.mjs";
 const target = {
   eventId: "999",
@@ -273,4 +274,41 @@ test("feature construction rejects future participation and target-game leakage"
   const targetLeak = usage();
   targetLeak[0].eventId = target.eventId;
   assert.throws(() => contextFeatures(binding, targetLeak));
+});
+
+test("usage selection always chooses earliest receipt despite unordered corrected archives", () => {
+  const game = {
+    eventId: "123",
+    season: 2026,
+    homeId: "1",
+    awayId: "2",
+    kickoff: "2026-10-01T16:00:00Z",
+  };
+  const later = {
+    key: "later",
+    games: [game],
+    received_at: "2026-10-23T02:00:00Z",
+  };
+  const earlier = {
+    key: "earlier",
+    games: [game],
+    received_at: "2026-10-23T01:00:00Z",
+  };
+  for (const rows of [
+    [later, earlier],
+    [earlier, later],
+  ]) {
+    const selected = selectUsageArchives(rows, target, "2026-10-24T03:00:00Z");
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0].key, "earlier");
+  }
+  const future = {
+    ...earlier,
+    key: "future",
+    received_at: "2026-10-25T01:00:00Z",
+  };
+  assert.equal(
+    selectUsageArchives([future], target, "2026-10-24T03:00:00Z").length,
+    0,
+  );
 });
