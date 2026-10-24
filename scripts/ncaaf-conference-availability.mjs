@@ -289,6 +289,8 @@ export function bindConferenceReports(archive, live, now) {
           ),
           sides,
           scoreboardSha256: c.sha256,
+          neutralSite:
+            typeof game.neutralSite === "boolean" ? game.neutralSite : null,
         });
       }
   }
