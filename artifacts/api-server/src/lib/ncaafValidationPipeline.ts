@@ -264,7 +264,13 @@ export async function runNcaafValidationPipeline({
     } catch {
       fail("context_dataset_assembly_failed");
     }
-    if (onQuotesReady) await onQuotesReady();
+    if (onQuotesReady) {
+      try {
+        await onQuotesReady();
+      } catch {
+        fail("adjusted_journal_failed");
+      }
+    }
     // Reload after collection; input timestamps are compared to a fresh DB clock.
     live = await latest("research:ncaaf:live-inputs:");
     const injury = await latest("research:ncaaf:injuries:");
