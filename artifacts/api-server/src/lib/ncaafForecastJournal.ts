@@ -7,7 +7,15 @@ import {
   type ReplayQuote,
 } from "./ncaafFullGameBacktest.js";
 import { runNcaafFullGameCandidate } from "./sportSim/ncaafFullGameCandidate.js";
+import {
+  researchOvertimeSupport,
+  OT_TRANSFER_REGIME,
+  OT_TRANSFER_MODEL_VERSION,
+  OT_RULE_REVIEW,
+  type OvertimeSupport,
+} from "./ncaafOvertimeTransfer.js";
 export type ForecastInput = {
+  overtimeSupport?: OvertimeSupport;
   version: 1;
   target: Pick<
     TimedGame,
@@ -83,10 +91,19 @@ export function prepareForwardForecast(
   const home = priorRegulationTeamSample(games, t, f, t.homeId),
     away = priorRegulationTeamSample(games, t, f, t.awayId);
   if (!home || !away) throw Error("journal_thin_team_history");
-  const overtimeHistory = games
+  const support = input.overtimeSupport
+    ? researchOvertimeSupport(input.overtimeSupport, t.season, forecastAt)
+    : [];
+  if (
+    input.overtimeSupport &&
+    t.ruleset !== "ncaa-football-season-2026-unverified"
+  )
+    throw Error("journal_invalid_overtime_transfer");
+  const overtimeHistory = [...games, ...support]
     .filter(
       (g) =>
-        g.ruleset === t.ruleset &&
+        (g.ruleset === t.ruleset ||
+          (support.includes(g) && g.season === 2025)) &&
         g.overtime === true &&
         g.regulationHomePoints != null &&
         g.regulationAwayPoints != null &&
@@ -94,7 +111,7 @@ export function prepareForwardForecast(
     )
     .map((g) => ({
       gameId: `${g.season}:${g.eventId}`,
-      ruleset: g.ruleset,
+      ruleset: input.overtimeSupport ? OT_TRANSFER_REGIME : g.ruleset,
       completedAt: g.completedAt,
       observedAt: g.observedAt,
       regulationHome: g.regulationHomePoints!,
@@ -108,7 +125,7 @@ export function prepareForwardForecast(
     seed: Number(t.eventId) >>> 0,
     forecastAt,
     kickoff: t.kickoff,
-    ruleset: t.ruleset,
+    ruleset: input.overtimeSupport ? OT_TRANSFER_REGIME : t.ruleset,
     overtimeHistory,
   });
   if (!sim) throw Error("journal_insufficient_candidate_evidence");
@@ -162,7 +179,12 @@ export function prepareForwardForecast(
     productionReady: false,
     validationReady: false,
     automaticUnlock: false,
-    modelVersion: sim.version,
+    modelVersion: input.overtimeSupport
+      ? OT_TRANSFER_MODEL_VERSION
+      : sim.version,
+    ...(input.overtimeSupport
+      ? { overtimeTransferReview: OT_RULE_REVIEW }
+      : {}),
     target: t,
     forecastAt,
     inputCutoffAt: forecastAt,
@@ -195,7 +217,9 @@ export function scoreRecordedForecast(
   }).games[0]!;
   if (
     !record.researchOnly ||
-    record.modelVersion !== "ncaaf-observed-ot-research-v1" ||
+    !["ncaaf-observed-ot-research-v1", OT_TRANSFER_MODEL_VERSION].includes(
+      record.modelVersion,
+    ) ||
     ![
       record.recordedAt,
       record.forecastAt,

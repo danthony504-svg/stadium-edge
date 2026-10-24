@@ -6,6 +6,7 @@ import {
   type ForecastInput,
 } from "./lib/ncaafForecastJournal.js";
 import { forecastInputFromArchive } from "./lib/ncaafLiveInputAdapter.js";
+import { verifyOvertimeSupportArchive } from "./lib/ncaafOvertimeTransfer.js";
 async function main() {
   const file = process.argv[2];
   if (!file || file.startsWith("--")) throw Error("journal_input_required");
@@ -100,6 +101,15 @@ async function main() {
       evidence.absentTeamStatus !== "unknown"
     )
       throw Error("journal_injury_archive_mismatch");
+    if (input.overtimeSupport) {
+      const supportRow = (
+        await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
+          input.overtimeSupport.sourceKey,
+        ])
+      ).rows[0];
+      if (!supportRow) throw Error("journal_overtime_archive_missing");
+      verifyOvertimeSupportArchive(input.overtimeSupport, supportRow.value);
+    }
     const record = prepareForwardForecast(
       input,
       new Date(check.rows[0].now).toISOString(),

@@ -23,6 +23,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/ncaafFullGameBacktest.ts"),
       path.resolve(artifactDir, "src/ncaafForecastJournal.ts"),
       path.resolve(artifactDir, "src/ncaafResearchWorker.ts"),
+      path.resolve(artifactDir, "src/ncaafOvertimeTransferJournal.ts"),
       path.resolve(artifactDir, "src/ncaafOpponentDevelopment.ts"),
       path.resolve(artifactDir, "src/ncaafVenueMetadata.ts"),
       path.resolve(artifactDir, "src/ncaafVenueDevelopment.ts"),
@@ -117,7 +118,7 @@ async function buildAll() {
     sourcemap: "linked",
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      esbuildPluginPino({ transports: ["pino-pretty"] }),
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {

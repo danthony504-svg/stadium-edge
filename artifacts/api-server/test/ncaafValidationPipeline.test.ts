@@ -416,3 +416,54 @@ test("UTC scheduling crosses midnight correctly and separates seasons/books/mode
   assert.equal(report.cohorts[0].pushes, 1);
   assert.equal(report.releaseEligible, false);
 });
+
+import { recordOvertimeTransferForecasts } from "../src/lib/ncaafOvertimeTransferJournal.js";
+function transferStore() {
+  const f = fixture(16);
+  f.db.values.set("research:ncaaf:history-summary:2025:fixture", {
+    researchOnly: true,
+    games: f.games
+      .slice(6, 20)
+      .map((g) => ({
+        ...g,
+        season: 2025,
+        ruleset: "ncaa-football-season-2025-unverified",
+        kickoff: "2025-09-01T12:00:00Z",
+        completedAt: "2025-09-01T16:00:00Z",
+      })),
+  });
+  return f;
+}
+test("transfer plan never writes; explicit recording preserves first probabilities and references", async () => {
+  const { db } = transferStore();
+  const before = db.values.size;
+  const plan = await recordOvertimeTransferForecasts(db);
+  assert.equal(plan.eligible, 1);
+  assert.equal(plan.recorded, 0);
+  assert.equal(db.values.size, before);
+  const r = await recordOvertimeTransferForecasts(db, true);
+  assert.equal(r.recorded, 1);
+  assert.equal(r.releaseEligible, false);
+  const key = [...db.values.keys()].find((k) =>
+    k.includes("forecast:ncaaf-observed-ot-transfer-research-v2:"),
+  )!;
+  const frozen = structuredClone(db.values.get(key));
+  assert.ok(frozen.recordedAt);
+  assert.ok(frozen.input.overtimeSupport.sourceKey);
+  const again = await recordOvertimeTransferForecasts(db, true);
+  assert.equal(again.existing, 1);
+  assert.deepEqual(db.values.get(key), frozen);
+});
+test("transfer database clock stops late writes and stale inputs; no fallback forecasts", async () => {
+  const late = transferStore();
+  late.db.lateWrite = true;
+  const r = await recordOvertimeTransferForecasts(late.db, true);
+  assert.equal(r.recorded, 0);
+  assert.equal(r.withheld, 1);
+  assert.equal(r.blockers?.journal_event_started_before_forecast_write, 1);
+  const stale = transferStore();
+  stale.db.now = "2026-10-23T23:00:00Z";
+  const s = await recordOvertimeTransferForecasts(stale.db, true);
+  assert.equal(s.recorded, 0);
+  assert.equal(s.blockers?.journal_stale_transfer_archive, 1);
+});
