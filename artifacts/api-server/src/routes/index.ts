@@ -1,3 +1,4 @@
+import ncaafResearchPreviewRouter from "./ncaafResearchPreview.js";
 import cfbdValidationRouter from "./cfbdValidation.js";
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
@@ -38,6 +39,7 @@ import reliabilityRouter from "./reliability";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(ncaafResearchPreviewRouter);
 router.use(appConfigRouter);
 router.use(appReviewAuthRouter);
 router.use(reliabilityRouter);
