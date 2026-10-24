@@ -746,3 +746,32 @@ test("prewarms slow evidence before the single odds capture and journals immedia
   assert.equal(calls[odds + 1], "ncaaf-context-dataset.mjs");
   assert.equal(calls[odds + 2], "adjusted-journal");
 });
+
+test("forecast processing and counts use the fresh slate rather than cached prewarm targets", async () => {
+  const { db } = fixture();
+  const existing = [...db.values].find(([k]) => k.startsWith("research:ncaaf:live-inputs:"))![1];
+  const fresh = structuredClone(existing);
+  const extra = structuredClone(fresh.matched[0]);
+  extra.target.eventId = "999999";
+  fresh.matched.push(extra);
+  const result = await runNcaafValidationPipeline({
+    db,
+    runCollector: async name => {
+      if(name === "ncaaf-capture-live-inputs.mjs")
+        db.values.set("research:ncaaf:live-inputs:2026-10-24T14:10",fresh);
+    },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(result.matchedEvents,2);
+  assert.equal(result.forecastsRecorded + result.forecastsWithheld + result.forecastsAlreadyPresent,2);
+  assert.equal(result.releaseEligible,false);
+});
+
+test("a stale prior-slot archive cannot masquerade as a successful fresh capture", async () => {
+  const { db } = fixture();
+  const row=[...db.values].find(([k])=>k.startsWith("research:ncaaf:live-inputs:"))!;
+  row[1].odds.receivedAt="2026-10-23T13:59:00Z";
+  await assert.rejects(()=>runNcaafValidationPipeline({db,runCollector:async()=>{},fetchOutcome:async()=>null}),/current_slot_quote_archive_missing/);
+  assert.equal(db.values.get("research:ncaaf:pipeline:latest").state,"failed");
+  assert.equal([...db.values.keys()].filter(k=>k.startsWith("research:ncaaf:forecast:")).length,0);
+});

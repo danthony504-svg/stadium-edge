@@ -7,6 +7,7 @@ import {
   fitAndFreezeContextModel,
   recordAdjustedContextForecasts,
 } from "./lib/ncaafAdjustedModelStore.js";
+import { catchUpNcaafDevelopment } from "./lib/ncaafDevelopmentCatchup.js";
 import { runNcaafResearchLifecycle } from "./lib/ncaafResearchLifecycle.js";
 import { runNcaafValidationPipeline } from "./lib/ncaafValidationPipeline.js";
 import { recordOvertimeTransferForecasts } from "./lib/ncaafOvertimeTransferJournal.js";
@@ -95,6 +96,7 @@ async function main() {
       db,
       fitAdjusted: () => fitAndFreezeContextModel(db, repoRoot),
       journalAdjusted: () => recordAdjustedContextForecasts(db, repoRoot),
+      catchUpDevelopment: () => catchUpNcaafDevelopment({ db, runCollector }),
       settle: () =>
         runNcaafValidationPipeline({
           db,

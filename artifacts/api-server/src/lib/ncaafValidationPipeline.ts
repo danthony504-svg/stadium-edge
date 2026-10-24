@@ -222,7 +222,7 @@ export async function runNcaafValidationPipeline({
     }
     let live = await latest("research:ncaaf:live-inputs:");
     // Prewarm slow evidence from cached targets before spending this slot's single odds request.
-    const matches: LiveInputArchive["matched"] = live?.value.matched ?? [];
+    let matches: LiveInputArchive["matched"] = live?.value.matched ?? [];
     if (matches.length > 128) throw Error("pipeline_target_budget");
     state.phase = "history";
     await put("research:ncaaf:pipeline:latest", state);
@@ -273,6 +273,11 @@ export async function runNcaafValidationPipeline({
     }
     // Reload after collection; input timestamps are compared to a fresh DB clock.
     live = await latest("research:ncaaf:live-inputs:");
+    const receivedAt = Date.parse(live?.value.odds?.receivedAt);
+    if (!Number.isFinite(receivedAt) || receivedAt < Date.parse(slot) || receivedAt > Date.parse(await clock()))
+      throw Error("pipeline_current_slot_quote_archive_missing");
+    matches = live?.value.matched ?? [];
+    if (matches.length > 128) throw Error("pipeline_target_budget");
     const injury = await latest("research:ncaaf:injuries:");
     state.phase = "forecasts";
     await put("research:ncaaf:pipeline:latest", state);
