@@ -12,7 +12,10 @@ export async function catchUpNcaafDevelopment({ db, runCollector }: {
   const live = (await db.query("SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1")).rows[0]?.value;
   if (!live) return { state: "waiting_for_current_inputs", releaseEligible: false };
   const received = Date.parse(live.odds?.receivedAt);
-  if (!Number.isFinite(received) || received > now.getTime() || now.getTime() - received > 6 * 3600000)
+  if (!Number.isFinite(received) || received > now.getTime())
+    return { state: "waiting_for_current_inputs", releaseEligible: false };
+  const slot = researchSlot(new Date(received));
+  if (slot !== researchSlot(now))
     return { state: "waiting_for_current_inputs", releaseEligible: false };
   if (live.version !== 1 || live.researchOnly !== true || !Array.isArray(live.matched) || live.matched.length > 128)
     throw Error("context_invalid_live_archive");
@@ -23,7 +26,6 @@ export async function catchUpNcaafDevelopment({ db, runCollector }: {
     throw Error("context_invalid_season");
   // Reuse the actual slot: usage's 64-attempt ledger and immutable history caches
   // remain authoritative across both prewarming and this catch-up pass.
-  const slot = researchSlot(now);
   // One additional, deduplicated public report capture per odds slot.
   await runCollector("ncaaf-conference-availability.mjs", ["--capture-slot", slot, "--development-catchup"]);
   for (const season of seasons)
