@@ -62,6 +62,17 @@ export function researchOvertimeSupport(
   return games;
 }
 
+// PostgreSQL jsonb and JSON files can reorder object keys without changing evidence.
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, canonical(v)]),
+    );
+  return value;
+}
 export function overtimeSupportFromArchive(
   sourceKey: string,
   value: { games: TimedGame[] },
@@ -71,7 +82,7 @@ export function overtimeSupportFromArchive(
   return {
     sourceKey,
     sourceSha256: createHash("sha256")
-      .update(JSON.stringify(value))
+      .update(JSON.stringify(canonical(value)))
       .digest("hex"),
     games: value.games.filter((g) => g.overtime === true),
   };
@@ -81,6 +92,10 @@ export function verifyOvertimeSupportArchive(
   value: { games: TimedGame[] },
 ) {
   const expected = overtimeSupportFromArchive(support.sourceKey, value);
-  if (JSON.stringify(support) !== JSON.stringify(expected))
+  if (
+    support.sourceSha256 !== expected.sourceSha256 ||
+    JSON.stringify(canonical(support.games)) !==
+      JSON.stringify(canonical(expected.games))
+  )
     throw Error("journal_overtime_archive_mismatch");
 }

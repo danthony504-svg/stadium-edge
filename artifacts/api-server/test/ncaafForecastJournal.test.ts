@@ -163,15 +163,13 @@ function transferFixture() {
   f.target.ruleset = "ncaa-football-season-2026-unverified";
   const all = f.games.map((g) => ({ ...g, ruleset: f.target.ruleset }));
   f.games = all.slice(0, 22);
-  const old = all
-    .slice(6, 20)
-    .map((g) => ({
-      ...g,
-      season: 2025,
-      ruleset: "ncaa-football-season-2025-unverified",
-      kickoff: "2025-09-01T12:00:00Z",
-      completedAt: "2025-09-01T16:00:00Z",
-    }));
+  const old = all.slice(6, 20).map((g) => ({
+    ...g,
+    season: 2025,
+    ruleset: "ncaa-football-season-2025-unverified",
+    kickoff: "2025-09-01T12:00:00Z",
+    completedAt: "2025-09-01T16:00:00Z",
+  }));
   f.overtimeSupport = overtimeSupportFromArchive(
     "research:ncaaf:history-summary:2025:fixture",
     { games: old },
@@ -224,6 +222,12 @@ test("unreviewed years, mismatched archive references, and future OT observation
   const value = { games: f.overtimeSupport!.games };
   const valid = overtimeSupportFromArchive(f.overtimeSupport!.sourceKey, value);
   verifyOvertimeSupportArchive(valid, value);
+  const reordered = JSON.parse(JSON.stringify(valid), (_k, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).reverse())
+      : v,
+  );
+  verifyOvertimeSupportArchive(reordered, value);
   assert.throws(
     () =>
       verifyOvertimeSupportArchive(
