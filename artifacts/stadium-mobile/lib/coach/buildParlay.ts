@@ -1,3 +1,4 @@
+import { satisfiesExplicitGamePropMix } from "../slate.ts";
 import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
 import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget.ts";
 import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
@@ -1703,7 +1704,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     target: terminalTarget, legsPerGameCap: terminalCaps?.maxGameEventLines ?? terminalGameCap,
     maxPropsPerGameCap: terminalCaps?.maxProps,
     onRejected: (pick, reason) => audit.observe(pick, "delivery_blocked", `ticket_constraint:${reason}`),
-    picks: dedupePicksByMarketLadder(picks.filter(p => {
+    picks: dedupePicksByMarketLadder(filterPicksByAskMarketConstraint(picks, terminalConstraint).filter(p => {
     const issues = audit.deliveryIssues(p);
     // Early recovery and partial-return paths share the final quality authority.
     // Never trust an attached qualified stamp after the score/quote has changed.
@@ -1718,10 +1719,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   }).picks;
   try {
     const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
-      onPartialPicks: opts.onPartialPicks ? picks => opts.onPartialPicks?.(safePicks(picks)) : undefined });
-    const picks = safePicks(result.picks);
+      onPartialPicks: opts.onPartialPicks ? picks => { const scoped = safePicks(picks); opts.onPartialPicks?.(satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : []); } : undefined });
+    const scopedPicks = safePicks(result.picks);
+    const mixUnavailable = !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
+    const picks = mixUnavailable ? [] : scopedPicks;
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
+    return { ...result, picks, note: mixUnavailable ? "The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built." : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
   } catch (e) {
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
