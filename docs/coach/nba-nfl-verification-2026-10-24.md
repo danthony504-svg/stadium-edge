@@ -50,3 +50,15 @@ Regression command from artifacts/stadium-mobile:
     node --import ./test/register-hooks.mjs --test lib/coachAskMarketFilter*.test.ts lib/boardScanPropDelivery.test.ts lib/sanitizeCoachUserNote.test.ts lib/coach/*.test.ts
 
 Do not convert this checklist to all-pass based on a successful backend health check, simulated fixtures or a single winning/losing ticket.
+
+## Follow-up revision before release
+
+Addressed review findings: empty mixed results preserve original no-odds/timeout explanations; nonempty mixed withholds retain timeout context; football aliases cfb/college-football/americanfootball_* are covered; explicit mixed day refinements clear prior props-only inheritance.
+
+Removed prohibited/request-excluded game-line queries before simulation. Team period-stat fetches now run only when at least one requested cover query uses a period; full-game requests keep 10,000 draws and no longer await irrelevant period statistics. A network-mocked integration test verifies zero period-stat calls for full-game NBA and two for an actual NBA Q1 request, with 10,000 simulations retained.
+
+All six revised source-pipeline live probes completed without timeout: NBA game lines 10.842s (0/2 truthful shortfall), NBA props 3.314s (2/2), NBA explicit mix 3.959s (withheld; both categories not available), NFL lines 16.333s (2/2, full-game Spread/ML, B+, confidences80/79), NFL props 10.064s (2/2), NFL explicit mix 6.533s (withheld). This is a real-source smoke sample against production APIs, not a controlled latency benchmark or on-device post-OTA proof. Revised tests:246 passed; mobile typecheck passed.
+
+Read-only database discovery found no dedicated prediction/pick/settlement-named tables and zero research:nba:forecast / research:nfl:forecast keys. This is insufficient to claim no evidence exists elsewhere; authentic saved-probability settlement/calibration audit remains unverified. Current NCAAF development outcomes8, frozen models0; release gates untouched.
+
+Production OTA dispatch is not exposed by the connected GitHub tool set. The workflow source requires manual workflow_dispatch and a TestFlight cold-launch pass. No production publication can be claimed until it runs successfully and its actual update identity is verified.

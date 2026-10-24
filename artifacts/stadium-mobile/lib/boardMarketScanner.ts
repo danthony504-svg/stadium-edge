@@ -1,3 +1,4 @@
+import { filterPicksByAskMarketConstraint, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
 import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
@@ -1457,6 +1458,14 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  // Apply request/football period exclusions before any simulation queries.
+  // Final delivery repeats the same constraint; discarded markets never qualify.
+  const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
+  for (const [label, lines] of evalLinesByGame) {
+    const eligible = filterPicksByAskMarketConstraint(lines, simulationConstraint);
+    if (eligible.length) evalLinesByGame.set(label, eligible);
+    else evalLinesByGame.delete(label);
+  }
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.

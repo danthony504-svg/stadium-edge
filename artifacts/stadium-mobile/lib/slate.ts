@@ -623,6 +623,7 @@ export function threadWantsPropsOnly(
   current: string | null | undefined,
   priorUserTexts: string[] = [],
 ): boolean {
+  if (wantsExplicitGamePropMix(current)) return false;
   if (wantsPropsOnly(current)) return true;
   const cur = String(current ?? "").toLowerCase();
   // Explicit game-line / mix phrasing on THIS turn clears the inheritance.
