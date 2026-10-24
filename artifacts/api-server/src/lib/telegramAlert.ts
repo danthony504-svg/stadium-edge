@@ -81,6 +81,20 @@ export function formatCoachReliabilityAlert(event: {
   enrichmentMs?: number | null;
   propSimMs?: number | null;
   scanMs?: number | null;
+  gameSimMs?: number | null;
+  qualificationMs?: number | null;
+  finalizationMs?: number | null;
+  totalMs?: number | null;
+  candidatesPoolBefore?: number | null;
+  candidatesPoolAfter?: number | null;
+  candidatesSelected?: number | null;
+  deepSimRequested?: number | null;
+  deepSimCompleted?: number | null;
+  qualifiedCount?: number | null;
+  lastCompletedPhase?: string | null;
+  pendingOperation?: string | null;
+  timeoutReason?: string | null;
+
 }): string {
   const n = event.occurrenceCount ?? 1;
   const legs =
@@ -105,6 +119,23 @@ export function formatCoachReliabilityAlert(event: {
     event.enrichmentMs != null ? `enrichmentMs: ${event.enrichmentMs}` : null,
     event.propSimMs != null ? `propSimMs: ${event.propSimMs}` : null,
     event.scanMs != null ? `scanMs: ${event.scanMs}` : null,
+    event.gameSimMs != null ? `gameSimMs: ${event.gameSimMs}` : null,
+    event.qualificationMs != null ? `qualificationMs: ${event.qualificationMs}` : null,
+    event.finalizationMs != null ? `finalizationMs: ${event.finalizationMs}` : null,
+    event.totalMs != null ? `totalMs: ${event.totalMs}` : null,
+    event.candidatesPoolBefore != null ? `candidatesPoolBefore: ${event.candidatesPoolBefore}` : null,
+    event.candidatesPoolAfter != null ? `candidatesPoolAfter: ${event.candidatesPoolAfter}` : null,
+    event.candidatesSelected != null ? `candidatesSelected: ${event.candidatesSelected}` : null,
+    event.deepSimRequested != null ? `deepSimRequested: ${event.deepSimRequested}` : null,
+    event.deepSimCompleted != null ? `deepSimCompleted: ${event.deepSimCompleted}` : null,
+    event.qualifiedCount != null ? `qualifiedCount: ${event.qualifiedCount}` : null,
+    event.lastCompletedPhase ? `lastCompletedPhase: ${event.lastCompletedPhase}` : null,
+    event.pendingOperation ? `pendingOperation: ${event.pendingOperation}` : null,
+    event.timeoutReason ? `timeoutReason: ${event.timeoutReason}` : null,
+    event.eventType === "coach_scan_freeze"
+      ? "diagnosis: deadline reached; underlying stalled operation not established by this alert"
+      : null,
+
     event.realOddsAvailable != null
       ? `realOddsAvailable: ${event.realOddsAvailable}`
       : null,

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   formatCriticalCrashAlert,
+  formatCoachReliabilityAlert,
   formatDailyHealthySummary,
   sendTelegramMessage,
   shouldSendCriticalTelegram,
@@ -126,4 +127,10 @@ test("sendTelegramMessage skips when unset; posts when configured", async () => 
   assert.equal(sent.ok, true);
   assert.equal(sent.skipped, undefined);
   assert.equal(called, 1);
+});
+
+test("Coach timeout alerts preserve progress and distinguish deadlines from causes", () => {
+  const text = formatCoachReliabilityAlert({eventType: "coach_scan_freeze", summary: "timeout", sportCategory: "nba", requestedLegCount: 2, returnedLegCount: 0, durationMs: 52526, failureReason: "scan_freeze", realOddsAvailable: true, qualificationFiltersEliminated: null, pendingOperation: "scan", lastCompletedPhase: "context", deepSimRequested: 8, deepSimCompleted: 0, qualifiedCount: 0, finalizationMs: 0, timeoutReason: "scan_deadline"});
+  for (const line of ["pendingOperation: scan", "lastCompletedPhase: context", "deepSimRequested: 8", "deepSimCompleted: 0", "qualifiedCount: 0", "finalizationMs: 0", "underlying stalled operation not established"]) assert.ok(text.includes(line), line);
+  assert.ok(!text.includes("undefined"));
 });

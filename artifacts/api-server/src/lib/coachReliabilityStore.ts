@@ -204,6 +204,20 @@ async function sendCoachAlertIfAllowed(opts: {
       enrichmentMs: opts.meta.enrichmentMs,
       propSimMs: opts.meta.propSimMs,
       scanMs: opts.meta.scanMs,
+      gameSimMs: opts.meta.gameSimMs,
+      qualificationMs: opts.meta.qualificationMs,
+      finalizationMs: opts.meta.finalizationMs,
+      totalMs: opts.meta.totalMs,
+      candidatesPoolBefore: opts.meta.candidatesPoolBefore,
+      candidatesPoolAfter: opts.meta.candidatesPoolAfter,
+      candidatesSelected: opts.meta.candidatesSelected,
+      deepSimRequested: opts.meta.deepSimRequested,
+      deepSimCompleted: opts.meta.deepSimCompleted,
+      qualifiedCount: opts.meta.qualifiedCount,
+      lastCompletedPhase: opts.meta.lastCompletedPhase,
+      pendingOperation: opts.meta.pendingOperation,
+      timeoutReason: opts.meta.timeoutReason,
+
     }),
   );
   const alerted = sent.ok === true && sent.skipped !== true;
