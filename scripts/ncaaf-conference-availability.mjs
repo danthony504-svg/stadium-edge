@@ -44,12 +44,13 @@ function localStamp(ms, zone) {
 export function publicationTime(r) {
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(r.publishDate ?? "") ||
-    !/^\d{2}:\d{2}:\d{2}$/.test(r.postedTime ?? "") ||
+    !/^(?:[0-9]|[01][0-9]|2[0-3]):[0-5]\d:[0-5]\d$/.test(r.postedTime ?? "") ||
     !zones[r.conferenceTimeZone]
   )
     throw Error("conference_invalid_publication");
-  const stamp = r.publishDate + "T" + r.postedTime,
+  const stamp = r.publishDate + "T" + r.postedTime.padStart(8, "0"),
     base = Date.parse(stamp + "Z");
+  if (!Number.isFinite(base)) throw Error("conference_invalid_publication");
   let utc = base;
   for (let i = 0; i < 3; i++)
     utc +=
@@ -415,7 +416,8 @@ async function main() {
       throw Error("conference_capture_overlap");
     let captureFailed = false;
     for (const conference of CONFERENCES) {
-      const attemptKey = `research:ncaaf:conference-capture-slot:${conference}:${slot}`;
+      const phase = process.argv.includes("--development-catchup") ? ":development-catchup" : "";
+      const attemptKey = `research:ncaaf:conference-capture-slot:${conference}:${slot}${phase}`;
       const claimed = await db.query(
         "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
         [

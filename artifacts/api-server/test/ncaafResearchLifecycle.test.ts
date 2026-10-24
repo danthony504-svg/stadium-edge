@@ -207,3 +207,18 @@ test("training leakage, late writes, retrospective forecasts, changed model and 
 test("protocol registration cannot backdate its declared freeze clock", () => {
   assert.throws(() => freezeModelProtocol(protocol, "2026-10-25T00:00:00Z"));
 });
+
+test("development catch-up is cadence-limited and failures do not stop journals", async () => {
+  const db = new Store();
+  let catchups=0, journals=0;
+  const deps={db,settle:async()=>{},label:async()=>{},prepareDevelopment:async()=>{},collect:async()=>{},
+    catchUpDevelopment:async()=>{catchups++;throw Error("context_provider_unavailable");},
+    journalAdjusted:async()=>{journals++;return {state:"waiting_for_frozen_model"};}};
+  const first=await runNcaafResearchLifecycle(deps);
+  assert.equal(first.stages.development_catchup.state,"failed");
+  assert.equal(first.stages.adjusted_journal.state,"completed");
+  const second=await runNcaafResearchLifecycle(deps);
+  assert.equal(second.stages.development_catchup.state,"skipped_cadence");
+  assert.equal(catchups,1);
+  assert.equal(journals,2);
+});

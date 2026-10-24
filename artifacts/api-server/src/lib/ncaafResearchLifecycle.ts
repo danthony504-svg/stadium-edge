@@ -10,6 +10,7 @@ export type LifecycleDependencies = {
   prepareDevelopment: () => Promise<unknown>;
   fitAdjusted?: () => Promise<unknown>;
   journalAdjusted?: () => Promise<unknown>;
+  catchUpDevelopment?: () => Promise<unknown>;
 };
 const PREFIX = "research:ncaaf:lifecycle:";
 const CADENCE = 30 * 60000;
@@ -167,6 +168,8 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
       true,
     );
     await stage("collection", deps.collect);
+    if (deps.catchUpDevelopment)
+      await stage("development_catchup", deps.catchUpDevelopment, true);
     if (deps.transfer) await stage("transfer_journal", deps.transfer);
     if (deps.journalAdjusted)
       await stage("adjusted_journal", deps.journalAdjusted);

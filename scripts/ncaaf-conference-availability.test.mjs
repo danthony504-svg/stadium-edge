@@ -212,3 +212,11 @@ test("future publication, future receipts, changed raw bytes, started games and 
     false,
   );
 });
+
+test("single-digit official publication hours retain exact timezone and invalid-clock guards", () => {
+  const r={publishDate:"2026-10-24",postedTime:"9:00:00",conferenceTimeZone:"CT"};
+  assert.equal(publicationTime(r),"2026-10-24T14:00:00.000Z");
+  assert.equal(publicationTime({...r,postedTime:"09:00:00"}),publicationTime(r));
+  for(const postedTime of ["24:00:00","9:60:00","9:00","90000","9:00:60"])
+    assert.throws(()=>publicationTime({...r,postedTime}),/invalid_publication/);
+});
