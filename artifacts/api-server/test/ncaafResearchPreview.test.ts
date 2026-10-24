@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
+import { canonicalEvidenceJson } from "../src/lib/ncaafOvertimeTransfer.js";
 import {
   prepareForwardForecast,
   type ForecastInput,
@@ -90,7 +91,12 @@ function fixture() {
       sha256: digest(live),
     },
   };
-  const record = { ...prepareForwardForecast(input, stamp), recordedAt: stamp };
+  const record = {
+    ...prepareForwardForecast(input, stamp),
+    inputHashFormat: "canonical-json-sha256-v1",
+    inputSha256: hash(canonicalEvidenceJson(input)),
+    recordedAt: stamp,
+  };
   const key = `research:ncaaf:forecast:${record.modelVersion}:2026:999`;
   return {
     row: { key, value: record, settlement: undefined as any },
@@ -111,8 +117,8 @@ function settled(
           date: kickoff,
           status: { type: { completed: true } },
           competitors: [
-            { id: "1", homeAway: "home", score: String(homePoints) },
-            { id: "2", homeAway: "away", score: String(awayPoints) },
+            { team: { id: "1" }, homeAway: "home", score: String(homePoints) },
+            { team: { id: "2" }, homeAway: "away", score: String(awayPoints) },
           ],
         },
       ],
@@ -232,4 +238,29 @@ test("multiple model records count as one distinct game and missing names use ex
     buildNcaafResearchPreview([], new Map(), stamp).distinctGames,
     0,
   );
+});
+
+test("database JSONB key reordering preserves canonical forecasts and explicitly omits unverifiable legacy records", () => {
+  const f = fixture();
+  const reorder = (v: any): any =>
+    Array.isArray(v)
+      ? v.map(reorder)
+      : v && typeof v === "object"
+        ? Object.fromEntries(
+            Object.keys(v)
+              .sort()
+              .reverse()
+              .map((k) => [k, reorder(v[k])]),
+          )
+        : v;
+  const row = reorder(f.row);
+  assert.equal(
+    buildNcaafResearchPreview([row], f.sources, stamp).distinctGames,
+    1,
+  );
+  delete row.value.inputHashFormat;
+  const p = buildNcaafResearchPreview([row], f.sources, stamp);
+  assert.equal(p.distinctGames, 0);
+  assert.equal(p.unsupportedLegacyRecords, 1);
+  assert.ok(renderNcaafResearchPreview(p).includes("legacy forecasts omitted"));
 });
