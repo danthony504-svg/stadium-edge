@@ -383,10 +383,12 @@ export function selectUsageArchives(summaries, target, cutoff) {
   return [...chosen.values()];
 }
 async function main() {
+  const labelsOnly = process.argv.includes("--labels-only");
   if (!process.argv.includes("--execute")) {
     console.log(
       JSON.stringify({
         planOnly: true,
+        mode: labelsOnly ? "labels_only" : "assembly_and_labels",
         providerRequests: 0,
         maximumTargets: 128,
         maximumUsageArchivesPerTarget: 10,
@@ -420,21 +422,27 @@ async function main() {
         .rows[0].ok
     )
       throw Error("context_overlap");
-    const archiveRows = (
-      await db.query(
-        "SELECT DISTINCT ON (value->>'conference') key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:conference-availability-v2:%' ORDER BY value->>'conference',key DESC",
-      )
-    ).rows;
-    const live = (
-      await db.query(
-        "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
-      )
-    ).rows[0];
-    const summaries = (
-      await db.query(
-        "SELECT key,value->'games' AS games,value->>'receivedAt' AS received_at FROM public.app_kv WHERE key LIKE 'research:ncaaf:game-summary:2026:%'",
-      )
-    ).rows;
+    const archiveRows = labelsOnly
+      ? []
+      : (
+          await db.query(
+            "SELECT DISTINCT ON (value->>'conference') key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:conference-availability-v2:%' ORDER BY value->>'conference',key DESC",
+          )
+        ).rows;
+    const live = labelsOnly
+      ? null
+      : (
+          await db.query(
+            "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
+          )
+        ).rows[0];
+    const summaries = labelsOnly
+      ? []
+      : (
+          await db.query(
+            "SELECT key,value->'games' AS games,value->>'receivedAt' AS received_at FROM public.app_kv WHERE key LIKE 'research:ncaaf:game-summary:2026:%'",
+          )
+        ).rows;
     const blockers = {};
     const fail = (error) => {
       const m = error instanceof Error ? error.message : "";
@@ -536,7 +544,9 @@ async function main() {
     // Labels may arrive later; they never overwrite the frozen pregame input.
     const priorStatus = (
       await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
-        "research:ncaaf:context-dataset:latest",
+        labelsOnly
+          ? "research:ncaaf:context-labels:latest"
+          : "research:ncaaf:context-dataset:latest",
       ])
     ).rows[0]?.value;
     let labelCursor =
@@ -607,6 +617,7 @@ async function main() {
     const result = {
       researchOnly: true,
       state: "processed",
+      mode: labelsOnly ? "labels_only" : "assembly_and_labels",
       inputsRecorded: recorded,
       featureVersion: "ncaaf-participation-availability-v2",
       uniqueDevelopmentEvents,
@@ -625,7 +636,12 @@ async function main() {
     };
     await db.query(
       "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
-      ["research:ncaaf:context-dataset:latest", JSON.stringify(result)],
+      [
+        labelsOnly
+          ? "research:ncaaf:context-labels:latest"
+          : "research:ncaaf:context-dataset:latest",
+        JSON.stringify(result),
+      ],
     );
     console.log(JSON.stringify(result));
   } finally {
