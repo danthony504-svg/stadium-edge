@@ -563,7 +563,7 @@ export function filterPicksByAskMarketConstraint<
   },
 >(picks: T[], constraint: CoachAskMarketConstraint): T[] {
   // Football periods are excluded from Coach tickets, including recovery paths.
-  let out = picks.filter(p => !(/^(?:nfl|ncaaf|football)$/i.test(String(p.sport ?? "")) &&
+  let out = picks.filter(p => !(/^(?:nfl|ncaaf|football|cfb|college[-_]football|americanfootball(?:_.*)?)$/i.test(String(p.sport ?? "")) &&
     /\b(?:q[1-4]|[1-4]q|[12]h|h[12]|quarter|half)\b|_(?:q[1-4]|h[12]|[12]h)\b/i.test(String(p.market ?? p.propMarketKey ?? ""))));
   if (constraint.propsOnly) {
     out = out.filter((p) => !!p.isProp);

@@ -1721,10 +1721,10 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
       onPartialPicks: opts.onPartialPicks ? picks => { const scoped = safePicks(picks); opts.onPartialPicks?.(satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : []); } : undefined });
     const scopedPicks = safePicks(result.picks);
-    const mixUnavailable = !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
+    const mixUnavailable = scopedPicks.length > 0 && !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
     const picks = mixUnavailable ? [] : scopedPicks;
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: mixUnavailable ? "The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built." : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
+    return { ...result, picks, note: mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
   } catch (e) {
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;

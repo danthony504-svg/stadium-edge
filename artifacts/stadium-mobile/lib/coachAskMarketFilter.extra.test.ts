@@ -51,3 +51,13 @@ test("football period picks cannot survive final delivery; NBA periods unaffecte
  const picks = [{sport:"nfl",market:"Q1 Alt Spread"},{sport:"ncaaf",market:"spreads_h1"},{sport:"nfl",market:"Alt Spread"},{sport:"nba",market:"Q1 Spread"}];
  assert.deepEqual(filterPicksByAskMarketConstraint(picks,parseCoachAskMarketConstraint("2 leg")), picks.slice(2));
 });
+
+test("football aliases reject halves and quarters", () => {
+ const constraint = parseCoachAskMarketConstraint("2 leg");
+ for (const sport of ["cfb","college-football","americanfootball_nfl","americanfootball_ncaaf"]) {
+   assert.deepEqual(filterPicksByAskMarketConstraint([{sport,market:"Q1 Spread"}], constraint), []);
+ }
+});
+test("a day refinement with an explicit mix clears prior props-only", () => {
+ assert.equal(parseCoachAskMarketConstraint("tonight mixing a game line and a player prop", ["2 NBA player props"]).propsOnly,false);
+});
