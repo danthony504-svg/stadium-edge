@@ -636,3 +636,22 @@ test("conference collector failure does not block existing forecast recording", 
   assert.equal(result.blockers.conference_availability_capture_failed, 1);
   assert.equal(result.releaseEligible, false);
 });
+
+test("context assembly failure stays separate from original forecast availability", async () => {
+  const { db } = fixture();
+  let calls = 0;
+  const result = await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name) => {
+      if (name === "ncaaf-context-dataset.mjs") {
+        calls++;
+        throw Error("context unavailable");
+      }
+    },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.forecastsRecorded, 1);
+  assert.equal(result.blockers.context_dataset_assembly_failed, 1);
+  assert.equal(result.releaseEligible, false);
+});

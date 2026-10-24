@@ -235,6 +235,11 @@ export async function runNcaafValidationPipeline({
         slot,
       ]);
     }
+    try {
+      await runCollector("ncaaf-context-dataset.mjs", []);
+    } catch {
+      fail("context_dataset_assembly_failed");
+    }
     // Reload after collection; input timestamps are compared to a fresh DB clock.
     live = await latest("research:ncaaf:live-inputs:");
     const injury = await latest("research:ncaaf:injuries:");
