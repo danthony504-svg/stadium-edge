@@ -301,9 +301,10 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
     releaseEligible: false,
   };
 }
-/** Do not freeze an incomplete first holdout context; later slots must be able to retry. */
-export function assertRecordableHoldout(record, history) {
-  if (record.datasetRole !== "holdout_context") return;
+/** Do not freeze incomplete prospective contexts; later slots must be able to retry. */
+export function assertRecordableContext(record, history) {
+  if (!["development_only", "holdout_context"].includes(record.datasetRole))
+    throw Error("context_invalid_dataset_role");
   if (typeof record.target?.neutralSite !== "boolean" || record.sides?.length !== 2)
     throw Error("context_holdout_venue_or_sides_missing");
   for (const side of record.sides) {
@@ -569,7 +570,7 @@ async function main() {
             liveArchiveKey: live.key,
             usageArchiveKeys: usage.map((g) => g.archiveKey),
           });
-          assertRecordableHoldout(record, history.value);
+          assertRecordableContext(record, history.value);
           const saved = await db.query(
             "INSERT INTO public.app_kv(key,value) SELECT $1,$2::jsonb || jsonb_build_object('recordedAt',clock_timestamp()) WHERE clock_timestamp() < $3::timestamptz ON CONFLICT(key) DO NOTHING RETURNING key",
             [key, JSON.stringify(record), b.target.kickoff],
