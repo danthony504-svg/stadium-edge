@@ -1,6 +1,6 @@
 # Prospective NCAAF context development records
 
-The research pipeline assembles immutable pregame development records after conference capture and team-history repair. The new step reads existing archives only: no provider/paid-odds calls. It does not modify any forecast, introduce injury point penalties, fit coefficients automatically or enable Coach.
+The research pipeline assembles immutable pregame context records after conference capture and team-history repair. Before a frozen adjusted candidate exists they are development-only; new contexts captured after candidate registration are marked holdout contexts for that exact model/protocol, and excluded from development preparation and labeling. The new step reads existing archives only: no provider/paid-odds calls. It does not modify any forecast, introduce injury point penalties, fit coefficients automatically or enable Coach.
 
 ## Evidence
 
@@ -14,14 +14,13 @@ Neutral-site metadata is captured only when the authenticated ESPN scoreboard ex
 
 `research:ncaaf:context-input:v1:2026:<event>` preserves the first pregame record using a final database-clock-before-kickoff INSERT check. Repeated runs preserve existing inputs. Labels use separate `research:ncaaf:context-outcome:*` keys, preserve the first label, hash their exact frozen input and reference the existing settlement. Final labels must authenticate raw summary bytes and agree with the saved event, season, kickoff, teams and scores. Started/future-invalid inputs and inconsistent labels are rejected.
 
-All records are `datasetRole:development_only`; they are not independent holdout games. New availability captured after an existing v2 forecast cannot retroactively turn that forecast into an injury-aware forecast. The existing 29 predictions remain unchanged.
+Original pre-freeze records are `datasetRole:development_only`; they are not independent holdout games. Post-freeze records use `holdout_context`; only a genuine new saved model forecast meeting its frozen protocol can become a candidate independent holdout record. A raw context alone does not qualify. New availability captured after an existing v2 forecast cannot retroactively turn that forecast into an injury-aware forecast. The existing 29 predictions remain unchanged.
 
 ## Run and status
 
 `node scripts/ncaaf-context-dataset.mjs` is plan-only. `--execute` uses the existing production database credentials and an advisory lock, bounds targets to 128 and raw usage archives per target to ten, and saves its status at `research:ncaaf:context-dataset:latest`. The existing opt-in background worker invokes the assembler once per collection slot. Assembly errors are reported without stopping the original forecasting/settlement pipeline.
 
-Fit and held-out testing remain unavailable until genuine completed development examples and a separate, prospectively defined holdout exist. No training metrics, injury effects or acceptance results may be inferred from synthetic tests or unfinished games. The 500-game/two-season, market-baseline, source review and release-signoff requirements are unchanged.
-
+The separate adjusted-model stage now implements a fixed experimental trainer and first-candidate freeze. Actual fitting and held-out testing still require genuine completed development examples and a separate, prospectively defined holdout. See `ncaaf-adjusted-research-model.md` for the fit guard, source fingerprints and immutable journal. No training metrics, injury effects or acceptance results may be inferred from synthetic tests or unfinished games. The 500-game/two-season, market-baseline, source review and release-signoff requirements are unchanged.
 
 ## Version 2 usage coverage
 

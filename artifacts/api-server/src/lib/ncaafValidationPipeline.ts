@@ -18,6 +18,7 @@ export interface ResearchDb {
 export type PipelineDeps = {
   db: ResearchDb;
   settlementOnly?: boolean;
+  collectionEnabled?: boolean;
   runCollector: (name: string, args: string[]) => Promise<void>;
   fetchOutcome: (
     eventId: string,
@@ -42,6 +43,7 @@ export async function runNcaafValidationPipeline({
   runCollector,
   fetchOutcome,
   settlementOnly = false,
+  collectionEnabled = true,
 }: PipelineDeps) {
   const clock = async () =>
     new Date(
@@ -158,6 +160,13 @@ export async function runNcaafValidationPipeline({
     if (settlementOnly)
       return {
         state: "settlement_check_completed",
+        settlementsRecorded: scored,
+        unsettledInBatch: unsettled,
+        releaseEligible: false,
+      };
+    if (!collectionEnabled)
+      return {
+        state: "skipped_missing_odds_credentials",
         settlementsRecorded: scored,
         unsettledInBatch: unsettled,
         releaseEligible: false,

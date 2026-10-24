@@ -15,7 +15,16 @@ import {
   OT_RULE_REVIEW,
   type OvertimeSupport,
 } from "./ncaafOvertimeTransfer.js";
+import {
+  ADJUSTED_MODEL_VERSION,
+  validateAdjustedEvidence,
+  contextScoreFeatures,
+  predictAdjustedMeans,
+  adjustedHash,
+  type AdjustedEvidence,
+} from "./ncaafAdjustedModel.js";
 export type ForecastInput = {
+  adjustedEvidence?: AdjustedEvidence;
   overtimeSupport?: OvertimeSupport;
   version: 1;
   target: Pick<
@@ -120,9 +129,27 @@ export function prepareForwardForecast(
       finalHome: g.homePoints,
       finalAway: g.awayPoints,
     }));
+  const adjusted = input.adjustedEvidence;
+  let expectedScoreMeans: { home: number; away: number } | undefined;
+  if (adjusted) {
+    validateAdjustedEvidence(adjusted, t, forecastAt);
+    if (
+      !input.overtimeSupport ||
+      canonicalEvidenceJson(input.overtimeSupport) !==
+        canonicalEvidenceJson(adjusted.model.overtimeSupport)
+    )
+      throw Error("journal_adjusted_ot_support_changed");
+    const means = predictAdjustedMeans(
+      adjusted.model,
+      adjusted.modelSha256,
+      contextScoreFeatures(adjusted.context, adjusted.historyArchive),
+    );
+    expectedScoreMeans = means;
+  }
   const sim = runNcaafFullGameCandidate({
     home,
     away,
+    ...(expectedScoreMeans ? { expectedScoreMeans } : {}),
     seed: Number(t.eventId) >>> 0,
     forecastAt,
     kickoff: t.kickoff,
@@ -180,9 +207,19 @@ export function prepareForwardForecast(
     productionReady: false,
     validationReady: false,
     automaticUnlock: false,
-    modelVersion: input.overtimeSupport
-      ? OT_TRANSFER_MODEL_VERSION
-      : sim.version,
+    modelVersion: adjusted
+      ? `${ADJUSTED_MODEL_VERSION}:${adjusted.modelSha256}`
+      : input.overtimeSupport
+        ? OT_TRANSFER_MODEL_VERSION
+        : sim.version,
+    ...(adjusted
+      ? {
+          modelSha256: adjusted.modelSha256,
+          protocolSha256: adjusted.protocolSha256,
+          datasetRole: "independent_holdout" as const,
+          modelLimitations: adjusted.model.limitations,
+        }
+      : {}),
     ...(input.overtimeSupport
       ? { overtimeTransferReview: OT_RULE_REVIEW }
       : {}),
@@ -197,12 +234,12 @@ export function prepareForwardForecast(
     injurySourceTimestamp: injury.observedAt,
     absentTeamStatus: "unknown",
     sourceProvenance: "requires_independent_review",
-    ...(input.overtimeSupport
+    ...(input.overtimeSupport || adjusted
       ? { inputHashFormat: "canonical-json-sha256-v1" }
       : {}),
     inputSha256: createHash("sha256")
       .update(
-        input.overtimeSupport
+        input.overtimeSupport || adjusted
           ? canonicalEvidenceJson(input)
           : JSON.stringify(input),
       )
@@ -217,6 +254,39 @@ export function scoreRecordedForecast(
   outcome: TimedGame,
 ) {
   const t = record.target;
+  const isAdjusted = record.modelVersion.startsWith(
+    ADJUSTED_MODEL_VERSION + ":",
+  );
+  if (isAdjusted) {
+    const e = record.input.adjustedEvidence;
+    if (
+      !e ||
+      record.modelVersion !== `${ADJUSTED_MODEL_VERSION}:${e.modelSha256}` ||
+      record.inputHashFormat !== "canonical-json-sha256-v1" ||
+      adjustedHash(record.input) !== record.inputSha256 ||
+      record.datasetRole !== "independent_holdout"
+    )
+      throw Error("journal_invalid_adjusted_forecast");
+    if (
+      record.markets.length !== record.input.quotes.length ||
+      record.markets.some((q, i) => {
+        const original = record.input.quotes[i];
+        return [
+          "season",
+          "eventId",
+          "bookmaker",
+          "market",
+          "line",
+          "firstPrice",
+          "secondPrice",
+          "observedAt",
+          "settlement",
+        ].some((k) => (q as any)[k] !== (original as any)[k]);
+      })
+    )
+      throw Error("journal_adjusted_quote_binding_changed");
+    validateAdjustedEvidence(e, t, record.forecastAt);
+  }
   const checked = readFullGameReplayArchive({
     version: 1,
     games: [outcome],
@@ -225,9 +295,10 @@ export function scoreRecordedForecast(
   }).games[0]!;
   if (
     !record.researchOnly ||
-    !["ncaaf-observed-ot-research-v1", OT_TRANSFER_MODEL_VERSION].includes(
-      record.modelVersion,
-    ) ||
+    (!isAdjusted &&
+      !["ncaaf-observed-ot-research-v1", OT_TRANSFER_MODEL_VERSION].includes(
+        record.modelVersion,
+      )) ||
     ![
       record.recordedAt,
       record.forecastAt,

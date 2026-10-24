@@ -184,7 +184,7 @@ export async function prepareDevelopmentDataset(db) {
   ).toISOString();
   const rows = (
     await db.query(
-      "SELECT i.key,i.value,l.value AS label FROM public.app_kv i LEFT JOIN public.app_kv l ON l.key=replace(i.key,'context-input:','context-outcome:') WHERE i.key LIKE 'research:ncaaf:context-input:v2:%' ORDER BY i.key LIMIT 1025",
+      "SELECT i.key,i.value,l.value AS label FROM public.app_kv i LEFT JOIN public.app_kv l ON l.key=replace(i.key,'context-input:','context-outcome:') WHERE i.key LIKE 'research:ncaaf:context-input:v2:%' AND i.value->>'datasetRole'='development_only' ORDER BY i.key LIMIT 1025",
     )
   ).rows;
   if (rows.length > 1024)
@@ -268,7 +268,7 @@ export async function prepareDevelopmentDataset(db) {
     rejectedRecords: Object.values(errors).reduce((a, b) => a + b, 0),
     blockers: errors,
     manifestSha256: examples.length ? manifestSha256 : null,
-    modelFit: "not_run_no_registered_adjusted_trainer",
+    modelFit: "handled_by_versioned_adjusted_model_stage",
     holdoutEligible: false,
     releaseEligible: false,
     coachEnabled: false,

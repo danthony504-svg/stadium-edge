@@ -498,6 +498,21 @@ async function main() {
             usage.push(parsed);
           }
           const record = contextFeatures(b, usage, now);
+          const candidate = (
+            await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
+              "research:ncaaf:context-model:first:v1",
+            ])
+          ).rows[0]?.value;
+          if (
+            candidate?.state === "frozen_research_candidate" &&
+            /^[a-f0-9]{64}$/.test(candidate.modelSha256) &&
+            Number.isFinite(Date.parse(candidate.registeredAt)) &&
+            Date.parse(candidate.registeredAt) <= Date.parse(now)
+          ) {
+            record.datasetRole = "holdout_context";
+            record.holdoutModelSha256 = candidate.modelSha256;
+            record.holdoutProtocolSha256 = candidate.protocolSha256;
+          }
           const history = (
             await db.query(
               "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:history-summary:2026:%' ORDER BY key DESC LIMIT 1",
@@ -554,7 +569,7 @@ async function main() {
         ? priorStatus.labelCursor
         : "";
     const pendingQuery =
-      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE (i.key LIKE 'research:ncaaf:context-input:v1:2026:%' OR i.key LIKE 'research:ncaaf:context-input:v2:2026:%') AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
+      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE (i.key LIKE 'research:ncaaf:context-input:v1:2026:%' OR i.key LIKE 'research:ncaaf:context-input:v2:2026:%') AND i.value->>'datasetRole'='development_only' AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
     let inputs = (await db.query(pendingQuery, [labelCursor])).rows;
     if (!inputs.length && labelCursor)
       inputs = (await db.query(pendingQuery, [""])).rows;
@@ -610,7 +625,7 @@ async function main() {
     const uniqueDevelopmentEvents = Number(
       (
         await db.query(
-          "SELECT count(DISTINCT value->'target'->>'eventId') AS events FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v1:2026:%' OR key LIKE 'research:ncaaf:context-input:v2:2026:%'",
+          "SELECT count(DISTINCT value->'target'->>'eventId') AS events FROM public.app_kv WHERE (key LIKE 'research:ncaaf:context-input:v1:2026:%' OR key LIKE 'research:ncaaf:context-input:v2:2026:%') AND value->>'datasetRole'='development_only'",
         )
       ).rows[0].events,
     );
