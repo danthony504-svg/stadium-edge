@@ -3,6 +3,10 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import {
+  fitAndFreezeContextModel,
+  recordAdjustedContextForecasts,
+} from "./lib/ncaafAdjustedModelStore.js";
 import { runNcaafResearchLifecycle } from "./lib/ncaafResearchLifecycle.js";
 import { runNcaafValidationPipeline } from "./lib/ncaafValidationPipeline.js";
 import { recordOvertimeTransferForecasts } from "./lib/ncaafOvertimeTransferJournal.js";
@@ -89,6 +93,8 @@ async function main() {
     };
     const result = await runNcaafResearchLifecycle({
       db,
+      fitAdjusted: () => fitAndFreezeContextModel(db, repoRoot),
+      journalAdjusted: () => recordAdjustedContextForecasts(db, repoRoot),
       settle: () =>
         runNcaafValidationPipeline({
           db,
@@ -106,6 +112,8 @@ async function main() {
       collect: () =>
         runNcaafValidationPipeline({
           db,
+          collectionEnabled: Boolean(process.env.ODDS_API_KEY?.trim()),
+          onQuotesReady: () => recordAdjustedContextForecasts(db, repoRoot),
           runCollector,
           fetchOutcome,
         }),

@@ -8,6 +8,8 @@ export type LifecycleDependencies = {
   transfer?: () => Promise<unknown>;
   label: () => Promise<unknown>;
   prepareDevelopment: () => Promise<unknown>;
+  fitAdjusted?: () => Promise<unknown>;
+  journalAdjusted?: () => Promise<unknown>;
 };
 const PREFIX = "research:ncaaf:lifecycle:";
 const CADENCE = 30 * 60000;
@@ -104,7 +106,7 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
     } catch (e) {
       const reason =
         e instanceof Error &&
-        /^(context|development|transfer|journal|pipeline)_[a-z_]+$/.test(
+        /^(adjusted|context|development|transfer|journal|pipeline)_[a-z_]+$/.test(
           e.message,
         )
           ? e.message
@@ -146,6 +148,7 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
     await stage("settlement", deps.settle);
     await stage("development_labels", deps.label, true);
     await stage("development_dataset", deps.prepareDevelopment, true);
+    if (deps.fitAdjusted) await stage("adjusted_model", deps.fitAdjusted, true);
     await stage(
       "research_metrics",
       async () => {
@@ -165,6 +168,8 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
     );
     await stage("collection", deps.collect);
     if (deps.transfer) await stage("transfer_journal", deps.transfer);
+    if (deps.journalAdjusted)
+      await stage("adjusted_journal", deps.journalAdjusted);
     const failed = Object.values(stages).some((s) => s.state === "failed");
     const report = {
       version: 2,

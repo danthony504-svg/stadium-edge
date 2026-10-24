@@ -18,6 +18,8 @@ export interface ResearchDb {
 export type PipelineDeps = {
   db: ResearchDb;
   settlementOnly?: boolean;
+  collectionEnabled?: boolean;
+  onQuotesReady?: () => Promise<unknown>;
   runCollector: (name: string, args: string[]) => Promise<void>;
   fetchOutcome: (
     eventId: string,
@@ -42,6 +44,8 @@ export async function runNcaafValidationPipeline({
   runCollector,
   fetchOutcome,
   settlementOnly = false,
+  collectionEnabled = true,
+  onQuotesReady,
 }: PipelineDeps) {
   const clock = async () =>
     new Date(
@@ -162,6 +166,13 @@ export async function runNcaafValidationPipeline({
         unsettledInBatch: unsettled,
         releaseEligible: false,
       };
+    if (!collectionEnabled)
+      return {
+        state: "skipped_missing_odds_credentials",
+        settlementsRecorded: scored,
+        unsettledInBatch: unsettled,
+        releaseEligible: false,
+      };
     slot = researchSlot(new Date(await clock()));
     slotKey = `research:ncaaf:pipeline:slot:${slot}`;
     const prior = await get(slotKey);
@@ -198,13 +209,6 @@ export async function runNcaafValidationPipeline({
     state.phase = "injuries";
     await put("research:ncaaf:pipeline:latest", state);
     await runCollector("ncaaf-capture-injuries.mjs", []);
-    if (!state.oddsAttempted) {
-      state.oddsAttempted = true;
-      state.phase = "quotes";
-      await put(slotKey, state);
-      await put("research:ncaaf:pipeline:latest", state);
-      await runCollector("ncaaf-capture-live-inputs.mjs", []);
-    }
     // Supplementary research evidence must not block existing collection/scoring.
     state.phase = "conference_availability";
     await put("research:ncaaf:pipeline:latest", state);
@@ -217,8 +221,7 @@ export async function runNcaafValidationPipeline({
       fail("conference_availability_capture_failed");
     }
     let live = await latest("research:ncaaf:live-inputs:");
-    if (!live || Date.parse(live.value.odds?.receivedAt) < Date.parse(slot))
-      fail("current_slot_quote_archive_missing");
+    // Prewarm slow evidence from cached targets before spending this slot's single odds request.
     const matches: LiveInputArchive["matched"] = live?.value.matched ?? [];
     if (matches.length > 128) throw Error("pipeline_target_budget");
     state.phase = "history";
@@ -249,10 +252,24 @@ export async function runNcaafValidationPipeline({
     } catch {
       fail("usage_evidence_capture_failed");
     }
+    if (!state.oddsAttempted) {
+      state.oddsAttempted = true;
+      state.phase = "quotes";
+      await put(slotKey, state);
+      await put("research:ncaaf:pipeline:latest", state);
+      await runCollector("ncaaf-capture-live-inputs.mjs", []);
+    }
     try {
       await runCollector("ncaaf-context-dataset.mjs", []);
     } catch {
       fail("context_dataset_assembly_failed");
+    }
+    if (onQuotesReady) {
+      try {
+        await onQuotesReady();
+      } catch {
+        fail("adjusted_journal_failed");
+      }
     }
     // Reload after collection; input timestamps are compared to a fresh DB clock.
     live = await latest("research:ncaaf:live-inputs:");

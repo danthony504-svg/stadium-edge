@@ -301,6 +301,31 @@ export function contextFeatures(binding, usage, cutoff = binding.observedAt) {
     releaseEligible: false,
   };
 }
+/** Do not freeze an incomplete first holdout context; later slots must be able to retry. */
+export function assertRecordableHoldout(record, history) {
+  if (record.datasetRole !== "holdout_context") return;
+  if (typeof record.target?.neutralSite !== "boolean" || record.sides?.length !== 2)
+    throw Error("context_holdout_venue_or_sides_missing");
+  for (const side of record.sides) {
+    for (const family of Object.keys(metrics)) {
+      const f = side.features?.[family];
+      if (f?.coverage !== "observed_participation" || f.games < 3 || !f.shares)
+        throw Error("context_holdout_usage_incomplete");
+    }
+    const prior = history.games.filter(g =>
+      record.historySourceEvidence.priorEventIds.includes(g.eventId) &&
+      g.season === record.target.season && g.eventId !== record.target.eventId &&
+      g.overtime === false &&
+      Number.isFinite(g.homePoints) && Number.isFinite(g.awayPoints) &&
+      Date.parse(g.observedAt) <= Date.parse(record.capturedAt) &&
+      Date.parse(g.completedAt) < Date.parse(record.capturedAt) &&
+      Date.parse(g.kickoff) + 86400000 < Date.parse(record.target.kickoff) &&
+      (g.homeId === side.teamId || g.awayId === side.teamId));
+    if (new Set(prior.map(g => g.eventId)).size < 3)
+      throw Error("context_holdout_history_incomplete");
+  }
+}
+
 export function outcomeFromSettlement(context, settlement, now) {
   const t = context.target,
     source = settlement?.source;
@@ -498,6 +523,21 @@ async function main() {
             usage.push(parsed);
           }
           const record = contextFeatures(b, usage, now);
+          const candidate = (
+            await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
+              "research:ncaaf:context-model:first:v1",
+            ])
+          ).rows[0]?.value;
+          if (
+            candidate?.state === "frozen_research_candidate" &&
+            /^[a-f0-9]{64}$/.test(candidate.modelSha256) &&
+            Number.isFinite(Date.parse(candidate.registeredAt)) &&
+            Date.parse(candidate.registeredAt) <= Date.parse(now)
+          ) {
+            record.datasetRole = "holdout_context";
+            record.holdoutModelSha256 = candidate.modelSha256;
+            record.holdoutProtocolSha256 = candidate.protocolSha256;
+          }
           const history = (
             await db.query(
               "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:history-summary:2026:%' ORDER BY key DESC LIMIT 1",
@@ -529,6 +569,7 @@ async function main() {
             liveArchiveKey: live.key,
             usageArchiveKeys: usage.map((g) => g.archiveKey),
           });
+          assertRecordableHoldout(record, history.value);
           const saved = await db.query(
             "INSERT INTO public.app_kv(key,value) SELECT $1,$2::jsonb || jsonb_build_object('recordedAt',clock_timestamp()) WHERE clock_timestamp() < $3::timestamptz ON CONFLICT(key) DO NOTHING RETURNING key",
             [key, JSON.stringify(record), b.target.kickoff],
@@ -554,7 +595,7 @@ async function main() {
         ? priorStatus.labelCursor
         : "";
     const pendingQuery =
-      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE (i.key LIKE 'research:ncaaf:context-input:v1:2026:%' OR i.key LIKE 'research:ncaaf:context-input:v2:2026:%') AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
+      "SELECT i.key,i.value FROM public.app_kv i LEFT JOIN public.app_kv o ON o.key=replace(i.key,'context-input:','context-outcome:') WHERE (i.key LIKE 'research:ncaaf:context-input:v1:2026:%' OR i.key LIKE 'research:ncaaf:context-input:v2:2026:%') AND i.value->>'datasetRole'='development_only' AND o.key IS NULL AND i.key > $1 ORDER BY i.key LIMIT 128";
     let inputs = (await db.query(pendingQuery, [labelCursor])).rows;
     if (!inputs.length && labelCursor)
       inputs = (await db.query(pendingQuery, [""])).rows;
@@ -610,7 +651,7 @@ async function main() {
     const uniqueDevelopmentEvents = Number(
       (
         await db.query(
-          "SELECT count(DISTINCT value->'target'->>'eventId') AS events FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v1:2026:%' OR key LIKE 'research:ncaaf:context-input:v2:2026:%'",
+          "SELECT count(DISTINCT value->'target'->>'eventId') AS events FROM public.app_kv WHERE (key LIKE 'research:ncaaf:context-input:v1:2026:%' OR key LIKE 'research:ncaaf:context-input:v2:2026:%') AND value->>'datasetRole'='development_only'",
         )
       ).rows[0].events,
     );

@@ -697,3 +697,52 @@ test("settlement-only mode never enters collection or claims a paid-odds slot", 
   assert.ok(db.values.has("research:ncaaf:settlement-check:latest"));
   assert.equal(db.unlocks, 1);
 });
+
+test("missing odds credentials preserve collection slots while settlement maintenance continues", async () => {
+  const { db } = fixture();
+  let calls = 0;
+  const deps = {
+    db,
+    runCollector: async () => {
+      calls++;
+    },
+    fetchOutcome: async () => null,
+  };
+  const skipped = await runNcaafValidationPipeline({
+    ...deps,
+    collectionEnabled: false,
+  });
+  assert.equal(skipped.state, "skipped_missing_odds_credentials");
+  assert.equal(calls, 0);
+  assert.equal(
+    [...db.values.keys()].some((k) =>
+      k.startsWith("research:ncaaf:pipeline:slot:"),
+    ),
+    false,
+  );
+  const restored = await runNcaafValidationPipeline({
+    ...deps,
+    collectionEnabled: true,
+  });
+  assert.equal(restored.state, "processed");
+  assert.ok(calls > 0);
+  assert.equal(restored.forecastsRecorded, 1);
+});
+
+test("prewarms slow evidence before the single odds capture and journals immediately after local assembly", async () => {
+  const { db } = fixture();
+  const calls: string[] = [];
+  await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name) => { calls.push(name); },
+    onQuotesReady: async () => { calls.push("adjusted-journal"); },
+    fetchOutcome: async () => null,
+  });
+  const odds = calls.indexOf("ncaaf-capture-live-inputs.mjs");
+  assert.equal(calls.filter(x => x === "ncaaf-capture-live-inputs.mjs").length, 1);
+  for (const slow of ["ncaaf-conference-availability.mjs", "ncaaf-repair-team-history.mjs", "ncaaf-capture-usage.mjs"]) {
+    assert.ok(calls.indexOf(slow) >= 0 && calls.indexOf(slow) < odds);
+  }
+  assert.equal(calls[odds + 1], "ncaaf-context-dataset.mjs");
+  assert.equal(calls[odds + 2], "adjusted-journal");
+});
