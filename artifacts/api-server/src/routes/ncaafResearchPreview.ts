@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
+import { ncaafPipelineReadiness } from "../lib/ncaafPipelineReadiness.js";
 import {
   buildNcaafResearchPreview,
   renderNcaafResearchPreview,
@@ -59,6 +60,49 @@ async function load(): Promise<ResearchPreview> {
     pending = undefined;
   }
 }
+type PipelineStatus = Awaited<ReturnType<typeof ncaafPipelineReadiness>>;
+let statusCache: { expires: number; value: PipelineStatus } | undefined;
+let pendingStatus: Promise<PipelineStatus> | undefined;
+async function loadStatus(): Promise<PipelineStatus> {
+  if (statusCache && statusCache.expires > Date.now()) return statusCache.value;
+  if (pendingStatus) return pendingStatus;
+  pendingStatus = (async () => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query("SET LOCAL statement_timeout='5s'");
+      const value = await ncaafPipelineReadiness(client);
+      await client.query("COMMIT");
+      statusCache = { expires: Date.now() + 60000, value };
+      return value;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  })();
+  try {
+    return await pendingStatus;
+  } finally {
+    pendingStatus = undefined;
+  }
+}
+// Small read-only inventory; no model evaluation or provider calls on this route.
+router.get("/research/ncaaf/status", async (_req, res) => {
+  res.set({
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, nofollow",
+  });
+  try {
+    res.json(await loadStatus());
+  } catch {
+    res
+      .status(503)
+      .json({ error: "research_status_unavailable", coachEnabled: false });
+  }
+});
 /** Intentionally public, sanitized research display. No raw sources or athlete records leave the server. */
 router.get(
   ["/research/ncaaf", "/research/ncaaf/data", "/research/ncaaf/download"],

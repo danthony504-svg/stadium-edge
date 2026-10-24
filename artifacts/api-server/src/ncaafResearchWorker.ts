@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { runNcaafResearchLifecycle } from "./lib/ncaafResearchLifecycle.js";
 import { runNcaafValidationPipeline } from "./lib/ncaafValidationPipeline.js";
 import { recordOvertimeTransferForecasts } from "./lib/ncaafOvertimeTransferJournal.js";
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
@@ -12,6 +13,7 @@ const allowed = new Set([
   "ncaaf-capture-injuries.mjs",
   "ncaaf-conference-availability.mjs",
   "ncaaf-context-dataset.mjs",
+  "ncaaf-prepare-development.mjs",
   "ncaaf-capture-usage.mjs",
   "ncaaf-repair-team-history.mjs",
 ]);
@@ -48,8 +50,7 @@ async function runCollector(name: string, args: string[]) {
 }
 async function main() {
   if (process.env.NCAAF_RESEARCH_PIPELINE_ENABLED !== "true") return;
-  if (!process.env.DATABASE_URL || !process.env.ODDS_API_KEY)
-    throw Error("pipeline_missing_environment");
+  if (!process.env.DATABASE_URL) throw Error("pipeline_missing_environment");
   const requireDb = createRequire(resolve(repoRoot, "lib/db/package.json")),
     { Client } = requireDb("pg");
   const db = new Client({
@@ -59,47 +60,57 @@ async function main() {
   });
   await db.connect();
   try {
-    const result = await runNcaafValidationPipeline({
-      db,
-      runCollector,
-      fetchOutcome: async (eventId, season) => {
-        const requestStartedAt = new Date().toISOString();
-        const response = await fetch(
-          `https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=${eventId}`,
-          { signal: AbortSignal.timeout(15000), redirect: "error" },
-        );
-        if (!response.ok) return null;
-        const rawResponse = await response.text(),
-          receivedAt = new Date().toISOString();
-        if (Buffer.byteLength(rawResponse) > 8_000_000) return null;
-        const { summaryHistory } = await import(
-          new URL(
-            "../../../scripts/ncaaf-repair-team-history.mjs",
-            import.meta.url,
-          ).href
-        );
-        const archive = summaryHistory(
-          rawResponse,
-          eventId,
-          season,
-          requestStartedAt,
-          receivedAt,
-        );
-        return archive.games.length === 1
-          ? { outcome: archive.games[0], source: archive }
-          : null;
-      },
-    });
-    if (process.env.NCAAF_RESEARCH_OT_TRANSFER_ENABLED === "true") {
-      const transfer = await recordOvertimeTransferForecasts(db, true);
-      console.log(
-        JSON.stringify({
-          component: "ncaaf-ot-transfer",
-          state: transfer.state,
-          releaseEligible: false,
-        }),
+    const fetchOutcome = async (eventId: string, season: number) => {
+      const requestStartedAt = new Date().toISOString();
+      const response = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=${eventId}`,
+        { signal: AbortSignal.timeout(15000), redirect: "error" },
       );
-    }
+      if (!response.ok) return null;
+      const rawResponse = await response.text(),
+        receivedAt = new Date().toISOString();
+      if (Buffer.byteLength(rawResponse) > 8_000_000) return null;
+      const { summaryHistory } = await import(
+        new URL(
+          "../../../scripts/ncaaf-repair-team-history.mjs",
+          import.meta.url,
+        ).href
+      );
+      const archive = summaryHistory(
+        rawResponse,
+        eventId,
+        season,
+        requestStartedAt,
+        receivedAt,
+      );
+      return archive.games.length === 1
+        ? { outcome: archive.games[0], source: archive }
+        : null;
+    };
+    const result = await runNcaafResearchLifecycle({
+      db,
+      settle: () =>
+        runNcaafValidationPipeline({
+          db,
+          runCollector,
+          fetchOutcome,
+          settlementOnly: true,
+        }),
+      label: () => runCollector("ncaaf-context-dataset.mjs", ["--labels-only"]),
+      prepareDevelopment: () =>
+        runCollector("ncaaf-prepare-development.mjs", []),
+      transfer:
+        process.env.NCAAF_RESEARCH_OT_TRANSFER_ENABLED === "true"
+          ? () => recordOvertimeTransferForecasts(db, true)
+          : undefined,
+      collect: () =>
+        runNcaafValidationPipeline({
+          db,
+          runCollector,
+          fetchOutcome,
+        }),
+    });
+    if (result.state === "partial_failure") process.exitCode = 1;
     console.log(
       JSON.stringify({
         component: "ncaaf-research-pipeline",

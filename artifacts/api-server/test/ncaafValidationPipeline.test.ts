@@ -673,3 +673,27 @@ test("usage capture failure cannot stop original forecast recording or context a
   assert.equal(result.blockers.usage_evidence_capture_failed, 1);
   assert.equal(result.releaseEligible, false);
 });
+
+test("settlement-only mode never enters collection or claims a paid-odds slot", async () => {
+  const { db } = fixture();
+  let calls = 0;
+  const r = await runNcaafValidationPipeline({
+    db,
+    settlementOnly: true,
+    runCollector: async () => {
+      calls++;
+      throw Error("must not collect");
+    },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(r.state, "settlement_check_completed");
+  assert.equal(calls, 0);
+  assert.equal(
+    [...db.values.keys()].some((k) =>
+      k.startsWith("research:ncaaf:pipeline:slot:"),
+    ),
+    false,
+  );
+  assert.ok(db.values.has("research:ncaaf:settlement-check:latest"));
+  assert.equal(db.unlocks, 1);
+});
