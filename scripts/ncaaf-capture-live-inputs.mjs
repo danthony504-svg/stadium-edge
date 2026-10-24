@@ -358,7 +358,7 @@ async function main() {
     for (const day of days)
       scoreboards.push(
         await receipt(
-          `https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=${day.replaceAll("-", "")}&groups=80&limit=1000`,
+          `https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=${day.replaceAll("-", "")}&groups=80&limit=100`,
         ),
       );
     const archive = buildLiveArchive(odds, scoreboards);

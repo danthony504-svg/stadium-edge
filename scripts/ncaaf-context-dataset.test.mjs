@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
-  assertRecordableHoldout,
+  assertRecordableContext,
   usageFromSummary,
   contextFeatures,
   outcomeFromSettlement,
@@ -373,10 +373,15 @@ test("incomplete first holdout contexts defer writing until usage and history ca
   // A missing usage family must not poison the immutable first-record key.
   const incomplete = structuredClone(record);
   incomplete.sides[0].features.receptions = {coverage: "unknown", games: 0, shares: null};
-  assert.throws(() => assertRecordableHoldout(incomplete, {games}), /usage_incomplete/);
+  assert.throws(() => assertRecordableContext(incomplete, {games}), /usage_incomplete/);
+  const development = structuredClone(incomplete);
+  development.datasetRole = "development_only";
+  assert.throws(() => assertRecordableContext(development, {games}), /usage_incomplete/);
   // Once authentic coverage arrives, a later attempt can pass without rewriting a row.
   for (const side of record.sides) for (const family of ["passingAttempts", "carries", "receptions"])
     side.features[family] = {coverage: "observed_participation", games: 3, shares: {unknown: 1}};
-  assert.throws(() => assertRecordableHoldout(record, {games: []}), /history_incomplete/);
-  assert.doesNotThrow(() => assertRecordableHoldout(record, {games}));
+  assert.throws(() => assertRecordableContext(record, {games: []}), /history_incomplete/);
+  assert.doesNotThrow(() => assertRecordableContext(record, {games}));
+  record.datasetRole = "development_only";
+  assert.doesNotThrow(() => assertRecordableContext(record, {games}));
 });
