@@ -77,7 +77,7 @@ class Store implements ResearchDb {
       };
     if (
       sql.startsWith(
-        "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:",
+        "SELECT jsonb_build_object('researchOnly',value->'researchOnly','metrics',value->'metrics') AS value FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:",
       )
     )
       return {

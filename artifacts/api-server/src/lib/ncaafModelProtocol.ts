@@ -24,7 +24,7 @@ export function freezeModelProtocol(input: ModelProtocol, now: string) {
     input.featureVersion !== "ncaaf-participation-availability-v2" ||
     !Number.isFinite(Date.parse(input.frozenAt)) ||
     !Number.isFinite(Date.parse(now)) ||
-    Date.parse(input.frozenAt) > Date.parse(now) ||
+    Date.parse(input.frozenAt) !== Date.parse(now) ||
     input.simulations !== 10000 ||
     input.minimumIndependentGames !== 500 ||
     input.minimumSeasons !== 2 ||
@@ -47,6 +47,7 @@ export function freezeModelProtocol(input: ModelProtocol, now: string) {
   return {
     protocol,
     protocolSha256: sha(protocol),
+    recordedAt: now,
     researchOnly: true,
     validationReady: false,
     releaseEligible: false,
@@ -64,13 +65,14 @@ export function assertProspectiveHoldout(
     recordedAt: string;
     modelSha256: string;
     protocolSha256: string;
+    protocolRecordedAt: string;
     datasetRole: string;
     simulations: number;
     settlement: string;
   },
 ) {
   // Revalidate stored content; do not trust a caller's eligibility boolean.
-  const sealed = freezeModelProtocol(protocol, forecast.recordedAt);
+  const sealed = freezeModelProtocol(protocol, forecast.protocolRecordedAt);
   if (
     sealed.protocolSha256 !== protocolSha256 ||
     forecast.protocolSha256 !== protocolSha256 ||

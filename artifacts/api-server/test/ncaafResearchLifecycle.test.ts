@@ -147,13 +147,14 @@ const forecast = {
   recordedAt: "2026-10-24T13:00:01Z",
   modelSha256: protocol.modelSha256,
   protocolSha256: "",
+  protocolRecordedAt: protocol.frozenAt,
   datasetRole: "independent_holdout",
   simulations: 10000,
   settlement: protocol.settlement,
 };
 test("frozen protocol is canonical, immutable to callers and never approves release", () => {
   const p = structuredClone(protocol),
-    f = freezeModelProtocol(p, forecast.recordedAt);
+    f = freezeModelProtocol(p, protocol.frozenAt);
   p.trainingGameIds.push("2026:3");
   assert.equal(f.protocol.trainingGameIds.length, 2);
   assert.equal(f.releaseEligible, false);
@@ -161,7 +162,7 @@ test("frozen protocol is canonical, immutable to callers and never approves rele
     f.protocolSha256,
     freezeModelProtocol(
       { ...protocol, trainingGameIds: [...protocol.trainingGameIds].reverse() },
-      forecast.recordedAt,
+      protocol.frozenAt,
     ).protocolSha256,
   );
   assert.equal(
@@ -173,10 +174,11 @@ test("frozen protocol is canonical, immutable to callers and never approves rele
   );
 });
 test("training leakage, late writes, retrospective forecasts, changed model and lowered requirements reject", () => {
-  const f = freezeModelProtocol(protocol, forecast.recordedAt),
+  const f = freezeModelProtocol(protocol, protocol.frozenAt),
     base = { ...forecast, protocolSha256: f.protocolSha256 };
   for (const patch of [
     { eventId: "1" },
+    { protocolRecordedAt: "2026-10-24T11:00:00Z" },
     { modelSha256: "c".repeat(64) },
     { recordedAt: forecast.kickoff },
     { forecastAt: "2026-10-24T11:00:00Z" },
@@ -197,7 +199,11 @@ test("training leakage, late writes, retrospective forecasts, changed model and 
     assert.throws(() =>
       freezeModelProtocol(
         { ...protocol, ...patch } as ModelProtocol,
-        forecast.recordedAt,
+        protocol.frozenAt,
       ),
     );
+});
+
+test("protocol registration cannot backdate its declared freeze clock", () => {
+  assert.throws(() => freezeModelProtocol(protocol, "2026-10-25T00:00:00Z"));
 });

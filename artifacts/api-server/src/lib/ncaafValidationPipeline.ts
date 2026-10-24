@@ -329,7 +329,7 @@ export async function runNcaafValidationPipeline({
     if (!matches.length) fail("no_matched_pregame_events");
     const settlements = (
       await db.query(
-        "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:%' ORDER BY key DESC LIMIT 5000",
+        "SELECT jsonb_build_object('researchOnly',value->'researchOnly','metrics',value->'metrics') AS value FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:%' ORDER BY key DESC LIMIT 5000",
       )
     ).rows.map((r) => r.value);
     const report = calibrationReport(settlements);
