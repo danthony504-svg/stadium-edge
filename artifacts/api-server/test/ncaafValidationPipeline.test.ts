@@ -422,15 +422,13 @@ function transferStore() {
   const f = fixture(16);
   f.db.values.set("research:ncaaf:history-summary:2025:fixture", {
     researchOnly: true,
-    games: f.games
-      .slice(6, 20)
-      .map((g) => ({
-        ...g,
-        season: 2025,
-        ruleset: "ncaa-football-season-2025-unverified",
-        kickoff: "2025-09-01T12:00:00Z",
-        completedAt: "2025-09-01T16:00:00Z",
-      })),
+    games: f.games.slice(6, 20).map((g) => ({
+      ...g,
+      season: 2025,
+      ruleset: "ncaa-football-season-2025-unverified",
+      kickoff: "2025-09-01T12:00:00Z",
+      completedAt: "2025-09-01T16:00:00Z",
+    })),
   });
   return f;
 }
@@ -466,4 +464,102 @@ test("transfer database clock stops late writes and stale inputs; no fallback fo
   const s = await recordOvertimeTransferForecasts(stale.db, true);
   assert.equal(s.recorded, 0);
   assert.equal(s.blockers?.journal_stale_transfer_archive, 1);
+});
+
+test("completed collection slots still settle frozen forecasts without collector calls", async () => {
+  const { db, games, kickoff } = fixture();
+  await runNcaafValidationPipeline({
+    db,
+    runCollector: async () => {},
+    fetchOutcome: async () => null,
+  });
+  const forecastKey = [...db.values.keys()].find((k) =>
+    k.startsWith("research:ncaaf:forecast:"),
+  )!;
+  const frozen = structuredClone(db.values.get(forecastKey));
+  db.now = "2026-10-24T23:00:00Z";
+  db.values.set(
+    `research:ncaaf:pipeline:slot:${researchSlot(new Date(db.now))}`,
+    { state: "processed", finishedAt: db.now },
+  );
+  let fetches = 0;
+  const deps = {
+    db,
+    runCollector: async () => {
+      throw Error("collector must not run");
+    },
+    fetchOutcome: async () => {
+      fetches++;
+      return {
+        outcome: {
+          ...games[0],
+          eventId: "999",
+          homeId: "1",
+          awayId: "2",
+          kickoff,
+          homePoints: 35,
+          awayPoints: 21,
+          regulationHomePoints: 35,
+          regulationAwayPoints: 21,
+          completedAt: "2026-10-24T22:00:00Z",
+          observedAt: db.now,
+        },
+        source: { fixture: true },
+      };
+    },
+  };
+  const result = await runNcaafValidationPipeline(deps);
+  assert.equal(result.state, "skipped_completed_slot");
+  assert.equal(result.settlementsRecorded, 1);
+  assert.deepEqual(db.values.get(forecastKey), frozen);
+  assert.equal(
+    db.values.get("research:ncaaf:settlement-check:latest").releaseEligible,
+    false,
+  );
+  await runNcaafValidationPipeline(deps);
+  assert.equal(fetches, 1, "repeat tick does not refetch outcomes");
+});
+
+test("collector failure cannot prevent an already eligible forecast settlement", async () => {
+  const { db, games, kickoff } = fixture();
+  await runNcaafValidationPipeline({
+    db,
+    runCollector: async () => {},
+    fetchOutcome: async () => null,
+  });
+  db.now = "2026-10-24T23:00:00Z";
+  await assert.rejects(
+    runNcaafValidationPipeline({
+      db,
+      runCollector: async () => {
+        throw Error("collector unavailable");
+      },
+      fetchOutcome: async () => ({
+        outcome: {
+          ...games[0],
+          eventId: "999",
+          homeId: "1",
+          awayId: "2",
+          kickoff,
+          homePoints: 35,
+          awayPoints: 21,
+          regulationHomePoints: 35,
+          regulationAwayPoints: 21,
+          completedAt: "2026-10-24T22:00:00Z",
+          observedAt: db.now,
+        },
+        source: { fixture: true },
+      }),
+    }),
+  );
+  assert.equal(
+    [...db.values.keys()].filter((k) =>
+      k.startsWith("research:ncaaf:settlement:"),
+    ).length,
+    1,
+  );
+  assert.equal(
+    db.values.get("research:ncaaf:settlement-check:latest").settlementsRecorded,
+    1,
+  );
 });

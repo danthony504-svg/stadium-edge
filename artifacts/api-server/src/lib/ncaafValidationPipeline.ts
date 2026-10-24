@@ -72,11 +72,98 @@ export async function runNcaafValidationPipeline({
     slot = "",
     state: any;
   try {
+    // Settlement has its own bounded retry clock, independent of collection slots.
+    // Claim the attempt before provider calls so failures cannot trigger a storm.
+    const errors: Record<string, number> = {};
+    const fail = (reason: string) => {
+      errors[reason] = (errors[reason] ?? 0) + 1;
+    };
+    let scored = 0,
+      unsettled = 0;
+    const settlementNow = await clock();
+    const previousSettlement = await get(
+      "research:ncaaf:settlement-check:latest",
+    );
+    const previousAttempt = Date.parse(previousSettlement?.startedAt ?? "");
+    if (
+      !Number.isFinite(previousAttempt) ||
+      Date.parse(settlementNow) - previousAttempt >= 30 * 60000
+    ) {
+      await put("research:ncaaf:settlement-check:latest", {
+        startedAt: settlementNow,
+        state: "running",
+        releaseEligible: false,
+      });
+      // Resolve only queued forecasts whose source has actually declared a final.
+      const pending = await db.query(
+        "SELECT f.key,f.value FROM public.app_kv f LEFT JOIN public.app_kv s ON s.key=replace(f.key,'research:ncaaf:forecast:','research:ncaaf:settlement:') WHERE f.key LIKE 'research:ncaaf:forecast:%' AND s.key IS NULL AND (f.value->'target'->>'kickoff')::timestamptz <= clock_timestamp()-interval '4 hours' ORDER BY f.value->'target'->>'kickoff',f.key LIMIT 64",
+      );
+      const now = Date.parse(await clock());
+      for (const row of pending.rows) {
+        try {
+          const t = row.value.target;
+          if (
+            !t ||
+            !/^\d+$/.test(t.eventId) ||
+            !Number.isFinite(Date.parse(t.kickoff))
+          )
+            throw Error("invalid_saved_forecast");
+          if (now < Date.parse(t.kickoff) + 4 * 3600000) {
+            unsettled++;
+            continue;
+          }
+          const final = await fetchOutcome(t.eventId, t.season);
+          if (!final) {
+            unsettled++;
+            continue;
+          }
+          const metrics = scoreRecordedForecast(row.value, final.outcome);
+          const key = row.key.replace(
+            "research:ncaaf:forecast:",
+            "research:ncaaf:settlement:",
+          );
+          const value = {
+            version: 1,
+            researchOnly: true,
+            forecastKey: row.key,
+            forecastSha256: digest(row.value),
+            observedAt: await clock(),
+            outcome: final.outcome,
+            source: final.source,
+            metrics,
+            releaseEligible: false,
+          };
+          const written = await db.query(
+            "INSERT INTO public.app_kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING RETURNING key",
+            [key, JSON.stringify(value)],
+          );
+          if (written.rowCount) scored++;
+        } catch {
+          fail("settlement_unavailable_or_invalid");
+        }
+      }
+      await put("research:ncaaf:settlement-check:latest", {
+        startedAt: settlementNow,
+        finishedAt: await clock(),
+        state: "processed",
+        settlementsRecorded: scored,
+        unsettledInBatch: unsettled,
+        batchLimit: 64,
+        blockers: { ...errors },
+        releaseEligible: false,
+      });
+    }
     slot = researchSlot(new Date(await clock()));
     slotKey = `research:ncaaf:pipeline:slot:${slot}`;
     const prior = await get(slotKey);
     if (prior?.finishedAt && prior.state === "processed")
-      return { state: "skipped_completed_slot", slot, releaseEligible: false };
+      return {
+        state: "skipped_completed_slot",
+        slot,
+        settlementsRecorded: scored,
+        unsettledInBatch: unsettled,
+        releaseEligible: false,
+      };
     if (prior && (prior.attempts ?? 1) >= 3)
       return { state: "skipped_exhausted_slot", slot, releaseEligible: false };
     if (
@@ -99,10 +186,6 @@ export async function runNcaafValidationPipeline({
     };
     await put(slotKey, state);
     await put("research:ncaaf:pipeline:latest", state);
-    const errors: Record<string, number> = {};
-    const fail = (reason: string) => {
-      errors[reason] = (errors[reason] ?? 0) + 1;
-    };
     state.phase = "injuries";
     await put("research:ncaaf:pipeline:latest", state);
     await runCollector("ncaaf-capture-injuries.mjs", []);
@@ -214,58 +297,6 @@ export async function runNcaafValidationPipeline({
       }
     }
     if (!matches.length) fail("no_matched_pregame_events");
-    // Resolve only queued forecasts whose source has actually declared a final.
-    state.phase = "settlements";
-    await put("research:ncaaf:pipeline:latest", state);
-    const pending = await db.query(
-      "SELECT f.key,f.value FROM public.app_kv f LEFT JOIN public.app_kv s ON s.key=replace(f.key,'research:ncaaf:forecast:','research:ncaaf:settlement:') WHERE f.key LIKE 'research:ncaaf:forecast:%' AND s.key IS NULL AND (f.value->'target'->>'kickoff')::timestamptz <= clock_timestamp()-interval '4 hours' ORDER BY f.value->'target'->>'kickoff',f.key LIMIT 64",
-    );
-    let scored = 0,
-      unsettled = 0;
-    const now = Date.parse(await clock());
-    for (const row of pending.rows) {
-      try {
-        const t = row.value.target;
-        if (
-          !t ||
-          !/^\d+$/.test(t.eventId) ||
-          !Number.isFinite(Date.parse(t.kickoff))
-        )
-          throw Error("invalid_saved_forecast");
-        if (now < Date.parse(t.kickoff) + 4 * 3600000) {
-          unsettled++;
-          continue;
-        }
-        const final = await fetchOutcome(t.eventId, t.season);
-        if (!final) {
-          unsettled++;
-          continue;
-        }
-        const metrics = scoreRecordedForecast(row.value, final.outcome);
-        const key = row.key.replace(
-          "research:ncaaf:forecast:",
-          "research:ncaaf:settlement:",
-        );
-        const value = {
-          version: 1,
-          researchOnly: true,
-          forecastKey: row.key,
-          forecastSha256: digest(row.value),
-          observedAt: await clock(),
-          outcome: final.outcome,
-          source: final.source,
-          metrics,
-          releaseEligible: false,
-        };
-        const written = await db.query(
-          "INSERT INTO public.app_kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING RETURNING key",
-          [key, JSON.stringify(value)],
-        );
-        if (written.rowCount) scored++;
-      } catch {
-        fail("settlement_unavailable_or_invalid");
-      }
-    }
     const settlements = (
       await db.query(
         "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:%' ORDER BY key DESC LIMIT 5000",

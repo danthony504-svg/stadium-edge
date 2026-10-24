@@ -29,3 +29,7 @@ To disable collection, set `NCAAF_RESEARCH_PIPELINE_ENABLED=false` and redeploy.
 Retry caps also apply to abandoned `running` slots with no completion timestamp; backoff uses the prior start time when no finish time exists. A hard kill cannot reset a slot's attempt budget.
 
 Runtime verification also found the existing notification dedupe table missing. The separate create-only `20261023_create_notif_log.sql` migration matches the checked-in Drizzle schema. Explicitly setting `APPLY_NOTIF_LOG_MIGRATION=true` runs it on a dedicated connection before API readiness, checks the production database name, bounds DDL locks/runtime, and rolls back on failure. Repeated execution preserves existing rows and composite-key dedupe. Disable that flag after verifying the schema. This repair does not enqueue or send a notification.
+
+## Independent settlement checks
+
+Saved forecasts are checked before collection-slot completion/backoff checks and before any collectors run. A completed slot or an unrelated collector failure therefore cannot prevent an already eligible forecast from being scored. The existing database advisory lock prevents overlap; `research:ncaaf:settlement-check:latest` claims each attempt before provider calls and limits retries to once per 30 minutes. Each batch remains capped at 64 forecasts, requires kickoff at least four hours earlier and an authenticated final outcome, preserves the first forecast/settlement, and never enables release. This step adds no paid odds calls and no request-path work.
