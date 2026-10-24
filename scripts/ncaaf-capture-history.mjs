@@ -257,7 +257,7 @@ async function main() {
       }
       const requestStartedAt = new Date().toISOString();
       const response = await fetch(
-        `https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=${day.replaceAll("-", "")}&groups=80&limit=1000`,
+        `https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=${day.replaceAll("-", "")}&groups=80&limit=100`,
         { signal: AbortSignal.timeout(15000), redirect: "error" },
       );
       requests++;

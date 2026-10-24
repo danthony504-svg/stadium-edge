@@ -29,3 +29,7 @@ No Coach gate, grade/confidence floor, subscription rule, football-period restri
 ## Verification
 
 Focused tests cover failure isolation, durable retry cadence, overlap/database guards, exact input/final/history binding, unknown features, plan-only labeling, hash-stable model protocols, training/holdout leakage and unchanged release thresholds. API typecheck/build and full API regressions run before deployment. Live verification checks the new coordinator/status, preservation of the original forecast fingerprint and unchanged Coach gate.
+
+## Daily scoreboard request coverage (2026-10-24)
+
+The production archive for October 24 contained only 25 ESPN events, ending at 19:45Z, and excluded 20 provider events for absent exact identities. Live read-only checks reproduced 25 events with `limit=1000`, while `limit=100` and `limit=200` returned 44 events through 02:15Z the following UTC day. This is observed endpoint behavior, not a claim about an officially documented ESPN limit. The live collector, history collector and settlement utility now request the working bounded `limit=100` URL. Identity, kickoff, provenance, freshness and immutability checks remain intact. No extra paid odds request is added. Fresh production coverage must be checked after the next scheduled capture; this change alone does not establish new development games or model eligibility.

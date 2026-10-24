@@ -29,7 +29,7 @@ def fetch(day):
         if path.exists():
             raw = path.read_bytes()
         else:
-            url = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=' + day.replace('-', '') + '&groups=80&limit=1000'
+            url = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=' + day.replace('-', '') + '&groups=80&limit=100'
             with urllib.request.urlopen(url, timeout=25) as response:
                 raw = response.read()
             json.loads(raw)
