@@ -59,6 +59,24 @@ export async function recordOvertimeTransferForecasts(
       withheld = 0;
     for (const match of matches) {
       try {
+        // Repeated scheduler ticks must not re-simulate already frozen events.
+        if (
+          execute &&
+          match.target?.season === 2026 &&
+          /^\d+$/.test(match.target?.eventId ?? "")
+        ) {
+          const existingKey = `research:ncaaf:forecast:${OT_TRANSFER_MODEL_VERSION}:2026:${match.target.eventId}`;
+          if (
+            (
+              await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
+                existingKey,
+              ])
+            ).rows.length
+          ) {
+            existing++;
+            continue;
+          }
+        }
         const now = new Date(
           (await db.query("SELECT clock_timestamp() AS now")).rows[0].now,
         ).toISOString();
