@@ -1,4 +1,5 @@
 /** Event-bound context prepared by cron. Reads never start provider work. */
+import { warmDepthChartEvidence, type DepthChartEvidence } from "./preparedDepthCharts.js";
 import { cacheGet, cacheSet } from "./store.js";
 import { ESPN_SPORT_PATHS, cachedJson } from "./sports.js";
 import { withInflightCoalesce } from "./propSimDedicatedStore.js";
@@ -10,6 +11,7 @@ export type ContextGame = { id: string; sport?: string; startsAt: string; homeTe
 export type PreparedGameContext = {
   version: 1; sport: string; eventId: string; startsAt: string; observedAtMs: number; expiresAtMs: number;
   homeTeamId: string; awayTeamId: string; requiresEventTime?: boolean;
+  depthCharts?: DepthChartEvidence[];
   lineups: Array<{ teamId: string; complete: boolean; players: Array<{ athleteId: string; starter: boolean; position: string | null; battingOrder: number | null }> }>;
   environment: {
     venue: string | null; exposure: "outdoor" | "indoors" | "unknown";
@@ -18,7 +20,7 @@ export type PreparedGameContext = {
 };
 type AthleteRow = { athlete?: { id?: string; position?: { abbreviation?: string } }; starter?: boolean; battingOrder?: number };
 export type ContextSummary = {
-  header?: { id?: string; competitions?: Array<{ id?: string; date?: string; status?: { type?: { state?: string } }; competitors?: Array<{ homeAway?: string; team?: { id?: string } }> }> };
+  header?: { season?: { year?: number }; id?: string; competitions?: Array<{ id?: string; date?: string; status?: { type?: { state?: string } }; competitors?: Array<{ homeAway?: string; team?: { id?: string } }> }> };
   gameInfo?: { venue?: { fullName?: string; indoor?: boolean; address?: { city?: string; country?: string; state?: string } } };
   boxscore?: { players?: Array<{ team?: { id?: string }; statistics?: Array<{ athletes?: AthleteRow[] }> }> };
   rosters?: Array<{ team?: { id?: string }; roster?: AthleteRow[] }>;
@@ -104,6 +106,11 @@ async function prepareOne(sport: string, game: ContextGame): Promise<PreparedGam
   const data = envelope.data;
   const context = parsePreparedGameContext(sport, game, envelope.data, envelope.at);
   if (!context || context.expiresAtMs <= Date.now()) return null;
+  // Background work only: Coach reads the prepared result, never fetches charts.
+  // Missing event season remains unknown rather than borrowing the calendar year.
+  if (sport === "nfl" && Number.isInteger(data.header?.season?.year)) {
+    context.depthCharts = (await Promise.all([context.homeTeamId, context.awayTeamId].map(teamId => warmDepthChartEvidence(teamId, data.header!.season!.year!)))).filter((x): x is DepthChartEvidence => x !== null);
+  }
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey || context.environment.exposure === "indoors" || !["mlb", "nfl", "ncaaf", "soccer", "tennis"].includes(sport)) return context;
   try {
