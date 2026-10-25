@@ -111,11 +111,17 @@ test("holdout funnel surfaces upcoming matches and unverified binding reasons wi
             {
               key: "research:ncaaf:adjusted-journal:latest",
               value: {
-                state: "waiting_for_holdout_contexts",
+                state: "processed",
                 recorded: 0,
                 existing: 0,
                 withheld: {},
-                reason: "no_post_freeze_holdout_context_with_future_kickoff",
+              },
+            },
+            {
+              key: "research:ncaaf:adjusted-model:latest",
+              value: {
+                state: "frozen_candidate_preserved",
+                modelSha256: "a".repeat(64),
               },
             },
           ],
@@ -143,6 +149,14 @@ test("holdout funnel surfaces upcoming matches and unverified binding reasons wi
     1,
   );
   assert.equal(report.adjustedJournal.state, "waiting_for_holdout_contexts");
+  assert.equal(
+    report.holdoutFunnel.adjustedJournalState,
+    report.adjustedJournal.state,
+  );
+  assert.equal(
+    report.adjustedJournal.reason,
+    "no_post_freeze_holdout_context_with_future_kickoff",
+  );
   assert.equal(report.release.qualifiedHoldoutGames, null);
   assert.equal(report.releaseEligible, false);
 });

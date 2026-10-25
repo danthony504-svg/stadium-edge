@@ -65,6 +65,22 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
     adjusted = reports.get("research:ncaaf:adjusted-model:latest"),
     journal = reports.get("research:ncaaf:adjusted-journal:latest"),
     contextDataset = reports.get("research:ncaaf:context-dataset:latest");
+  // Derived waiting label when the frozen journal processed zero future
+  // holdout contexts — sealed store files must not change implementationSha256.
+  const waitingForHoldoutContexts =
+    journal?.state === "processed" &&
+    (journal?.recorded ?? 0) === 0 &&
+    (journal?.existing ?? 0) === 0 &&
+    (inventory.future_holdout_contexts ?? 0) === 0 &&
+    !!adjusted?.modelSha256;
+  const adjustedJournalState = waitingForHoldoutContexts
+    ? "waiting_for_holdout_contexts"
+    : (journal?.state ?? "not_run");
+  const adjustedJournalReason =
+    journal?.reason ??
+    (waitingForHoldoutContexts
+      ? "no_post_freeze_holdout_context_with_future_kickoff"
+      : null);
   return {
     checkedAt: new Date(inventory.now).toISOString(),
     pipelineVersion: 2,
@@ -99,7 +115,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
             finishedAt: contextDataset.finishedAt ?? null,
           }
         : null,
-      adjustedJournalState: journal?.state ?? "not_run",
+      adjustedJournalState,
       note:
         "Zero verified bindings usually means official conference reports have not published for the upcoming slate yet — that is source evidence, not a release waiver.",
     },
@@ -141,12 +157,12 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
     },
     adjustedJournal: {
       implemented: true,
-      state: journal?.state ?? "not_run",
+      state: adjustedJournalState,
       recordedThisRun: journal?.recorded ?? 0,
       existing: journal?.existing ?? 0,
       withheld: journal?.withheld ?? {},
       checkedAt: journal?.checkedAt ?? null,
-      reason: journal?.reason ?? null,
+      reason: adjustedJournalReason,
       releaseEligible: false,
     },
     release: {

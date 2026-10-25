@@ -207,9 +207,20 @@ export function buildConferenceArchive(conference, published, history) {
  * Once a capture records verifiedEvents > 0 the attempt key remains terminal so
  * authenticated bindings are not silently replaced. Never invents report dates.
  */
-export function shouldRetryConferenceCapture(attempt, nowMs, minAgeMs = 30 * 60000) {
+export function shouldRetryConferenceCapture(
+  attempt,
+  nowMs,
+  minAgeMs = 30 * 60000,
+  staleRunningMs = 15 * 60000,
+) {
   if (!attempt || typeof attempt !== "object") return true;
-  if (attempt.state === "running") return false;
+  const started = Date.parse(attempt.startedAt ?? "");
+  // A killed collector can leave state=running forever; reclaim after staleRunningMs.
+  if (attempt.state === "running") {
+    if (!Number.isFinite(started) || !Number.isFinite(nowMs) || nowMs < started)
+      return false;
+    return nowMs - started >= staleRunningMs;
+  }
   const finished = Date.parse(attempt.finishedAt ?? attempt.startedAt ?? "");
   if (!Number.isFinite(finished) || !Number.isFinite(nowMs) || nowMs < finished)
     return false;
