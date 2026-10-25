@@ -202,6 +202,24 @@ export function buildConferenceArchive(conference, published, history) {
     automaticUnlock: false,
   };
 }
+/**
+ * Empty or failed conference captures must stay retryable inside the same slot.
+ * Once a capture records verifiedEvents > 0 the attempt key remains terminal so
+ * authenticated bindings are not silently replaced. Never invents report dates.
+ */
+export function shouldRetryConferenceCapture(attempt, nowMs, minAgeMs = 30 * 60000) {
+  if (!attempt || typeof attempt !== "object") return true;
+  if (attempt.state === "running") return false;
+  const finished = Date.parse(attempt.finishedAt ?? attempt.startedAt ?? "");
+  if (!Number.isFinite(finished) || !Number.isFinite(nowMs) || nowMs < finished)
+    return false;
+  if (nowMs - finished < minAgeMs) return false;
+  if (attempt.state === "failed") return true;
+  if (attempt.state === "processed" && (attempt.verifiedEvents ?? 0) === 0)
+    return true;
+  return false;
+}
+
 export function bindConferenceReports(archive, live, now) {
   const clock = Date.parse(now);
   if (
@@ -416,20 +434,41 @@ async function main() {
       throw Error("conference_capture_overlap");
     let captureFailed = false;
     for (const conference of CONFERENCES) {
-      const phase = process.argv.includes("--development-catchup") ? ":development-catchup" : "";
+      const phase = process.argv.includes("--development-catchup")
+        ? ":development-catchup"
+        : process.argv.includes("--slot-free-refresh")
+          ? ":slot-free-refresh"
+          : "";
       const attemptKey = `research:ncaaf:conference-capture-slot:${conference}:${slot}${phase}`;
-      const claimed = await db.query(
-        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-        [
+      const priorAttempt = (
+        await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
           attemptKey,
-          JSON.stringify({
-            state: "running",
-            startedAt: new Date().toISOString(),
-            releaseEligible: false,
-          }),
-        ],
-      );
-      if (!claimed.rowCount) continue;
+        ])
+      ).rows[0]?.value;
+      const nowMs = Date.now();
+      if (priorAttempt && !shouldRetryConferenceCapture(priorAttempt, nowMs))
+        continue;
+      const running = {
+        state: "running",
+        startedAt: new Date().toISOString(),
+        releaseEligible: false,
+        retryOf:
+          priorAttempt?.state === "processed" || priorAttempt?.state === "failed"
+            ? priorAttempt.state
+            : null,
+      };
+      if (priorAttempt) {
+        await db.query(
+          "UPDATE public.app_kv SET value=$2::jsonb,updated_at=now() WHERE key=$1",
+          [attemptKey, JSON.stringify(running)],
+        );
+      } else {
+        const claimed = await db.query(
+          "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+          [attemptKey, JSON.stringify(running)],
+        );
+        if (!claimed.rowCount) continue;
+      }
       try {
         const published = await receipt("get-publish-public", conference),
           history = await receipt("get-archive-public", conference),

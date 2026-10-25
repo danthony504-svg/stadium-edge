@@ -729,7 +729,7 @@ test("missing odds credentials preserve collection slots while settlement mainte
   assert.equal(restored.forecastsRecorded, 1);
 });
 
-test("prewarms slow evidence before the single odds capture and journals immediately after local assembly", async () => {
+test("prewarms history/usage before odds; binds conference after the fresh slate", async () => {
   const { db } = fixture();
   const calls: string[] = [];
   await runNcaafValidationPipeline({
@@ -740,11 +740,44 @@ test("prewarms slow evidence before the single odds capture and journals immedia
   });
   const odds = calls.indexOf("ncaaf-capture-live-inputs.mjs");
   assert.equal(calls.filter(x => x === "ncaaf-capture-live-inputs.mjs").length, 1);
-  for (const slow of ["ncaaf-conference-availability.mjs", "ncaaf-repair-team-history.mjs", "ncaaf-capture-usage.mjs"]) {
+  for (const slow of ["ncaaf-repair-team-history.mjs", "ncaaf-capture-usage.mjs"]) {
     assert.ok(calls.indexOf(slow) >= 0 && calls.indexOf(slow) < odds);
   }
-  assert.equal(calls[odds + 1], "ncaaf-context-dataset.mjs");
-  assert.equal(calls[odds + 2], "adjusted-journal");
+  const conference = calls.indexOf("ncaaf-conference-availability.mjs");
+  assert.ok(conference > odds, "conference binds after fresh odds");
+  assert.equal(calls[conference + 1], "ncaaf-context-dataset.mjs");
+  assert.equal(calls[conference + 2], "adjusted-journal");
+});
+
+test("completed odds slot still refreshes free injury/conference/context evidence", async () => {
+  const { db } = fixture();
+  const calls: string[] = [];
+  await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name) => { calls.push(name); },
+    onQuotesReady: async () => { calls.push("adjusted-journal"); },
+    fetchOutcome: async () => null,
+  });
+  const againCalls: string[] = [];
+  const again = await runNcaafValidationPipeline({
+    db,
+    runCollector: async (name, args) => {
+      againCalls.push(name);
+      if (name === "ncaaf-conference-availability.mjs") {
+        assert.ok(args.includes("--slot-free-refresh"));
+      }
+    },
+    onQuotesReady: async () => { againCalls.push("adjusted-journal"); },
+    fetchOutcome: async () => null,
+  });
+  assert.equal(again.state, "skipped_completed_slot");
+  assert.equal(again.freeEvidenceRefresh, true);
+  assert.ok(!againCalls.includes("ncaaf-capture-live-inputs.mjs"));
+  assert.ok(againCalls.includes("ncaaf-capture-injuries.mjs"));
+  assert.ok(againCalls.includes("ncaaf-conference-availability.mjs"));
+  assert.ok(againCalls.includes("ncaaf-context-dataset.mjs"));
+  assert.ok(againCalls.includes("adjusted-journal"));
+  assert.equal(calls.filter((c) => c === "ncaaf-capture-live-inputs.mjs").length, 1);
 });
 
 test("forecast processing and counts use the fresh slate rather than cached prewarm targets", async () => {

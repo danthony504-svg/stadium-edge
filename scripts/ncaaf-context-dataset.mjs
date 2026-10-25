@@ -470,6 +470,11 @@ async function main() {
           )
         ).rows;
     const blockers = {};
+    const bindingStats = {
+      reportsSeen: 0,
+      verified: 0,
+      unverifiedReasons: {},
+    };
     const fail = (error) => {
       const m = error instanceof Error ? error.message : "";
       const reason = /^(context|conference|repair|history)_[a-z_]+$/.test(m)
@@ -492,6 +497,18 @@ async function main() {
         fail(error);
         withheld++;
         continue;
+      }
+      for (const b of bindings) {
+        bindingStats.reportsSeen += 1;
+        if (b.eventBindingVerified) bindingStats.verified += 1;
+        else {
+          const reason =
+            typeof b.reason === "string" && b.reason
+              ? b.reason
+              : "unverified_binding";
+          bindingStats.unverifiedReasons[reason] =
+            (bindingStats.unverifiedReasons[reason] ?? 0) + 1;
+        }
       }
       for (const b of bindings.filter((x) => x.eventBindingVerified)) {
         if (seen.has(b.target.eventId)) continue;
@@ -664,6 +681,7 @@ async function main() {
       featureVersion: "ncaaf-participation-availability-v2",
       uniqueDevelopmentEvents,
       blockers,
+      bindingStats,
       outcomesRecorded,
       labelCursor,
       outcomesAlreadyPresent: outcomesPresent,

@@ -17,6 +17,7 @@ test("new development targets get a free same-slot catch-up without another odds
   const r = await catchUpNcaafDevelopment(f);
   assert.equal(r.state,"processed");
   assert.deepEqual(f.calls,[
+    {name:"ncaaf-capture-injuries.mjs",args:[]},
     {name:"ncaaf-conference-availability.mjs",args:["--capture-slot","2026-10-24T14:00:00.000Z","--development-catchup"]},
     {name:"ncaaf-repair-team-history.mjs",args:["--season","2026","--capture-slot","2026-10-24T14:00:00.000Z"]},
     {name:"ncaaf-capture-usage.mjs",args:["--capture-slot","2026-10-24T14:00:00.000Z"]},
@@ -28,13 +29,15 @@ test("a frozen candidate permits prospective catch-up but does not fit or reques
   const f=fixture({state:"frozen_research_candidate"});
   const r=await catchUpNcaafDevelopment(f);
   assert.equal(r.state,"processed");assert.equal(r.contextRole,"holdout_context");
-  assert.equal(f.calls.length,4);
+  assert.equal(f.calls.length,5);
   assert.ok(f.calls.every(c=>!c.name.includes("live-inputs") && !c.name.includes("adjusted")));
+  assert.equal(f.calls[0].name, "ncaaf-capture-injuries.mjs");
 });
 test("overnight receipt reuses its active slot without borrowing the next budget",async()=>{
  const same=fixture(null,"2026-10-24T02:01:00Z","2026-10-24T12:00:00Z");
  assert.equal((await catchUpNcaafDevelopment(same)).state,"processed");
- assert.equal(same.calls[0].args[1],"2026-10-24T02:00:00.000Z");
+ const conference=same.calls.find(c=>c.name==="ncaaf-conference-availability.mjs");
+ assert.equal(conference?.args[1],"2026-10-24T02:00:00.000Z");
  const crossed=fixture(null,"2026-10-24T13:59:00Z","2026-10-24T14:15:00Z");
  assert.equal((await catchUpNcaafDevelopment(crossed)).state,"waiting_for_active_slot_inputs");
  assert.equal(crossed.calls.length,0);

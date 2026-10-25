@@ -176,14 +176,50 @@ export async function runNcaafValidationPipeline({
     slot = researchSlot(new Date(await clock()));
     slotKey = `research:ncaaf:pipeline:slot:${slot}`;
     const prior = await get(slotKey);
-    if (prior?.finishedAt && prior.state === "processed")
+    if (prior?.finishedAt && prior.state === "processed") {
+      // Paid odds for this slot already ran. Still refresh free evidence so
+      // mid-slot conference publications can bind upcoming games without another
+      // Odds API charge. Incomplete targets stay retryable.
+      const freeBlockers: Record<string, number> = {};
+      const freeFail = (reason: string) => {
+        freeBlockers[reason] = (freeBlockers[reason] ?? 0) + 1;
+      };
+      try {
+        await runCollector("ncaaf-capture-injuries.mjs", []);
+      } catch {
+        freeFail("injury_refresh_failed");
+      }
+      try {
+        await runCollector("ncaaf-conference-availability.mjs", [
+          "--capture-slot",
+          slot,
+          "--slot-free-refresh",
+        ]);
+      } catch {
+        freeFail("conference_availability_capture_failed");
+      }
+      try {
+        await runCollector("ncaaf-context-dataset.mjs", []);
+      } catch {
+        freeFail("context_dataset_assembly_failed");
+      }
+      if (onQuotesReady) {
+        try {
+          await onQuotesReady();
+        } catch {
+          freeFail("adjusted_journal_failed");
+        }
+      }
       return {
         state: "skipped_completed_slot",
         slot,
+        freeEvidenceRefresh: true,
+        blockers: freeBlockers,
         settlementsRecorded: scored,
         unsettledInBatch: unsettled,
         releaseEligible: false,
       };
+    }
     if (prior && (prior.attempts ?? 1) >= 3)
       return { state: "skipped_exhausted_slot", slot, releaseEligible: false };
     if (
@@ -209,19 +245,8 @@ export async function runNcaafValidationPipeline({
     state.phase = "injuries";
     await put("research:ncaaf:pipeline:latest", state);
     await runCollector("ncaaf-capture-injuries.mjs", []);
-    // Supplementary research evidence must not block existing collection/scoring.
-    state.phase = "conference_availability";
-    await put("research:ncaaf:pipeline:latest", state);
-    try {
-      await runCollector("ncaaf-conference-availability.mjs", [
-        "--capture-slot",
-        slot,
-      ]);
-    } catch {
-      fail("conference_availability_capture_failed");
-    }
     let live = await latest("research:ncaaf:live-inputs:");
-    // Prewarm slow evidence from cached targets before spending this slot's single odds request.
+    // Prewarm slow history/usage from cached targets before the single odds request.
     let matches: LiveInputArchive["matched"] = live?.value.matched ?? [];
     if (matches.length > 128) throw Error("pipeline_target_budget");
     state.phase = "history";
@@ -258,6 +283,18 @@ export async function runNcaafValidationPipeline({
       await put(slotKey, state);
       await put("research:ncaaf:pipeline:latest", state);
       await runCollector("ncaaf-capture-live-inputs.mjs", []);
+    }
+    // Bind conference reports after the fresh matched slate so availability can
+    // attach to current upcoming games (never invents missing report dates).
+    state.phase = "conference_availability";
+    await put("research:ncaaf:pipeline:latest", state);
+    try {
+      await runCollector("ncaaf-conference-availability.mjs", [
+        "--capture-slot",
+        slot,
+      ]);
+    } catch {
+      fail("conference_availability_capture_failed");
     }
     try {
       await runCollector("ncaaf-context-dataset.mjs", []);
