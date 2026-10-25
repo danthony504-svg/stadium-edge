@@ -10,6 +10,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
           "research:ncaaf:lifecycle:latest",
           "research:ncaaf:development-dataset:latest",
           "research:ncaaf:context-labels:latest",
+          "research:ncaaf:context-dataset:latest",
           "research:ncaaf:lifecycle:metrics",
           "research:ncaaf:settlement-check:latest",
           "research:ncaaf:adjusted-model:latest",
@@ -21,14 +22,49 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
   const reports = new Map(rows.map((r) => [r.key, r.value]));
   const inventory = (
     await db.query(
-      "SELECT (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:forecast:%')::int AS forecasts, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:%')::int AS settlements, (SELECT count(DISTINCT (value->'target'->>'season')||':'||(value->'target'->>'eventId')) FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v2:%' AND value->>'datasetRole'='development_only')::int AS development_games, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:forecast:%' AND (value->'target'->>'season')::int < 2026)::int AS prior_season_forecasts, clock_timestamp() AS now",
+      "SELECT (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:forecast:%')::int AS forecasts, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:settlement:%')::int AS settlements, (SELECT count(DISTINCT (value->'target'->>'season')||':'||(value->'target'->>'eventId')) FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v2:%' AND value->>'datasetRole'='development_only')::int AS development_games, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:forecast:%' AND (value->'target'->>'season')::int < 2026)::int AS prior_season_forecasts, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v2:%' AND value->>'datasetRole'='holdout_context' AND (value->'target'->>'kickoff')::timestamptz>clock_timestamp())::int AS future_holdout_contexts, (SELECT count(*) FROM public.app_kv WHERE key LIKE 'research:ncaaf:forecast:%' AND value->>'datasetRole'='independent_holdout')::int AS independent_holdout_forecasts, clock_timestamp() AS now",
     )
   ).rows[0];
+  const live = (
+    await db.query(
+      "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
+    )
+  ).rows[0];
+  const nowMs = Date.parse(new Date(inventory.now).toISOString());
+  const matched = Array.isArray(live?.value?.matched) ? live.value.matched : [];
+  const upcomingMatched = matched.filter(
+    (m: { target?: { kickoff?: string } }) =>
+      Number.isFinite(Date.parse(m?.target?.kickoff ?? "")) &&
+      Date.parse(m.target!.kickoff!) > nowMs,
+  ).length;
+  const bindingRows = (
+    await db.query(
+      "SELECT DISTINCT ON (split_part(key, ':', 4)) key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:conference-bindings:%' ORDER BY split_part(key, ':', 4), key DESC LIMIT 8",
+    )
+  ).rows;
+  let verifiedBindings = 0;
+  let bindingReports = 0;
+  const bindingReasons: Record<string, number> = {};
+  for (const row of bindingRows) {
+    const bindings = Array.isArray(row.value?.bindings) ? row.value.bindings : [];
+    bindingReports += bindings.length;
+    for (const b of bindings) {
+      if (b?.eventBindingVerified) verifiedBindings += 1;
+      else {
+        const reason =
+          typeof b?.reason === "string" && b.reason
+            ? b.reason
+            : "unverified_binding";
+        bindingReasons[reason] = (bindingReasons[reason] ?? 0) + 1;
+      }
+    }
+  }
   const lifecycle = reports.get("research:ncaaf:lifecycle:latest"),
     development = reports.get("research:ncaaf:development-dataset:latest"),
     settlement = reports.get("research:ncaaf:settlement-check:latest"),
     adjusted = reports.get("research:ncaaf:adjusted-model:latest"),
-    journal = reports.get("research:ncaaf:adjusted-journal:latest");
+    journal = reports.get("research:ncaaf:adjusted-journal:latest"),
+    contextDataset = reports.get("research:ncaaf:context-dataset:latest");
   return {
     checkedAt: new Date(inventory.now).toISOString(),
     pipelineVersion: 2,
@@ -43,6 +79,29 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       authenticatedDevelopmentGames:
         development?.authenticatedDevelopmentGames ?? 0,
       featureCompleteDevelopmentGames: development?.featureCompleteGames ?? 0,
+      futureHoldoutContexts: inventory.future_holdout_contexts,
+      independentHoldoutForecasts: inventory.independent_holdout_forecasts,
+    },
+    holdoutFunnel: {
+      liveArchiveKey: live?.key ?? null,
+      upcomingMatchedTargets: upcomingMatched,
+      conferenceBindingReports: bindingReports,
+      verifiedAvailabilityBindings: verifiedBindings,
+      unverifiedBindingReasons: bindingReasons,
+      contextDataset: contextDataset
+        ? {
+            state: contextDataset.state ?? null,
+            inputsRecorded: contextDataset.inputsRecorded ?? 0,
+            inputsAlreadyPresent: contextDataset.inputsAlreadyPresent ?? 0,
+            withheld: contextDataset.withheld ?? 0,
+            blockers: contextDataset.blockers ?? {},
+            bindingStats: contextDataset.bindingStats ?? null,
+            finishedAt: contextDataset.finishedAt ?? null,
+          }
+        : null,
+      adjustedJournalState: journal?.state ?? "not_run",
+      note:
+        "Zero verified bindings usually means official conference reports have not published for the upcoming slate yet — that is source evidence, not a release waiver.",
     },
     lifecycle: lifecycle
       ? {
@@ -87,6 +146,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       existing: journal?.existing ?? 0,
       withheld: journal?.withheld ?? {},
       checkedAt: journal?.checkedAt ?? null,
+      reason: journal?.reason ?? null,
       releaseEligible: false,
     },
     release: {
@@ -121,7 +181,10 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
           step: "market_calibration_injury_venue_and_ot_review",
           state: "not_passed",
         },
-        { step: "release_approval_and_coach_integration", state: "blocked" },
+        {
+          step: "release_approval_and_coach_integration",
+          state: "blocked",
+        },
       ],
     },
     limitations: [
@@ -129,6 +192,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       "development_and_holdout_must_use_distinct_games",
       "old_forecasts_are_not_relabelled_as_new_model_predictions",
       "model_fit_validation_and_release_are_not_automatically_claimed_by_collection_success",
+      "conference_availability_reports_are_partial_and_may_lag_upcoming_slates",
     ],
   };
 }

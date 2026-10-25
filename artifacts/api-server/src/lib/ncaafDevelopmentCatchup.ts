@@ -31,11 +31,20 @@ export async function catchUpNcaafDevelopment({ db, runCollector, loadFrozen = l
   // remain authoritative across both prewarming and this catch-up pass.
   const slot = researchSlot(new Date(received));
   if (slot !== researchSlot(now)) return { state: "waiting_for_active_slot_inputs", releaseEligible: false };
+  // Free evidence only — injuries keep the journal's 6h freshness window alive
+  // when the paid odds slot already finished earlier in the day.
+  await runCollector("ncaaf-capture-injuries.mjs", []);
   // One additional, deduplicated public report capture per odds slot.
+  // Empty verifiedEvents stays retryable inside the collector after backoff.
   await runCollector("ncaaf-conference-availability.mjs", ["--capture-slot", slot, "--development-catchup"]);
   for (const season of seasons)
     await runCollector("ncaaf-repair-team-history.mjs", ["--season", String(season), "--capture-slot", slot]);
   await runCollector("ncaaf-capture-usage.mjs", ["--capture-slot", slot]);
   await runCollector("ncaaf-context-dataset.mjs", []);
-  return { state: "processed", contextRole: frozen ? "holdout_context" : "development_only", upcomingTargets: targets.length, releaseEligible: false };
+  return {
+    state: "processed",
+    contextRole: frozen ? "holdout_context" : "development_only",
+    upcomingTargets: targets.length,
+    releaseEligible: false,
+  };
 }

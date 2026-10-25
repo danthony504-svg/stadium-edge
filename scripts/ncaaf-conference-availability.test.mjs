@@ -7,6 +7,7 @@ import {
   buildConferenceArchive,
   bindConferenceReports,
   decodeCapture,
+  shouldRetryConferenceCapture,
 } from "./ncaaf-conference-availability.mjs";
 const now = "2026-10-24T03:00:00Z";
 const receipt = (body) => ({
@@ -219,4 +220,45 @@ test("single-digit official publication hours retain exact timezone and invalid-
   assert.equal(publicationTime({...r,postedTime:"09:00:00"}),publicationTime(r));
   for(const postedTime of ["24:00:00","9:60:00","9:00","90000","9:00:60"])
     assert.throws(()=>publicationTime({...r,postedTime}),/invalid_publication/);
+});
+
+test("empty or failed conference captures stay retryable; verified captures do not", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  assert.equal(shouldRetryConferenceCapture(null, now), true);
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 0, finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "failed", finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 0, finishedAt: "2026-10-25T11:45:00Z" },
+      now,
+    ),
+    false,
+    "30-minute backoff",
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 2, finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "running", startedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    false,
+  );
 });
