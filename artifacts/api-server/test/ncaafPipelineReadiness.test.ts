@@ -150,6 +150,10 @@ test("holdout funnel surfaces upcoming matches and unverified binding reasons wi
   );
   assert.equal(report.adjustedJournal.state, "waiting_for_holdout_contexts");
   assert.equal(
+    report.holdoutFunnel.adjustedJournalState,
+    report.adjustedJournal.state,
+  );
+  assert.equal(
     report.adjustedJournal.reason,
     "no_post_freeze_holdout_context_with_future_kickoff",
   );
