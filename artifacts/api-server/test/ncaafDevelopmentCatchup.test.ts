@@ -32,6 +32,20 @@ test("a frozen candidate permits prospective catch-up but does not fit or reques
   assert.equal(f.calls.length,5);
   assert.ok(f.calls.every(c=>!c.name.includes("live-inputs") && !c.name.includes("adjusted")));
   assert.equal(f.calls[0].name, "ncaaf-capture-injuries.mjs");
+  assert.equal(r.injuryRefreshFailed, false);
+});
+
+test("injury refresh failure does not abort conference or context catch-up", async () => {
+  const f = fixture({ state: "frozen_research_candidate" });
+  f.runCollector = async (name: string, args: string[]) => {
+    f.calls.push({ name, args });
+    if (name === "ncaaf-capture-injuries.mjs") throw Error("injury unavailable");
+  };
+  const r = await catchUpNcaafDevelopment(f);
+  assert.equal(r.state, "processed");
+  assert.equal(r.injuryRefreshFailed, true);
+  assert.ok(f.calls.some((c) => c.name === "ncaaf-conference-availability.mjs"));
+  assert.ok(f.calls.some((c) => c.name === "ncaaf-context-dataset.mjs"));
 });
 test("overnight receipt reuses its active slot without borrowing the next budget",async()=>{
  const same=fixture(null,"2026-10-24T02:01:00Z","2026-10-24T12:00:00Z");

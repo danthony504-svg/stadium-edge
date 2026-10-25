@@ -256,9 +256,18 @@ test("empty or failed conference captures stay retryable; verified captures do n
   );
   assert.equal(
     shouldRetryConferenceCapture(
-      { state: "running", startedAt: "2026-10-25T11:00:00Z" },
+      { state: "running", startedAt: "2026-10-25T11:50:00Z" },
       now,
     ),
     false,
+    "fresh running attempt stays exclusive",
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "running", startedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+    "stale running attempt after collector kill is reclaimable",
   );
 });

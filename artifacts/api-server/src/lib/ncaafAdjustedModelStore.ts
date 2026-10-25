@@ -393,22 +393,6 @@ export async function recordAdjustedContextForecasts(
         "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:context-input:v2:%' AND value->>'datasetRole'='holdout_context' AND (value->'target'->>'kickoff')::timestamptz>clock_timestamp() ORDER BY value->'target'->>'kickoff',key LIMIT 128",
       )
     ).rows;
-    if (!contexts.length) {
-      const result = {
-        state: "waiting_for_holdout_contexts",
-        checkedAt: await clock(),
-        modelSha256: pointer.modelSha256,
-        recorded: 0,
-        existing: 0,
-        withheld: {},
-        researchOnly: true,
-        releaseEligible: false,
-        reason:
-          "no_post_freeze_holdout_context_with_future_kickoff",
-      };
-      await put("research:ncaaf:adjusted-journal:latest", result);
-      return result;
-    }
     const helpers = await sourceHelpers(root);
     let recorded = 0,
       existing = 0;

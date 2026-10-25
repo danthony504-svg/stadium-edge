@@ -141,12 +141,27 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
     },
     adjustedJournal: {
       implemented: true,
-      state: journal?.state ?? "not_run",
+      // Derived waiting label when the frozen journal processed zero future
+      // holdout contexts — sealed store files must not change implementationSha256.
+      state:
+        journal?.state === "processed" &&
+        (journal?.recorded ?? 0) === 0 &&
+        (journal?.existing ?? 0) === 0 &&
+        (inventory.future_holdout_contexts ?? 0) === 0 &&
+        !!adjusted?.modelSha256
+          ? "waiting_for_holdout_contexts"
+          : (journal?.state ?? "not_run"),
       recordedThisRun: journal?.recorded ?? 0,
       existing: journal?.existing ?? 0,
       withheld: journal?.withheld ?? {},
       checkedAt: journal?.checkedAt ?? null,
-      reason: journal?.reason ?? null,
+      reason:
+        journal?.reason ??
+        (journal?.state === "processed" &&
+        (inventory.future_holdout_contexts ?? 0) === 0 &&
+        !!adjusted?.modelSha256
+          ? "no_post_freeze_holdout_context_with_future_kickoff"
+          : null),
       releaseEligible: false,
     },
     release: {

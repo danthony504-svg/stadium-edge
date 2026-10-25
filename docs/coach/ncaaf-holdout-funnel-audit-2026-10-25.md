@@ -33,12 +33,12 @@ Original research forecasts remain immutable inventory; they are not relabelled 
 
 ### Code defects addressed in this change
 
-1. **Opaque empty journal** — journal now reports `waiting_for_holdout_contexts` when no post-freeze future contexts exist (instead of a silent `processed` with zeros).
-2. **Conference capture one-shot empty slots** — attempts with `verifiedEvents: 0` or `failed` become retryable after a 30-minute backoff so mid-slot report publication can bind.
+1. **Opaque empty journal** — `/status` derives `waiting_for_holdout_contexts` when a frozen model exists and zero future holdout contexts are present (sealed `ncaafAdjustedModelStore.ts` / `ncaaf-context-dataset.mjs` bytes stay frozen-compatible so `implementationSha256` does not break journaling).
+2. **Conference capture one-shot empty slots** — attempts with `verifiedEvents: 0` or `failed` become retryable after a 30-minute backoff; stale `running` attempts reclaim after 15 minutes so collector kills do not pin the slot.
 3. **Completed odds slot skipped all free collectors** — free injury/conference/context refresh still runs without another Odds API charge.
 4. **Conference bound before fresh odds** — conference capture now runs after the slot's live-input refresh so bindings see the current matched upcoming set.
-5. **Catch-up skipped injury refresh** — catch-up now refreshes injuries so the journal's 6-hour injury freshness window can survive a completed odds slot.
-6. **Operator funnel invisible** — `/status` exposes upcoming matched targets, verified bindings, context-dataset blockers/bindingStats and future holdout context counts.
+5. **Catch-up injury refresh** — catch-up refreshes injuries for the journal's 6-hour window; injury failures are isolated and do not abort conference/usage/context.
+6. **Operator funnel invisible** — `/status` exposes upcoming matched targets, verified bindings, context-dataset blockers and future holdout context counts.
 
 ### Not defects
 
