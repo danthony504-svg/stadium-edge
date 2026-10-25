@@ -593,9 +593,7 @@ export default function CoachScreen() {
         abort.abort();
         finishSession(assistantId, {
           picks,
-          text: picks.length
-            ? ""
-            : "Hit the delivery budget before the board finished — composer unlocked.",
+          text: fullTicket ? "" : `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${requestedLegs} requested picks that cleared all checks. No ungraded filler was added.`,
           requestedLegs,
           // Full N/N after revalidation is a completed ticket — do not mark
           // props-pending shortfall when every seat already cleared.
