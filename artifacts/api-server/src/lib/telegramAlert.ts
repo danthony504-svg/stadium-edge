@@ -45,6 +45,10 @@ export function formatCriticalCrashAlert(event: {
 
 export type CoachDigestTelegramStats = {
   totalRequests: number;
+  requestStartEvents?: number;
+  unidentifiedEvents?: number;
+  cancelledEvents?: number;
+  observedParlayTerminals?: number;
   successfulRequests: number;
   fulfillmentPct: number | null;
   underfillCount: number;
@@ -159,13 +163,19 @@ export function formatCoachDailyDigestSection(
       : "—";
   const coverageNote =
     coach.totalRequests === 0
-      ? "coverage: 0 received Coach events ≠ verified zero Coach usage (tip-boot crash can block client; check server chat path separately)"
+      ? "coverage: 0 identified requests ≠ verified zero Coach usage (tip-boot crash can block client; check server chat path separately)"
       : "coverage: counts are received reliability events only";
   return [
     "🤖 Coach activity (received events)",
-    `requests received: ${coach.totalRequests}`,
-    `successful parlays: ${coach.successfulRequests}`,
-    `fulfillment: ${coach.fulfillmentPct == null ? "—" : `${coach.fulfillmentPct}%`}`,
+    `identified requests observed: ${coach.totalRequests}`,
+    coach.requestStartEvents != null ? `request-start events: ${coach.requestStartEvents}` : null,
+    coach.unidentifiedEvents != null ? `events without recoverable request identity: ${coach.unidentifiedEvents}` : null,
+    `fully filled ticket events: ${coach.successfulRequests}`,
+    `full-ticket delivery rate: ${coach.fulfillmentPct == null ? "unavailable" : `${coach.fulfillmentPct}%`}` +
+      (coach.observedParlayTerminals != null ? ` (${coach.observedParlayTerminals} identified terminal attempts; timeouts included)` : ""),
+    "delivery rate is not betting win rate",
+    coach.cancelledEvents != null ? `cancellation events: ${coach.cancelledEvents}` : null,
+    "Coach-selected prop wins/losses: unavailable — no verified delivered-pick outcome ledger connected",
     `underfill: ${coach.underfillCount}` +
       (coach.legitimateUnderfillCount != null
         ? ` (legit ${coach.legitimateUnderfillCount})`
@@ -176,7 +186,7 @@ export function formatCoachDailyDigestSection(
     `p50/p95 ms: ${coach.p50Ms ?? "—"} / ${coach.p95Ms ?? "—"}`,
     `top failures: ${top}`,
     coverageNote,
-  ].join("\n");
+  ].filter(line => line != null).join("\n");
 }
 
 export function formatHealthFailureAlert(event: {

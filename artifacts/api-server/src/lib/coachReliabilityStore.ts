@@ -6,6 +6,7 @@
  */
 
 import { and, eq, gt } from "drizzle-orm";
+import { coachDigestCoverage } from "./coachDigestCoverage.js";
 import { db, reliabilityEventsTable } from "@workspace/db";
 import { logger } from "./logger.js";
 import { CRASH_DEDUPE_WINDOW_MS } from "./reliabilitySanitize.js";
@@ -79,6 +80,10 @@ export type RecordCoachEventInput = {
 export type CoachDigestStats = {
   windowHours: number;
   totalRequests: number;
+  requestStartEvents?: number;
+  unidentifiedEvents?: number;
+  cancelledEvents?: number;
+  observedParlayTerminals?: number;
   successfulRequests: number;
   fulfillmentPct: number | null;
   underfillCount: number;
@@ -455,7 +460,6 @@ export async function coachReliabilityDigestStats(
         ),
       );
 
-    let totalRequests = 0;
     let successfulRequests = 0;
     let underfillCount = 0;
     let legitimateUnderfillCount = 0;
@@ -474,12 +478,6 @@ export async function coachReliabilityDigestStats(
       const type = meta?.eventType;
       if (!type) continue;
 
-      if (
-        type === "parlay_requested" ||
-        type === "coach_question_received"
-      ) {
-        totalRequests += n;
-      }
       if (type === "parlay_fulfilled") {
         successfulRequests += n;
       }
@@ -524,20 +522,10 @@ export async function coachReliabilityDigestStats(
       }
     }
 
-    if (totalRequests === 0) {
-      totalRequests =
-        successfulRequests +
-        underfillCount +
-        zeroResultCount +
-        questionFailureCount;
-    }
-
-    const parlayAttempts =
-      successfulRequests + underfillCount + zeroResultCount;
-    const fulfillmentPct =
-      parlayAttempts > 0
-        ? Math.round((1000 * successfulRequests) / parlayAttempts) / 10
-        : null;
+    const coverage = coachDigestCoverage(rows.flatMap(row => {
+      const meta = parseCoachMeta(row.errorStack);
+      return meta ? [{eventType: meta.eventType, requestId: meta.requestId, occurrenceCount: row.occurrenceCount}] : [];
+    }));
 
     durations.sort((a, b) => a - b);
     const topFailureReasons = [...reasonCounts.entries()]
@@ -547,9 +535,8 @@ export async function coachReliabilityDigestStats(
 
     return {
       windowHours,
-      totalRequests,
+      ...coverage,
       successfulRequests,
-      fulfillmentPct,
       underfillCount,
       legitimateUnderfillCount,
       zeroResultCount,
