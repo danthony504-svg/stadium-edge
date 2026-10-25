@@ -237,8 +237,10 @@ type RawEventOdds = {
   away_team?: string;
   bookmakers?: Array<{
     title?: string;
+    last_update?: string;
     markets?: Array<{
       key: string;
+      last_update?: string;
       outcomes?: Array<{ name: string; description?: string; price: number; point?: number }>;
     }>;
   }>;
@@ -784,6 +786,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       underPrice: number | null;
       // The sportsbook behind the best price on each side (for "where to bet"
       // arbitrage). Tracked in lockstep with overPrice/underPrice below.
+      overSourceUpdatedAt?: string | null;
+      underSourceUpdatedAt?: string | null;
       overBook: string | null;
       underBook: string | null;
       alt: boolean;
@@ -832,15 +836,17 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             const isOver = side === "over" || side === "yes";
             const isUnder = side === "under" || side === "no";
             const title = book.title ?? "?";
+            const sourceTime = m.last_update ?? book.last_update;
+            const sourceUpdatedAt = typeof sourceTime === "string" && Number.isFinite(Date.parse(sourceTime)) ? sourceTime : null;
             // Keep the BEST price per side AND the book that posts it. A new book
             // wins the slot whenever betterAmerican prefers its price (ties go to
             // the newer book, matching betterAmerican's bias).
             if (isOver) {
-              if (row.overPrice == null) { row.overPrice = price; row.overBook = title; }
-              else { const b = betterAmerican(row.overPrice, price); if (b !== row.overPrice) { row.overPrice = b; row.overBook = title; } }
+              if (row.overPrice == null) { row.overPrice = price; row.overBook = title; row.overSourceUpdatedAt = sourceUpdatedAt; }
+              else { const b = betterAmerican(row.overPrice, price); if (b !== row.overPrice) { row.overPrice = b; row.overBook = title; row.overSourceUpdatedAt = sourceUpdatedAt; } }
             } else if (isUnder) {
-              if (row.underPrice == null) { row.underPrice = price; row.underBook = title; }
-              else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; } }
+              if (row.underPrice == null) { row.underPrice = price; row.underBook = title; row.underSourceUpdatedAt = sourceUpdatedAt; }
+              else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; row.underSourceUpdatedAt = sourceUpdatedAt; } }
             }
             byKey.set(k, row);
             // Record this book's posted price per side (MAIN lines only) so we can
