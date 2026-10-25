@@ -1,4 +1,5 @@
-import { filterPicksByAskMarketConstraint, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
+import { runCoachBounded } from "./coachAbortable.ts";
+import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
 import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
@@ -443,17 +444,11 @@ async function simPropBatch(
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
   try {
-    const simResult = await Promise.race([
-      fetchPropSimulations(
-        batch,
-        pool,
-        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
-        signal,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
-      ),
-    ]);
+    const simResult = await runCoachBounded(
+      childSignal => fetchPropSimulations(batch, pool,
+        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined }, childSignal),
+      PROP_SIM_BATCH_TIMEOUT_MS, signal,
+    );
     for (const [k, v] of simResult.hits) {
       const batchPick = batch.find(
         (p) =>
@@ -529,18 +524,10 @@ async function simPropBatch(
   const PROP_ENRICH_TIMEOUT_MS = batchOpts?.enrichTimeoutMs ?? 12_000;
   let enriched: Awaited<ReturnType<typeof enrichCoachPropSimHits>>;
   try {
-    enriched = await Promise.race([
-      enrichCoachPropSimHits(
-        batch,
-        pool,
-        aliasPropSimHitsForBatch(batch, out),
-        signal,
-        sharedHistories,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("prop-enrich-timeout")), PROP_ENRICH_TIMEOUT_MS),
-      ),
-    ]);
+    enriched = await runCoachBounded(
+      childSignal => enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), childSignal, sharedHistories),
+      PROP_ENRICH_TIMEOUT_MS, signal,
+    );
   } catch {
     timedOut = true;
     enriched = { hits: out, playerHistory: {}, historyReused: 0, historyFetched: 0 };
@@ -1462,7 +1449,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   // Final delivery repeats the same constraint; discarded markets never qualify.
   const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
   for (const [label, lines] of evalLinesByGame) {
-    const eligible = filterPicksByAskMarketConstraint(lines, simulationConstraint);
+    const eligible = filterGameLinesForCoachSimulation(lines, simulationConstraint);
     if (eligible.length) evalLinesByGame.set(label, eligible);
     else evalLinesByGame.delete(label);
   }
@@ -1803,10 +1790,9 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     }
   }
 
-  const expandedPool = await Promise.race([
-    poolExpandP ?? Promise.resolve(null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
-  ]);
+  const expandedPool = poolExpandP
+    ? await runCoachBounded(() => poolExpandP!, 25_000, opts.signal).catch(() => null)
+    : null;
   if (expandedPool?.length) pool = expandedPool;
 
   if (footballMixPath) {

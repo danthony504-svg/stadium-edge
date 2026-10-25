@@ -1,3 +1,4 @@
+import { CoachWorkTimeout, runCoachBounded } from "../coachAbortable.ts";
 import { satisfiesExplicitGamePropMix } from "../slate.ts";
 import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
 import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget.ts";
@@ -899,6 +900,7 @@ async function buildCoachParlayImpl(opts: {
       ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys, marketConstraint)
       : filterPoolForFootballSkillRecovery(recoverySourcePool, recoverySportScope);
     if (
+      !opts.signal.aborted && !coachPastRequestDeadline(requestStartedAtMs, budgetMs) &&
       shouldRecoverPropsOnlyWithFootballSkillBoard({
         graded: built.propLegsScored,
         staged: picks.length,
@@ -974,7 +976,7 @@ async function buildCoachParlayImpl(opts: {
               staged: picks.length,
               target,
             });
-      } else if (built.propLegsScored > 0 && picks.length === 0) {
+      } else if (!opts.signal.aborted && !coachPastRequestDeadline(requestStartedAtMs, budgetMs) && built.propLegsScored > 0 && picks.length === 0) {
         // Retry preferred (already allowlisted) pool with recovery slack.
         const softPreferred = await buildFootballPropsOnlyTicket({
       propAudit: opts.propAudit,
@@ -1430,7 +1432,7 @@ async function buildCoachParlayImpl(opts: {
     // Coach on "Scoring ticket… 1 legs" with no terminal latch.
     const drainMs = Math.min(
       2_500,
-      coachRemainingBudgetMs(requestStartedAtMs, budgetMs) || 2_500,
+      coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
     );
     let drainTimeout: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -1717,17 +1719,52 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     return false;
   })),
   }).picks;
+  const requestStartedAtMs = opts.requestStartedAtMs ?? Date.now();
+  const budgetMs = coachTotalRequestBudgetMs(terminalTarget);
+  opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}` };
+  let closed = false;
+  let lastQualified: ParsedPick[] = [];
+  let propPoolSize = 0;
   try {
-    const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
-      onPartialPicks: opts.onPartialPicks ? picks => { const scoped = safePicks(picks); opts.onPartialPicks?.(satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : []); } : undefined });
+    const result = await runCoachBounded(signal => buildCoachParlayImpl({
+      ...opts, signal, requestStartedAtMs, propAudit: audit,
+      onStatus: status => { if (!closed) opts.onStatus?.(status); },
+      onReadyToScan: info => { if (!closed) { propPoolSize = info.propPoolSize; opts.onReadyToScan?.(info); } },
+      onPartialPicks: picks => {
+        if (closed || signal.aborted) return;
+        const scoped = safePicks(picks);
+        lastQualified = satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : [];
+        opts.onPartialPicks?.(lastQualified);
+      },
+    }), coachRemainingBudgetMs(requestStartedAtMs, budgetMs), opts.signal);
     const scopedPicks = safePicks(result.picks);
     const mixUnavailable = scopedPicks.length > 0 && !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
     const picks = mixUnavailable ? [] : scopedPicks;
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
+    return { ...result, picks, note: result.timedOut && picks.length < terminalTarget
+      ? `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`
+      : mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
   } catch (e) {
+    closed = true;
+    if (e instanceof CoachWorkTimeout) {
+      const picks = safePicks(lastQualified);
+      const timing = createCoachRequestTiming({ requestStartedAtMs, budgetMs });
+      timing.timedOut = true;
+      timing.timeoutReason = "absolute_budget";
+      finalizeCoachRequestTiming(timing);
+      audit.finish(picks, "timed_out", report => { void persistCoachPropAudit(report); });
+      reportCoachScanReliability({
+        requestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}`,
+        sportCategory: classifySportCategoryFromAsk(opts.askText ?? ""),
+        requestedLegCount: terminalTarget, returnedLegCount: picks.length,
+        picks, timedOut: true, deliveryCommitted: false,
+        durationMs: timing.totalMs, timeoutReason: "absolute_budget",
+        rootCause: "absolute_budget", realOddsAvailable: picks.length ? true : null,
+      });
+      return { picks, note: `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`, scan: null, timedOut: true, propPoolSize, timing, reliabilityRequestId: opts.reliabilityRequestId };
+    }
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
-  } finally { releaseAudit(); release(); }
+  } finally { closed = true; releaseAudit(); release(); }
 }
 

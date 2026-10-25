@@ -596,3 +596,10 @@ export function filterPicksByAskMarketConstraint<
   }
   return out;
 }
+
+/** Provider game rows have no propMarketKey; player-stat allowlists apply at delivery. */
+export function filterGameLinesForCoachSimulation<T extends { sport?: string | null; market?: string | null; pick?: string | null }>(
+  lines: T[], constraint: CoachAskMarketConstraint,
+): T[] {
+  return filterPicksByAskMarketConstraint(lines, { ...constraint, allowedMarketKeys: null });
+}

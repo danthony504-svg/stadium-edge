@@ -1,3 +1,4 @@
+import { runCoachBounded } from "./coachAbortable.ts";
 import { matchExplicitMarketLocks, canonicalExplicitMarketKey } from "./explicitMarketLock.ts";
 import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
@@ -249,6 +250,15 @@ async function getJsonUncached<T>(
   path: string,
   signal?: AbortSignal,
   timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  // Headers, body, retries and backoff share one deadline.
+  return runCoachBounded(child => getJsonAttempts<T>(path, child, timeoutMs), timeoutMs, signal);
+}
+
+async function getJsonAttempts<T>(
+  path: string,
+  signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
@@ -2529,8 +2539,8 @@ export async function fetchGameOutcomeSimulation(
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
   const limiter = getActiveCoachSimulateLimiter();
-  const run = () => fetchGameOutcomeSimulationUnlim(opts, signal);
-  return limiter ? limiter.run("game", run) : run();
+  const run = () => runCoachBounded(child => fetchGameOutcomeSimulationUnlim(opts, child), REQUEST_TIMEOUT_MS * 2, signal);
+  return limiter ? limiter.run("game", run, signal) : run();
 }
 
 async function fetchGameOutcomeSimulationUnlim(
@@ -2641,8 +2651,8 @@ export async function fetchPropSimulationsBatch(
 }> {
   if (!props.length) return { props: [], playerHistories: {} };
   const limiter = getActiveCoachSimulateLimiter();
-  const run = () => fetchPropSimulationsBatchUnlim(sport, props, opts, signal);
-  return limiter ? limiter.run("prop", run) : run();
+  const run = () => runCoachBounded(child => fetchPropSimulationsBatchUnlim(sport, props, opts, child), REQUEST_TIMEOUT_MS * 2, signal);
+  return limiter ? limiter.run("prop", run, signal) : run();
 }
 
 async function fetchPropSimulationsBatchUnlim(

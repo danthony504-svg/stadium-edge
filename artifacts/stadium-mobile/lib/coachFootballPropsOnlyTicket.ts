@@ -1,3 +1,4 @@
+import { runCoachBounded } from "./coachAbortable.ts";
 import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { parseCoachAskMarketConstraint, filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
 /**
@@ -561,27 +562,35 @@ async function prefetchCandidateHistory(
     }));
 
   const concurrency = 8;
+  // One optional-history window, not six fresh 14s waves before simulation.
+  const deadline = Date.now() + 8_000;
   for (let i = 0; i < rows.length; i += concurrency) {
-    if (parentSignal?.aborted) break;
+    if (parentSignal?.aborted || Date.now() >= deadline) break;
     const batch = rows.slice(i, i + concurrency);
-    await Promise.all(
+    await runCoachBounded(async waveSignal => Promise.all(
       batch.map(async (r) => {
         try {
-          if (parentSignal?.aborted) return;
+          if (waveSignal.aborted) return;
           const ac = new AbortController();
           const onParentAbort = () => ac.abort();
-          parentSignal?.addEventListener("abort", onParentAbort, { once: true });
-          if (parentSignal?.aborted) ac.abort();
-          const t = setTimeout(() => ac.abort(), 14_000);
+          waveSignal.addEventListener("abort", onParentAbort, { once: true });
+          if (waveSignal.aborted) ac.abort();
           try {
             const h = await getPlayerHistory(
               { sport: r.sport, athleteId: r.athleteId, name: r.player },
               ac.signal,
             );
             let recent: import("./coachFootballPropsOnlyGrade.ts").PropsOnlyHistoryGame[] = mapRecent(h?.recent ?? []);
+            // Retain a completed current-season response even if prior-season backfill stalls.
+            if (!ac.signal.aborted && recent.length > (out[`${r.player}#${r.athleteId}`]?.recent?.length ?? 0)) {
+              out[`${r.player}#${r.athleteId}`] = {
+                player: r.player, recent,
+                vsOpponent: (h?.vsOpponent ?? []).slice(0, 5).map(g => ({ date: g.date, stats: g.stats })),
+              };
+            }
             // Phone diag: early NFL season had 0–3 current games → insufficient_game_log.
             // Backfill prior season so grading has a real sample without inventing stats.
-            if (recent.length < PROPS_ONLY_HISTORY_BACKFILL_BELOW) {
+            if (!ac.signal.aborted && recent.length < PROPS_ONLY_HISTORY_BACKFILL_BELOW) {
               const priorYear = propsOnlyPriorSeasonYear(h?.availableSeasons);
               try {
                 const prior = await getPlayerHistory(
@@ -598,7 +607,7 @@ async function prefetchCandidateHistory(
                 /* keep current */
               }
             }
-            if (!recent.length) return;
+            if (ac.signal.aborted || !recent.length) return;
             const existing = out[`${r.player}#${r.athleteId}`];
             if ((existing?.recent?.length ?? 0) >= recent.length) return;
             out[`${r.player}#${r.athleteId}`] = {
@@ -610,14 +619,13 @@ async function prefetchCandidateHistory(
               })),
             };
           } finally {
-            clearTimeout(t);
-            parentSignal?.removeEventListener("abort", onParentAbort);
+            waveSignal.removeEventListener("abort", onParentAbort);
           }
         } catch {
           /* honest skip */
         }
       }),
-    );
+    ), Math.max(0, deadline - Date.now()), parentSignal).catch(() => undefined);
   }
   return out;
 }
@@ -828,29 +836,14 @@ export async function buildFootballPropsOnlyTicket(
       const batchAbort = new AbortController();
       const parentSignal = opts.signal;
       const abortBatch = () => batchAbort.abort();
-      let batchTimer: ReturnType<typeof setTimeout> | null = null;
       parentSignal?.addEventListener("abort", abortBatch, { once: true });
       if (parentSignal?.aborted) abortBatch();
       try {
-        const serverRows = await Promise.race([
-          fetchPropSimulations(
-            batch,
-            scopedPool,
-            {
-              tier: "deep",
-              teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
-            },
-            batchAbort.signal,
-          ),
-          new Promise<null>((resolve) => {
-            batchTimer = setTimeout(() => {
-              // A timed-out deep request must not continue spending server work
-              // while Coach advances to the next batch.
-              abortBatch();
-              resolve(null);
-            }, 8_000);
-          }),
-        ]);
+        const serverRows = await runCoachBounded(
+          signal => fetchPropSimulations(batch, scopedPool, {
+            tier: "deep", teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
+          }, signal), 8_000, batchAbort.signal,
+        );
         if (!serverRows || batchAbort.signal.aborted) continue;
         const covered = postedPropCoverageForBatch(coverageCandidates, batch);
         for (const [k, v] of serverRows.hits) {
@@ -915,7 +908,6 @@ export async function buildFootballPropsOnlyTicket(
       } catch {
         /* keep existing provenance — do not invent hits */
       } finally {
-        if (batchTimer !== null) clearTimeout(batchTimer);
         parentSignal?.removeEventListener("abort", abortBatch);
       }
     }
