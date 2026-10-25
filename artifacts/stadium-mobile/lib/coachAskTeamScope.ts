@@ -1045,9 +1045,9 @@ export function coachAskTeamShortfallNote(
   if (finalLegCount >= requestedLegs) return "";
   const nick = scope.displayName ?? scope.parsedTeam ?? scope.matchTokens[0] ?? "that team";
   if (finalLegCount <= 0) {
-    return `No eligible real markets cleared for ${nick} — won't fill a ${requestedLegs}-leg ticket with other games.`;
+    return `No qualifying selections were returned for the ${nick} matchup. Won't fill a ${requestedLegs}-leg ticket with other games.`;
   }
-  return `Only ${finalLegCount} eligible real-market selection${finalLegCount === 1 ? "" : "s"} for ${nick} — not enough for a ${requestedLegs}-leg ticket. Won't fill with other games.`;
+  return `Returned ${finalLegCount}/${requestedLegs} qualifying selections for the ${nick} matchup. Won't fill with other games.`;
 }
 
 /**
