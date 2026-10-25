@@ -501,3 +501,13 @@ test("league-scoped city names apply to NFL/NHL/MLB teams, not just Atlanta", ()
   assert.equal(atlanta?.sport, "nfl");
   assert.ok(atlanta?.matchTokens.includes("falcons"));
 });
+
+
+test("Saints shortfall describes returned matchup selections without claiming exhaustive availability", () => {
+  const scope = coachAskTeamScope("10 leg New Orleans saints");
+  const note = coachAskTeamShortfallNote(scope, 10, 6, 1);
+  assert.match(note, /Returned 6\/10 qualifying selections/);
+  assert.match(note, /matchup/);
+  assert.doesNotMatch(note, /Only|eligible real-market/);
+  assert.match(coachAskTeamShortfallNote(scope, 10, 0, 1), /No qualifying selections were returned/);
+});
