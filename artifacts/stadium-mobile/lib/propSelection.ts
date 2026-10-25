@@ -100,6 +100,7 @@ export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     propSide: e.side,
     eventId: e.eventId ?? null,
     sportsbook: e.sportsbook ?? null,
+    sourceUpdatedAt: e.sourceUpdatedAt ?? null,
   };
 }
 

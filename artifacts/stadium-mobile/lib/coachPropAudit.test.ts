@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
-import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type PropAuditReport } from "./coachPropAudit.ts";
+import { quoteTimeEvidence, beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type PropAuditReport } from "./coachPropAudit.ts";
 import { exactMarket10kProvenance } from "./coachPropProbabilityProvenance.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 function pick(patch: Partial<ParsedPick> = {}): ParsedPick {
@@ -81,4 +81,12 @@ test("deferred review yields whenever a new foreground Coach build is active", (
   const release = beginCoachPropAuditForeground();
   c.tasks.shift()!(); assert.equal(published, false); assert.equal(c.tasks.length, 1);
   release(); release(); c.flush(); assert.equal(published, true);
+});
+
+test("source quote time remains unknown when unavailable", () => {
+ const now=Date.parse("2026-10-25T12:00:00Z");
+ assert.equal(quoteTimeEvidence(null,now).sourceTimeState,"unknown");
+ assert.equal(quoteTimeEvidence("invalid",now).sourceAgeMs,null);
+ assert.equal(quoteTimeEvidence("2026-10-25T11:58:00Z",now).sourceAgeMs,120000);
+ assert.equal(quoteTimeEvidence("2026-10-25T12:01:00Z",now).sourceTimeState,"future_timestamp");
 });

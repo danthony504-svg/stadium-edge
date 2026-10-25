@@ -94,6 +94,7 @@ export type ParsedPick = {
    * Best-price sportsbook for THIS prop side (never inferred from the other
    * side). Required for final player-prop seats — see propProviderProvenance.
    */
+  sourceUpdatedAt?: string | null;
   sportsbook?: string | null;
   // True while a server-side Monte Carlo run is still refining this prop leg's
   // simulation sub-score. Picks render immediately; the grade updates when done.
@@ -611,6 +612,7 @@ function matchProp(
     // Provider identity for seated-prop provenance — copy from pool, never invent.
     eventId: best.eventId ?? null,
     sportsbook: best.sportsbook ?? null,
+    sourceUpdatedAt: best.sourceUpdatedAt ?? null,
   };
 }
 
@@ -1350,6 +1352,7 @@ export function backfillProps(
           propSide: e.side,
           eventId: e.eventId ?? null,
           sportsbook: e.sportsbook ?? null,
+    sourceUpdatedAt: e.sourceUpdatedAt ?? null,
           edge: FILLER_BACKFILL_EDGE_NOTE,
         },
         gameMeta,

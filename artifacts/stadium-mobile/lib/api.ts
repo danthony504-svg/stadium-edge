@@ -702,6 +702,8 @@ export type PlayerProp = {
   underPrice: number | null;
   // The sportsbook behind the best price on each side (for arbitrage "where to
   // bet"). REAL book name from props.ts or null/absent — never fabricated.
+  overSourceUpdatedAt?: string | null;
+  underSourceUpdatedAt?: string | null;
   overBook?: string | null;
   underBook?: string | null;
   alt: boolean;
@@ -2028,6 +2030,8 @@ export type RealPropEntry = {
   playerTeamId?: string | null;
   /** Odds API event id for this matchup — required for seated-prop provenance. */
   eventId?: string | null;
+  overSourceUpdatedAt?: string | null;
+  underSourceUpdatedAt?: string | null;
   overBook?: string | null;
   underBook?: string | null;
   market: string;
@@ -2099,6 +2103,7 @@ export type PropPoolEntry = {
    * Best-price sportsbook for THIS side only (overBook / underBook). Never
    * inferred from the opposite side. Null when the feed omitted it.
    */
+  sourceUpdatedAt?: string | null;
   sportsbook?: string | null;
 };
 
@@ -4224,6 +4229,7 @@ async function buildLightParlayContext(
             eventId: p.eventId ?? g.id,
             // Side-specific book only — never invent from Under or aggregate list.
             sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
           });
         }
         if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.underPrice != null) {
@@ -4245,6 +4251,7 @@ async function buildLightParlayContext(
             bookSpread: p.underSpread ?? null,
             eventId: p.eventId ?? g.id,
             sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
           });
         }
       }
@@ -4943,6 +4950,7 @@ export async function buildChatContext(
                 bookSpread: p.overSpread ?? null,
                 eventId: g.id,
                 sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
               });
             }
             if ((p.line != null || isBinaryNullLineMarket(p.market)) && underQ) {
@@ -4964,6 +4972,7 @@ export async function buildChatContext(
                 bookSpread: p.underSpread ?? null,
                 eventId: g.id,
                 sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
               });
             }
           }
@@ -5346,6 +5355,7 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         alt: p.alt,
         eventId,
         sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
       });
     }
     if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.under != null) {
@@ -5364,6 +5374,7 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         alt: p.alt,
         eventId,
         sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
       });
     }
   }
@@ -5482,6 +5493,7 @@ export async function fetchFullBoardPropPool(
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
             sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {
@@ -5497,6 +5509,7 @@ export async function fetchFullBoardPropPool(
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
             sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {
