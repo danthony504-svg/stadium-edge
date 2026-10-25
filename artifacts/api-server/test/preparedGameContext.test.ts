@@ -179,3 +179,23 @@ test("closed-app context refresh never reloads odds, prop boards or simulations"
     assert.ok(paths.every(path => !/\/odds|\/props|\/simulate/.test(path)));
   } finally { globalThis.fetch = original; }
 });
+
+test("background preparation covers beyond four games with bounded concurrency and cache-only reads", async () => {
+  const fixtures = Array.from({ length: 9 }, (_, i) => fixture("nba", String(991100 + i)));
+  const original = globalThis.fetch;
+  let active = 0, peak = 0, requests = 0;
+  globalThis.fetch = async input => {
+    requests++; active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 3));
+    active--;
+    const id = new URL(String(input)).searchParams.get("event");
+    return Response.json(fixtures.find(f => f.game.id === id)!.summary);
+  };
+  try {
+    assert.equal(await warmPreparedGameContexts("nba", fixtures.map(f => f.game)), 9);
+    assert.equal(requests, 9);
+    assert.ok(peak <= 2);
+    globalThis.fetch = async () => { throw Error("foreground must not fetch"); };
+    for (const f of fixtures) assert.equal((await attachPreparedGameContexts("nba", [f.game]))[0]?.preparedContext?.eventId, f.game.id);
+  } finally { globalThis.fetch = original; }
+});

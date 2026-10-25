@@ -172,7 +172,7 @@ async function warmSport(
     const result = await loadAuthoritativePlayerHistory(sport, athleteId).catch(() => null);
     if (result?.history) histories++;
   });
-  const contexts = await warmPreparedGameContexts(sport, upcoming);
+  const contexts = await warmPreparedGameContexts(sport, rows);
   return { sport, odds: oddsOk, games: rows.length, props: propCount, histories, contexts };
 }
 

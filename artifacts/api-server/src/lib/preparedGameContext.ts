@@ -146,17 +146,30 @@ export async function warmPreparedGameContexts(sport: string, games: ContextGame
     const now = Date.now();
     const candidates = games.filter(g => Date.parse(g.startsAt) > now && Date.parse(g.startsAt) < now + 48 * 3600_000).sort((a,b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
     await cacheSet(`coach-prepared-refs:v1:${sport}`, candidates.slice(0, 100), 48 * 3600_000);
-    const upcoming = candidates.slice(0, 4);
-    const contexts: PreparedGameContext[] = [];
+    // Bounded background work with fair coverage, never a Coach candidate cap.
+    const previous = await cacheGet<PreparedGameContext[]>(key(sport)) ?? [];
+    const attemptsKey = `coach-prepared-attempts:v1:${sport}`;
+    const attempts = await cacheGet<Record<string, number>>(attemptsKey) ?? {};
+    const identity = (g: ContextGame) => `${g.id}:${g.startsAt}:${g.homeTeamId}:${g.awayTeamId}`;
+    const contexts = previous.filter(c => c.expiresAtMs > now && candidates.some(g =>
+      c.eventId === g.id && c.homeTeamId === g.homeTeamId && c.awayTeamId === g.awayTeamId && c.startsAt === g.startsAt));
+    const upcoming = [...candidates].sort((a,b) => (attempts[identity(a)] ?? 0) - (attempts[identity(b)] ?? 0));
     const deadline = Date.now() + 8000;
-    for (const game of upcoming) {
-      if (Date.now() >= deadline) break;
-      const context = await prepareOne(sport, game).catch(() => null);
-      if (context) {
-        context.requiresEventTime = games.filter(g => g.homeTeamId === game.homeTeamId && g.awayTeamId === game.awayTeamId && Date.parse(g.startsAt) > now && Date.parse(g.startsAt) < now + 48 * 3600_000).length > 1;
-        contexts.push(context);
+    let cursor = 0;
+    await Promise.all(Array.from({ length: 2 }, async () => {
+      while (cursor < upcoming.length && Date.now() < deadline) {
+        const game = upcoming[cursor++]!;
+        attempts[identity(game)] = Date.now();
+        const context = await prepareOne(sport, game).catch(() => null);
+        if (context) {
+          context.requiresEventTime = candidates.filter(g => g.homeTeamId === game.homeTeamId && g.awayTeamId === game.awayTeamId).length > 1;
+          const old = contexts.findIndex(c => c.eventId === context.eventId);
+          if (old >= 0) contexts.splice(old, 1);
+          contexts.push(context);
+        }
       }
-    }
+    }));
+    await cacheSet(attemptsKey, Object.fromEntries(candidates.map(g => [identity(g), attempts[identity(g)] ?? 0])), 48 * 3600_000);
     await cacheSet(key(sport), contexts, PREPARED_GAME_CONTEXT_TTL_MS);
     return contexts.length;
   })).value;
