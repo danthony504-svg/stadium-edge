@@ -5,7 +5,7 @@ import { checkPropProviderProvenance } from "./propProviderProvenance.ts";
 import { propProvenanceAllowsSeating } from "./coachPropProbabilityProvenance.ts";
 import { pickHasPlayerGameGroundingMismatch } from "./coachReliabilityGrounding.ts";
 
-export type PropAuditStage = "posted" | "scope_excluded" | "eligible" | "simulation" | "grading" | "delivery_blocked" | "selected";
+export type PropAuditStage = "not_evaluated" | "posted" | "scope_excluded" | "eligible" | "simulation" | "grading" | "delivery_blocked" | "selected";
 export type PropAuditRow = {
   key: string; sport: string; eventId: string; athleteId: string; player: string;
   game: string; market: string; side: string; line: number | null; odds: number;
@@ -42,7 +42,7 @@ function snapshot(p: ParsedPick): ParsedPick {
     propProbabilityProvenance: p.propProbabilityProvenance ? { ...p.propProbabilityProvenance } : null };
 }
 function numeric(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
-const stageRank: Record<PropAuditStage, number> = { posted: 0, scope_excluded: 1, eligible: 2, simulation: 3, grading: 4, delivery_blocked: 5, selected: 6 };
+const stageRank: Record<PropAuditStage, number> = { not_evaluated: 3, posted: 0, scope_excluded: 1, eligible: 2, simulation: 3, grading: 4, delivery_blocked: 5, selected: 6 };
 export function createCoachPropAudit(requestId: string, schedule: (work: () => void) => void = work => { setTimeout(work, foregroundBuilds ? 100 : 0); }) {
   const startedAt = new Date().toISOString();
   const entries = new Map<string, { pick: ParsedPick; stage: PropAuditStage; reason: string; nullReason: string | null; historyGames: number | null }>();

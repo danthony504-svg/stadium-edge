@@ -90,3 +90,17 @@ test("source quote time remains unknown when unavailable", () => {
  assert.equal(quoteTimeEvidence("2026-10-25T11:58:00Z",now).sourceAgeMs,120000);
  assert.equal(quoteTimeEvidence("2026-10-25T12:01:00Z",now).sourceTimeState,"future_timestamp");
 });
+
+test("unevaluated candidates retain explicit scan exclusions instead of generic not-simulated labels", () => {
+  const c = collector();
+  const reasons = ["scan_distribution_budget", "scan_cancelled", "scan_deadline", "scan_ticket_target_reached", "shared_draw_exact_line_response_missing"];
+  for (const [i, reason] of reasons.entries()) {
+    const p = pick({ athleteId: `unscored-${i}` });
+    c.audit.observe(p, "eligible", "eligible");
+    c.audit.observe(p, "not_evaluated", reason);
+  }
+  let report: PropAuditReport | undefined;
+  c.audit.finish([], "completed", r => {report = r;}); c.flush();
+  for (const reason of reasons) assert.equal(report!.counts[reason], 1);
+  assert.equal(report!.counts.not_simulated_in_this_request, undefined);
+});

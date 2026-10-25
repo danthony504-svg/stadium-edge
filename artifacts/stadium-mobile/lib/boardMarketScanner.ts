@@ -1,3 +1,4 @@
+import { distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
@@ -428,12 +429,12 @@ function scoredFromPropPick(
   return { ...leg, rankScore: unifiedRankScore(leg) };
 }
 
-async function simPropBatch(
+export async function simPropBatch(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
-  batchOpts?: { enrichTimeoutMs?: number },
+  batchOpts?: { enrichTimeoutMs?: number; coverage?: ParsedPick[] },
 ): Promise<{
   hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
   timedOut: boolean;
@@ -449,13 +450,11 @@ async function simPropBatch(
         { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined }, childSignal),
       PROP_SIM_BATCH_TIMEOUT_MS, signal,
     );
+    const postedCoverage = postedPropCoverageForBatch(batchOpts?.coverage ?? batch, batch);
     for (const [k, v] of simResult.hits) {
-      const batchPick = batch.find(
-        (p) =>
-          propSimKeyForPick(p, poolRowForPropPick(p, pool)) === k ||
-          propSimKey(p.player ?? "", p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
-      );
-      const poolRow = batchPick ? poolRowForPropPick(batchPick, pool) : undefined;
+      const batchPick = postedCoverage.get(k);
+      if (!batchPick) continue; // Never authorize unposted or ambiguous response keys.
+      const poolRow = poolRowForPropPick(batchPick, pool);
       const side =
         (v.side as "Over" | "Under" | undefined) ??
         (batchPick?.propSide === "Under" ? "Under" : batchPick?.propSide === "Over" ? "Over" : null);
@@ -475,36 +474,6 @@ async function simPropBatch(
         side,
         line,
       });
-      // Same deep draw's alternate lines — register trusted evidence per line
-      // (no extra API/MC). Enables provenance-aware ALT "10K" captions.
-      const bySide = v.lineHitRatesBySide;
-      if (
-        bySide &&
-        athleteId &&
-        eventId &&
-        marketKey &&
-        (v.simulations ?? 0) >= 10_000
-      ) {
-        for (const altSide of ["Over", "Under"] as const) {
-          const rates = bySide[altSide];
-          if (!rates) continue;
-          for (const [lineStr, hit] of Object.entries(rates)) {
-            const altLine = Number(lineStr);
-            if (!Number.isFinite(altLine) || hit == null || !Number.isFinite(hit)) continue;
-            if (altSide === side && altLine === line) continue;
-            exactMarket10kProvenance({
-              hitProbability: hit,
-              simulations: v.simulations,
-              sport,
-              marketKey,
-              athleteId,
-              eventId,
-              side: altSide,
-              line: altLine,
-            });
-          }
-        }
-      }
       out.set(k, {
         hitProbability: probabilityProvenance.hitProbability,
         nullReason: probabilityProvenance.nullReason,
@@ -902,8 +871,8 @@ async function simPropPoolUntilQualified(
   // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
   // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
   const { selected: rankedProps } = footballSkill
-    ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
-    : selectBoardPropSimCandidates(rankedAll, maxToSim);
+    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(rankedAll), maxToSim)
+    : selectBoardPropSimCandidates(distinctPropSimSeeds(rankedAll), maxToSim);
 
   const scoreOpts = {
     pool,
@@ -957,7 +926,7 @@ async function simPropPoolUntilQualified(
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, {
-      enrichTimeoutMs,
+      enrichTimeoutMs, coverage: rankedAll,
     });
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
@@ -982,7 +951,7 @@ async function simPropPoolUntilQualified(
       }
     }
 
-    appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
+    appendPropScoredLegs(rankedAll, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
 
     if (
@@ -1003,6 +972,17 @@ async function simPropPoolUntilQualified(
       : boardPropSimExpansionBatchSize(opts.target);
   }
 
+  const selectedDistributions = new Set(rankedProps.map(propDistributionIdentity));
+  const attemptedDistributions = new Set(rankedProps.slice(0, simIndex).map(propDistributionIdentity));
+  for (const pick of rankedAll) {
+    const key = propSimKeyForPick(pick, poolRowForPropPick(pick, pool));
+    if (key && propHits.has(key)) continue;
+    const distribution = propDistributionIdentity(pick);
+    const reason = !selectedDistributions.has(distribution) ? "scan_distribution_budget" :
+      !attemptedDistributions.has(distribution) ? (signal?.aborted ? "scan_cancelled" : stoppedEarly ? "scan_deadline" : "scan_ticket_target_reached") :
+      "shared_draw_exact_line_response_missing";
+    opts.propAudit?.observe(pick, "not_evaluated", reason);
+  }
   return {
     propScored,
     propHits,
