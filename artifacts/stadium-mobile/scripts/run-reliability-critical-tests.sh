@@ -18,6 +18,7 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/crashReportingGate.test.ts \
     lib/crashDiagnostics.test.ts \
     lib/scoreBreakdownCrash.test.ts \
+    lib/propDetailMatchup.test.ts \
     lib/startupCrashPath.test.ts \
     lib/installGlobalCrashHandlers.test.ts \
     lib/backfillProps.test.ts \

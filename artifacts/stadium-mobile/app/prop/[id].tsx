@@ -1,3 +1,5 @@
+import { defensePackForTeam } from "@/lib/propDefenseEvidence";
+import { scoreOpponentTendency } from "@/lib/propHolisticRecommendation";
 import { simulatorModelEdge, formatPropProjectedStat, propSimulationCount, propSimulationEvidence } from "@/lib/simulatorPropMetrics";
 import { isBinaryNullLineMarket } from "@/lib/binaryPropMarket";
 import Feather from "@expo/vector-icons/Feather";
@@ -679,6 +681,19 @@ export default function PropDetailScreen() {
     return hasAny ? od : null;
   }, [defenseQ.data, oppName, awayName, homeName]);
 
+  // Reuse the same cached defense responses and market/side scorer as Coach.
+  const matchupEvidence = useMemo(() => {
+    const rows = [defenseQ.data?.away, defenseQ.data?.home];
+    if (!oppName) return { score: null, display: "Player team/opponent could not be verified." };
+    const pack = defensePackForTeam(rows, oppName);
+    if (!pack) return { score: null, display: "Opponent defense data is unavailable or its identity is ambiguous." };
+    const result = scoreOpponentTendency({ sport, marketKey, propSide: side,
+      footballOppDefense: pack, footballOwnPack: defensePackForTeam(rows, teamName),
+    });
+    return result.score != null ? result : { score: null,
+      display: "No supported matchup signal with a sufficient sample for this prop category." };
+  }, [defenseQ.data, oppName, teamName, sport, marketKey, side]);
+
   // Market-aware "things to weigh before betting" cards, tailored to the sport
   // (batter vs pitcher for MLB; per-market for basketball) and personalized with
   // the REAL player and team names. Cards render real numbers when the signals
@@ -746,12 +761,12 @@ export default function PropDetailScreen() {
   const toneColor =
     injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
 
-  // The 5-component pick rubric for THIS prop, every sub-score real-or-null:
+  // The 6-component pick rubric for THIS prop, every sub-score real-or-null:
   //  • Trend       — this player's recent hit-rate vs the line, for the picked side
   //  • Line Value  — the prop's real +EV edge (only on the flagged value side)
   //  • Line-Shop   — the side's best-vs-median book spread
   //  • Injury      — how banged-up the opponent is (gentle; Over benefits)
-  //  • Matchup     — null on a prop card (no team moneyline lean applies)
+  //  • Matchup     — shared market-aware opponent-defense signal, real-or-null
   const propScore = useMemo(() => {
     const trend = scoreTrend(
       playerTrendMomentum(games.map((g) => g.value), line, side),
@@ -770,7 +785,7 @@ export default function PropDetailScreen() {
     }
     return combinePickScore(
       {
-        matchup: null,
+        matchup: matchupEvidence.score,
         trend,
         lineValue,
         injury,
@@ -780,7 +795,7 @@ export default function PropDetailScreen() {
       edgePct,
       odds,
     );
-  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simData]);
+  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simData, matchupEvidence]);
 
   // Tier colors for the AI-breakdown hero — same thresholds the rubric uses, so
   // the glanceable hero and the full breakdown below always agree.
@@ -1242,11 +1257,15 @@ export default function PropDetailScreen() {
           />
         ) : null}
 
-        {/* Pick rubric — the 5-component grade for this prop, real-or-null. Shown
+        {/* Pick rubric — the 6-component grade for this prop, real-or-null. Shown
             only when at least one signal is groundable. */}
         {propScore.composite != null ? (
           <Section title="PICK GRADE">
             <ScoreBreakdown data={propScore} variant="full" simulationPending={simulationPending} />
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 10 }}>
+              Matchup: {defenseQ.isPending && oppName ? "Loading opponent defense…" : matchupEvidence.display ?? "Supported opponent context available."}
+              {matchupEvidence.score != null ? " Team-level context; not a position-specific allowance or a win probability." : ""}
+            </Text>
           </Section>
         ) : null}
 
