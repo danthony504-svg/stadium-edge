@@ -1,4 +1,4 @@
-import { distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
+import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
@@ -776,7 +776,7 @@ function prescorePropRank(pick: ParsedPick, opts?: { hrBoard?: boolean }): numbe
 }
 
 /** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
-async function simPropPoolUntilQualified(
+export async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
   mergedOdds: RealOddsEntry[],
   gameScored: BoardScoredLeg[],
@@ -794,7 +794,7 @@ async function simPropPoolUntilQualified(
     espnGames?: EspnGame[];
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
-    onWave?: (scored: BoardScoredLeg[]) => void;
+    onWave?: (scored: BoardScoredLeg[]) => FullBoardScanResult;
     onPropBatch?: (size: number, timedOut: boolean, batch?: ParsedPick[]) => void;
     propAudit?: CoachPropAudit;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
@@ -923,6 +923,8 @@ async function simPropPoolUntilQualified(
       break;
     }
 
+    if (simIndex > 0) rankedProps.splice(simIndex, rankedProps.length - simIndex,
+      ...prioritizeUnscannedPropSeeds(rankedProps.slice(simIndex), rankedProps.slice(0, simIndex)));
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, {
@@ -952,11 +954,12 @@ async function simPropPoolUntilQualified(
     }
 
     appendPropScoredLegs(rankedAll, propHits, propScored, seenFp, scoreOpts);
-    opts.onWave?.(combinedScored());
+    const assembled = opts.onWave?.(combinedScored());
 
     if (
       shouldStopPropSimForTicketMix({
         scored: combinedScored(),
+        assembledTicket: assembled?.picks,
         target: opts.target,
         propsOnly: opts.propsOnly,
         exhaustPropBoard: opts.exhaustPropBoard,
@@ -1498,7 +1501,6 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   // game+prop combined legs — never emit from outer `scored` alone during props,
   // or onPartial stays empty until the final boardExhausted result.
   const emitBoardScanPartial = (legs: BoardScoredLeg[] = scored) => {
-    if (!opts.onPartial && !opts.stopWhenTargetQualified) return;
     manifestRecorder.recomputeQualificationFromScored(legs);
     const partial = buildScanResult(legs, {
       target: opts.target,
@@ -1522,9 +1524,10 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     });
     if (canCompleteAutomaticSmallTicket({ enabled: opts.stopWhenTargetQualified, target: opts.target, picks: partial.picks, awaitingPropSlots: partial.awaitingPropSlots, propPhaseIncomplete: partial.propPhaseIncomplete })) {
       opts.onTargetSatisfied?.({ ...partial, scanComplete: true, note: "", manifest: manifestRecorder.finalize({ scanComplete: true, boardExhausted: false, deliveredLegs: partial.picks.length }) });
-      return;
+      return partial;
     }
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial?.(partial);
+    return partial;
   };
 
   /**
@@ -1628,9 +1631,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         requirePropMix: opts.requirePropMix,
         exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
-        onWave: (combined) => {
-          emitBoardScanPartial(combined);
-        },
+        onWave: (combined) => emitBoardScanPartial(combined),
         onPropBatch: (size, timedOut, batch) => {
           // Fail-safe: batch football counters must never abort the prop sim loop.
           safeCoachManifestInstrument("onPropBatch-manifest", () => {

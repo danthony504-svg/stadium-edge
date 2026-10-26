@@ -104,3 +104,12 @@ test("unevaluated candidates retain explicit scan exclusions instead of generic 
   for (const reason of reasons) assert.equal(report!.counts[reason], 1);
   assert.equal(report!.counts.not_simulated_in_this_request, undefined);
 });
+
+test("generic unscanned reason cannot replace an authenticated simulation failure",()=>{
+ const c=collector();const p=pick();let report:PropAuditReport|undefined;
+ c.audit.observe(p,"posted","posted");
+ c.audit.observe(p,"simulation","simulation_unavailable",{nullReason:"insufficient_game_log"});
+ c.audit.observe(p,"not_evaluated","shared_draw_exact_line_response_missing");
+ c.audit.finish([],"completed",r=>{report=r});c.flush();
+ assert.equal(report?.rows[0]?.nullReason,"insufficient_game_log");
+});
