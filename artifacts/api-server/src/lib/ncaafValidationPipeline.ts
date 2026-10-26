@@ -198,6 +198,13 @@ export async function runNcaafValidationPipeline({
       } catch {
         freeFail("conference_availability_capture_failed");
       }
+      // Usage is ESPN-only (no Odds API). Refresh after conference so mid-slot
+      // verified bindings can collect prior boxscores without a paid re-quote.
+      try {
+        await runCollector("ncaaf-capture-usage.mjs", ["--capture-slot", slot]);
+      } catch {
+        freeFail("usage_evidence_capture_failed");
+      }
       try {
         await runCollector("ncaaf-context-dataset.mjs", []);
       } catch {

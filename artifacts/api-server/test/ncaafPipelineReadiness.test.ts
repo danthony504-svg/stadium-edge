@@ -159,4 +159,16 @@ test("holdout funnel surfaces upcoming matches and unverified binding reasons wi
   );
   assert.equal(report.release.qualifiedHoldoutGames, null);
   assert.equal(report.releaseEligible, false);
+  assert.equal(report.coachEnabled, false);
+  assert.equal(report.coachEnablementDecision.decision, "BLOCKED");
+  assert.equal(
+    report.coachEnablementDecision.frozenCandidateDoesNotAuthorizeUnlock,
+    true,
+  );
+  assert.ok(
+    report.coachEnablementDecision.unmet.some((u: string) =>
+      u.includes("independent_holdout"),
+    ),
+  );
+  assert.equal(report.collectionEvidence.verifiedAvailabilityBindings, 1);
 });

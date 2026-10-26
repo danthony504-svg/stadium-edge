@@ -56,6 +56,29 @@ export function usageCapturePlan(games, targets, existingIds, cutoff) {
     paidOddsRequests: 0,
   };
 }
+/**
+ * When conference availability has not verified any upcoming events, usage has
+ * nothing legitimate to fetch. Exit cleanly instead of failing the collector
+ * on missing history — that false failure looked like pipeline_collector_failed.
+ */
+export function usageWaitingForVerifiedAvailabilityReport(nowIso) {
+  return {
+    state: "waiting_for_verified_availability_bindings",
+    requests: 0,
+    saved: 0,
+    failed: 0,
+    skipped: 0,
+    deferred: 0,
+    matchedTargets: 0,
+    maximumRequests: 64,
+    paidOddsRequests: 0,
+    releaseEligible: false,
+    automaticUnlock: false,
+    finishedAt: nowIso,
+    reason: "no_verified_conference_event_bindings",
+  };
+}
+
 export function validateUsageSummary(capture, expected) {
   const a = summaryHistory(
       capture.rawResponse,
@@ -162,6 +185,15 @@ async function main() {
         for (const b of bindConferenceReports(a.value, live, now))
           if (b.eventBindingVerified) targets.set(b.target.eventId, b.target);
       } catch {}
+    }
+    if (targets.size === 0) {
+      const waiting = usageWaitingForVerifiedAvailabilityReport(now);
+      await query(
+        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
+        ["research:ncaaf:usage-capture:latest", JSON.stringify(waiting)],
+      );
+      console.log(JSON.stringify(waiting));
+      return;
     }
     const history = (
       await query(
