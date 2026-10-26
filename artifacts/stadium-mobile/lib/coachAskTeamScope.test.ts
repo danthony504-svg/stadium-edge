@@ -511,3 +511,43 @@ test("Saints shortfall describes returned matchup selections without claiming ex
   assert.doesNotMatch(note, /Only|eligible real-market/);
   assert.match(coachAskTeamShortfallNote(scope, 10, 0, 1), /No qualifying selections were returned/);
 });
+
+// Device regression: singular cowboy must never fall back to the general board.
+for (const ask of ["7 leg cowboy games", "7 leg Cowboy game", "7 leg Cowboys games", "7 leg Dallas cowboy games"]) {
+  test(`${ask}: sport focus and ticket filtering preserve Dallas matchup`, () => {
+    const scope = coachAskTeamScope(ask);
+    assert.ok(scope);
+    assert.equal(scope.sport, "nfl");
+    assert.equal(scope.matchTokens[0], "cowboys");
+    assert.deepEqual(coachBuildSports(ask, 7, ALL), ["nfl"]);
+    assert.deepEqual(coachBoardSportsForAsk(ask, 7, ALL), ["nfl"]);
+    assert.deepEqual([...prioritySportsForAsk(ask)], ["nfl"]);
+    const games = [
+      { sport: "nfl", awayTeam: "Dallas Cowboys", homeTeam: "Philadelphia Eagles" },
+      { sport: "nfl", awayTeam: "Chiefs", homeTeam: "Bills" },
+      { sport: "mlb", awayTeam: "Milwaukee Brewers", homeTeam: "Tampa Bay Rays" },
+      { sport: "nhl", awayTeam: "Los Angeles Kings", homeTeam: "New York Rangers" },
+      { sport: "wnba", awayTeam: "Atlanta Dream", homeTeam: "Golden State Valkyries" },
+      { sport: "tennis", awayTeam: "Sorana Cirstea", homeTeam: "Maya Joint" },
+      { sport: "nba", awayTeam: "Dallas Mavericks", homeTeam: "Philadelphia 76ers" },
+    ];
+    assert.deepEqual(filterOddsGamesForAskTeam(games, scope), [games[0]]);
+    const pool = games.map(g => ({ sport: g.sport, game: `${g.awayTeam} @ ${g.homeTeam}` }));
+    assert.deepEqual(filterPicksForAskTeam(pool, scope), [pool[0]]);
+    assert.deepEqual(filterPicksForAskTeam(pool.slice(1), scope), []);
+    assert.deepEqual(filterOddsGamesForAskTeam(games.slice(1), scope), []);
+    assert.ok(coachAskTeamShortfallNote(scope, 7, 1, 1));
+  });
+}
+
+test("singular cowboy exclusion never becomes a positive Dallas scope", () => {
+  const ask = "7 leg NFL no cowboy";
+  assert.equal(coachAskTeamScope(ask), null);
+  const excluded = excludedTeamScopesFromText(ask);
+  assert.equal(excluded.length, 1);
+  assert.equal(excluded[0].matchTokens[0], "cowboys");
+});
+
+test("cowboy alias matches complete words only", () => {
+  assert.equal(coachAskTeamScope("7 leg cowboyish games"), null);
+});
