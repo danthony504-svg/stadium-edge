@@ -318,7 +318,7 @@ function scoreLineMovement(movementPct: number | null | undefined): number | nul
   return scoreLineValue(movementPct);
 }
 
-function scoreOpponentTendency(
+export function scoreOpponentTendency(
   ctx: PropHolisticContext,
 ): { score: number | null; display?: string } {
   const sport = (ctx.sport ?? "").toLowerCase();

@@ -6,10 +6,10 @@
  * Capped + concurrent so delivery budget stays intact.
  */
 
+import { teamDefensePack } from "./propDefenseEvidence.ts";
 import { getTeamDefense, type EspnGame, type TeamDefense } from "./api.ts";
 import type {
   FootballOppDefenseSlice,
-  PassDefenseSlice,
   RushDefenseSlice,
 } from "./footballRushDefense.ts";
 
@@ -99,82 +99,8 @@ export async function loadFootballOppRushDefense(opts: {
       batch.map(async (w) => {
         try {
           const def: TeamDefense = await getTeamDefense(w.sport, w.teamId, opts.signal);
-          const teamName = def.teamName ?? w.teamName;
-          const rd = def.rushDefense;
-          const pd = def.passDefense;
-          const hasRush = !!(rd && rd.sampleSize >= 1);
-          const hasPass = !!(pd && pd.sampleSize >= 1);
-          const rush: RushDefenseSlice | null = hasRush
-            ? {
-                rushingYardsAllowedPerGame: rd!.rushingYardsAllowedPerGame,
-                yardsPerRushAllowed: rd!.yardsPerRushAllowed,
-                sampleSize: rd!.sampleSize,
-                stuffs: def.defensive?.stuffs?.value ?? null,
-                teamName,
-              }
-            : null;
-          const pass: PassDefenseSlice | null = hasPass
-            ? {
-                passingYardsAllowedPerGame: pd!.passingYardsAllowedPerGame,
-                yardsPerPassAllowed: pd!.yardsPerPassAllowed,
-                sampleSize: pd!.sampleSize,
-                teamName,
-              }
-            : null;
-          // Non-football: keep the row when we at least have pointsAgainst.
-          if (
-            !hasRush &&
-            !hasPass &&
-            def.avgPointsAgainst == null &&
-            !Object.keys(def.defensive ?? {}).length
-          ) {
-            return null;
-          }
-          return {
-            key: teamKey(w.sport, w.teamId),
-            slice: {
-              rush,
-              pass,
-              teamName,
-              pointsAgainst: def.avgPointsAgainst,
-              pointsFor: def.avgPointsFor,
-              sacks: def.defensive?.sacks?.value ?? null,
-              interceptions: def.defensive?.interceptions?.value ?? null,
-              passesDefended: def.defensive?.passesDefended?.value ?? null,
-              stuffs: def.defensive?.stuffs?.value ?? null,
-              gamesPlayed:
-                def.defensive?.teamGamesPlayed?.value ??
-                def.defensive?.gamesPlayed?.value ??
-                def.offensive?.teamGamesPlayed?.value ??
-                def.offensive?.gamesPlayed?.value ??
-                null,
-              totalTakeaways: def.defensive?.totalTakeaways?.value ?? null,
-              // ESPN passing.sacks on the offensive allowlist = sacks allowed (O-line).
-              sacksAllowed: def.offensive?.sacks?.value ?? null,
-              sackYardsLost: def.offensive?.sackYardsLost?.value ?? null,
-              interceptionPct: def.offensive?.interceptionPct?.value ?? null,
-              intsThrown: def.offensive?.interceptions?.value ?? null,
-              passingAttempts: def.offensive?.passingAttempts?.value ?? null,
-              ownRushYpc: def.offensive?.yardsPerRushAttempt?.value ?? null,
-              steals: def.defensive?.avgSteals?.value ?? null,
-              blocks: def.defensive?.avgBlocks?.value ?? null,
-              defRebounds: def.defensive?.avgDefensiveRebounds?.value ?? null,
-              oppTurnovers: def.offensive?.avgTurnovers?.value ?? null,
-              oppFgPct: def.offensive?.fieldGoalPct?.value ?? null,
-              oppThreePct: def.offensive?.threePointFieldGoalPct?.value ?? null,
-              goalsAgainstAvg: def.defensive?.goalsAgainstAverage?.value ?? null,
-              savePct: def.defensive?.savePct?.value ?? null,
-              shotsAgainst: def.defensive?.shotsAgainst?.value ?? null,
-              blockedShots: def.defensive?.blockedShots?.value ?? null,
-              takeaways: def.defensive?.takeaways?.value ?? null,
-              goalsConceded: def.defensive?.goalsConceded?.value ?? null,
-              cleanSheets: def.defensive?.cleanSheets?.value ?? null,
-              tackles: def.defensive?.tackles?.value ?? null,
-              era: def.defensive?.ERA?.value ?? null,
-              whip: def.defensive?.WHIP?.value ?? null,
-              battingAverageAgainst: def.defensive?.battingAverageAgainst?.value ?? null,
-            } satisfies FootballOppDefenseSlice,
-          };
+          const slice = teamDefensePack(def, w.teamName);
+          return slice ? { key: teamKey(w.sport, w.teamId), slice } : null;
         } catch {
           return null;
         }
