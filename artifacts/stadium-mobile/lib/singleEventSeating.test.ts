@@ -97,12 +97,12 @@ function gl(
   return scored({ game, market, pick, odds: -110, sport, isProp: false }, rank);
 }
 
-test("SINGLE_EVENT_CAPS match approved 4/5/8/10 ceilings", () => {
-  assert.deepEqual(SINGLE_EVENT_CAPS[4], { maxProps: 3, maxGameEventLines: 3 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[5], { maxProps: 4, maxGameEventLines: 3 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[8], { maxProps: 6, maxGameEventLines: 4 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[10], { maxProps: 8, maxGameEventLines: 5 });
-  assert.deepEqual(singleEventCapsForTarget(8), { maxProps: 6, maxGameEventLines: 4 });
+test("single-event capacity honors requested count and preserves game-line ceilings", () => {
+  assert.deepEqual(SINGLE_EVENT_CAPS[4], { maxProps: 4, maxGameEventLines: 3 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[5], { maxProps: 5, maxGameEventLines: 3 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[8], { maxProps: 8, maxGameEventLines: 4 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[10], { maxProps: 10, maxGameEventLines: 5 });
+  assert.deepEqual(singleEventCapsForTarget(8), { maxProps: 8, maxGameEventLines: 4 });
 });
 
 test("activation: explicit team/game ask yes; generic multi-game no; one loaded game alone no", () => {
@@ -373,4 +373,41 @@ test("performance: single-event seating over 500 candidates stays sub-millisecon
   // singleEventSeating.perf.test.ts (wired path must not regress multi-event).
   assert.ok(p50 < 25, `p50 ${p50}ms too high on 400-candidate stress`);
   assert.ok(p95 < 50, `p95 ${p95}ms too high on 400-candidate stress`);
+});
+
+// Regression for the exported Cowboys audit: qualified distinct-player props
+// must not stop at six when no game-line seats are available. Fixtures only;
+// this tests delivery behavior, not model accuracy or sportsbook combinability.
+for (const sport of ["nfl", "nba", "wnba", "ncaab", "mlb", "nhl", "soccer"]) {
+  for (const target of [4, 5, 8, 9, 12, 15]) {
+    test(`${sport} explicit single-game ${target} props survive staging and terminal delivery`, async () => {
+      const { resolveCoachTerminalPicks } = await import("./coachTicketHold.ts");
+      const game = "Away Team @ Home Team";
+      const market = sport === "mlb" ? "Hits" : sport === "nhl" ? "Shots on Goal"
+        : sport === "soccer" ? "Shots" : ["nba", "wnba", "ncaab"].includes(sport) ? "Points" : "Receptions";
+      const pool = Array.from({ length: target }, (_, i) => prop(game, `Participant ${i}`, market, 2.5, sport, 100-i));
+      pool.push(prop(game, "Participant 0", market, 1.5, sport, 99, { alt: true }));
+      for (const row of pool) row.pick.teamAbbr = "HOME";
+      const askText = `${target} leg same game player props for ${game}`;
+      const { picks } = buildStagedTicketFromScan(pool, target, undefined, {
+        askText, singleEventSport: sport, singleEventKey: game,
+      });
+      assert.equal(picks.length, target);
+      assert.equal(new Set(picks.map(p => p.player)).size, target);
+      const delivered = resolveCoachTerminalPicks({ bufferedPicks: picks, messagePicks: [], requestedLegs: target, askText });
+      assert.equal(delivered.length, target);
+      assert.equal(pool.length, target+1, "posted alternatives retained");
+    });
+  }
+}
+
+test("an eight-leg explicit request still underfills with only six distinct qualified participants", () => {
+  const game = "Away Team @ Home Team";
+  const pool = Array.from({ length: 6 }, (_, i) => prop(game, `Participant ${i}`, "Receptions", 2.5, "nfl", 100-i));
+  pool.push(prop(game, "Participant 0", "Rec Yds", 19.5, "nfl", 90));
+  const { picks } = buildStagedTicketFromScan(pool, 8, undefined, {
+    askText: "8 leg same game player props", singleEventSport: "nfl", singleEventKey: game,
+  });
+  assert.equal(picks.length, 6);
+  assert.equal(new Set(picks.map(p => p.player)).size, 6);
 });

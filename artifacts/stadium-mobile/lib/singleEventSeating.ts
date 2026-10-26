@@ -24,12 +24,13 @@ import {
   type SportSeatingAdapter,
 } from "./sportSeatingAdapters.ts";
 
-/** Approved ticket-level single-event ceilings (not guarantees). */
+/** Explicit single-event asks may use distinct qualified participants up to the target.
+ * Game-line ceilings remain separate; participant/ladder checks still apply. */
 export const SINGLE_EVENT_CAPS = {
-  4: { maxProps: 3, maxGameEventLines: 3 },
-  5: { maxProps: 4, maxGameEventLines: 3 },
-  8: { maxProps: 6, maxGameEventLines: 4 },
-  10: { maxProps: 8, maxGameEventLines: 5 },
+  4: { maxProps: 4, maxGameEventLines: 3 },
+  5: { maxProps: 5, maxGameEventLines: 3 },
+  8: { maxProps: 8, maxGameEventLines: 4 },
+  10: { maxProps: 10, maxGameEventLines: 5 },
 } as const;
 
 export type SingleEventLimitingRule =
@@ -69,11 +70,11 @@ export type SingleEventSeatingContext = {
 };
 
 export function singleEventCapsForTarget(target: number): SingleEventSeatCaps {
-  if (target >= 10) return { ...SINGLE_EVENT_CAPS[10] };
-  if (target >= 8) return { ...SINGLE_EVENT_CAPS[8] };
-  if (target >= 5) return { ...SINGLE_EVENT_CAPS[5] };
-  if (target >= 4) return { ...SINGLE_EVENT_CAPS[4] };
-  return { maxProps: Math.max(1, target), maxGameEventLines: Math.max(1, target) };
+  const requested = Number.isFinite(target) ? Math.max(1, Math.floor(target)) : 1;
+  const gameLineCap = requested >= 10 ? SINGLE_EVENT_CAPS[10].maxGameEventLines
+    : requested >= 8 ? SINGLE_EVENT_CAPS[8].maxGameEventLines
+    : requested >= 4 ? SINGLE_EVENT_CAPS[4].maxGameEventLines : requested;
+  return { maxProps: requested, maxGameEventLines: gameLineCap };
 }
 
 /**
@@ -172,7 +173,7 @@ type PreparedSeat<T extends SeatPick> = {
 /**
  * Seat a single-event ticket from an already-scored candidate pool.
  * Preserves wouldRepeatPlayerProp + wouldRepeatMarketLadder; never fabricates.
- * Precomputes family/ladder maps once — O(C) prepare + O(C·T) seat (T≤10).
+ * Precomputes family/ladder maps once — O(C) prepare + O(C·T) seat (T is the requested ticket size).
  */
 export function seatSingleEventTicket<T extends SeatPick>(
   ranked: Array<RankedSeat<T>>,
