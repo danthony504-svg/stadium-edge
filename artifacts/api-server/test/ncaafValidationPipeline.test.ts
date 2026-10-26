@@ -749,7 +749,7 @@ test("prewarms history/usage before odds; binds conference after the fresh slate
   assert.equal(calls[conference + 2], "adjusted-journal");
 });
 
-test("completed odds slot still refreshes free injury/conference/context evidence", async () => {
+test("completed odds slot still refreshes free injury/conference/usage/context evidence", async () => {
   const { db } = fixture();
   const calls: string[] = [];
   await runNcaafValidationPipeline({
@@ -775,8 +775,12 @@ test("completed odds slot still refreshes free injury/conference/context evidenc
   assert.ok(!againCalls.includes("ncaaf-capture-live-inputs.mjs"));
   assert.ok(againCalls.includes("ncaaf-capture-injuries.mjs"));
   assert.ok(againCalls.includes("ncaaf-conference-availability.mjs"));
+  assert.ok(againCalls.includes("ncaaf-capture-usage.mjs"));
   assert.ok(againCalls.includes("ncaaf-context-dataset.mjs"));
   assert.ok(againCalls.includes("adjusted-journal"));
+  const conference = againCalls.indexOf("ncaaf-conference-availability.mjs");
+  const usage = againCalls.indexOf("ncaaf-capture-usage.mjs");
+  assert.ok(usage > conference, "usage refresh follows conference free refresh");
   assert.equal(calls.filter((c) => c === "ncaaf-capture-live-inputs.mjs").length, 1);
 });
 

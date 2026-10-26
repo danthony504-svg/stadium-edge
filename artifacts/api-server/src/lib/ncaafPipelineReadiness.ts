@@ -15,6 +15,8 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
           "research:ncaaf:settlement-check:latest",
           "research:ncaaf:adjusted-model:latest",
           "research:ncaaf:adjusted-journal:latest",
+          "research:ncaaf:pipeline:latest",
+          "research:ncaaf:usage-capture:latest",
         ],
       ],
     )
@@ -64,7 +66,9 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
     settlement = reports.get("research:ncaaf:settlement-check:latest"),
     adjusted = reports.get("research:ncaaf:adjusted-model:latest"),
     journal = reports.get("research:ncaaf:adjusted-journal:latest"),
-    contextDataset = reports.get("research:ncaaf:context-dataset:latest");
+    contextDataset = reports.get("research:ncaaf:context-dataset:latest"),
+    pipelineLatest = reports.get("research:ncaaf:pipeline:latest"),
+    usageCapture = reports.get("research:ncaaf:usage-capture:latest");
   // Derived waiting label when the frozen journal processed zero future
   // holdout contexts — sealed store files must not change implementationSha256.
   const waitingForHoldoutContexts =
@@ -165,6 +169,55 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       reason: adjustedJournalReason,
       releaseEligible: false,
     },
+    collectionEvidence: {
+      pipelineState: pipelineLatest?.state ?? null,
+      pipelinePhase: pipelineLatest?.phase ?? null,
+      freeEvidenceRefresh: pipelineLatest?.freeEvidenceRefresh === true,
+      pipelineBlockers: pipelineLatest?.blockers ?? {},
+      usageCapture: usageCapture
+        ? {
+            state: usageCapture.state ?? null,
+            matchedTargets: usageCapture.matchedTargets ?? 0,
+            saved: usageCapture.saved ?? 0,
+            failed: usageCapture.failed ?? 0,
+            reason: usageCapture.reason ?? null,
+            finishedAt: usageCapture.finishedAt ?? null,
+          }
+        : null,
+      verifiedAvailabilityBindings: verifiedBindings,
+      upcomingMatchedTargets: upcomingMatched,
+    },
+    /**
+     * Explicit Coach unlock decision for operators. Always blocked until
+     * independent holdout + multi-season + human release approval — a frozen
+     * development candidate alone never authorizes unlocking.
+     */
+    coachEnablementDecision: {
+      decision: "BLOCKED" as const,
+      coachEnabled: false,
+      releaseEligible: false,
+      mobileGameLineGate: "NCAAF_GAME_LINE_SIM_VALIDATED=false",
+      unmet: [
+        ...(inventory.independent_holdout_forecasts >= 500
+          ? []
+          : [
+              `independent_holdout_forecasts=${inventory.independent_holdout_forecasts} (need 500)`,
+            ]),
+        ...(inventory.prior_season_forecasts > 0
+          ? []
+          : ["prior_season_independent_holdout_missing (need ≥2 seasons)"]),
+        ...(inventory.future_holdout_contexts > 0
+          ? []
+          : ["future_holdout_contexts=0 (need prospective contexts before kickoff)"]),
+        ...(verifiedBindings > 0
+          ? []
+          : ["verified_availability_bindings=0 (conference reports not bound to upcoming slate)"]),
+        "human_release_approval_required",
+        "mobile_NCAAF_GAME_LINE_SIM_VALIDATED_still_false",
+      ],
+      frozenCandidateDoesNotAuthorizeUnlock: true,
+      modelSha256: adjusted?.modelSha256 ?? null,
+    },
     release: {
       minimumIndependentGames: 500,
       minimumSeasons: 2,
@@ -209,6 +262,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       "old_forecasts_are_not_relabelled_as_new_model_predictions",
       "model_fit_validation_and_release_are_not_automatically_claimed_by_collection_success",
       "conference_availability_reports_are_partial_and_may_lag_upcoming_slates",
+      "frozen_research_candidate_does_not_authorize_coach_unlock",
     ],
   };
 }

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   usageCapturePlan,
+  usageWaitingForVerifiedAvailabilityReport,
   validateUsageSummary,
 } from "./ncaaf-capture-usage.mjs";
 const target = {
@@ -138,5 +139,20 @@ test("original final-game identity, score and both player-boxscore sides must ag
       { ...f.capture, rawResponse: JSON.stringify(p) },
       f.expected,
     ),
+  );
+});
+test("empty verified bindings wait cleanly without inventing usage jobs", () => {
+  const waiting = usageWaitingForVerifiedAvailabilityReport(
+    "2026-10-26T17:00:00Z",
+  );
+  assert.equal(waiting.state, "waiting_for_verified_availability_bindings");
+  assert.equal(waiting.matchedTargets, 0);
+  assert.equal(waiting.requests, 0);
+  assert.equal(waiting.releaseEligible, false);
+  assert.equal(waiting.automaticUnlock, false);
+  assert.equal(waiting.reason, "no_verified_conference_event_bindings");
+  assert.equal(
+    usageCapturePlan([], [], new Set(), "2026-10-26T17:00:00Z").jobs.length,
+    0,
   );
 });
