@@ -10,7 +10,7 @@
 import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 import { askNamesTeamGame, coachAskTeamScope } from "./coachAskTeamScope.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
-import { marketLadderKey } from "./marketLadderKey.ts";
+import { ticketMarketLadderKey } from "./marketLadderKey.ts";
 import { propPlayerKey } from "./parlayCorrelationScore.ts";
 // wouldRepeatPlayerProp / wouldRepeatMarketLadder identities are preserved via
 // propPlayerKey + marketLadderKey Sets in the seat loop (same helpers).
@@ -219,7 +219,7 @@ export function seatSingleEventTicket<T extends SeatPick>(
       fp: `${eventKey}|${row.pick.market}|${row.pick.pick}|${row.pick.player ?? ""}`.toLowerCase(),
       fam,
       participant: row.pick.isProp ? participantKey(row.pick) : "",
-      ladder: marketLadderKey(row.pick),
+      ladder: ticketMarketLadderKey(row.pick),
       alt: isAltCandidate(row.pick),
       isProp: !!row.pick.isProp,
     });
@@ -238,7 +238,7 @@ export function seatSingleEventTicket<T extends SeatPick>(
   const usedFp = new Set(
     out.map((p) => `${canonicalGameKey(p.game)}|${p.market}|${p.pick}|${p.player ?? ""}`.toLowerCase()),
   );
-  const usedLadders = new Set(out.map((p) => marketLadderKey(p)));
+  const usedLadders = new Set(out.map((p) => ticketMarketLadderKey(p)));
   const usedParticipants = new Set(
     out.filter((p) => p.isProp).map((p) => participantKey(p)).filter(Boolean),
   );

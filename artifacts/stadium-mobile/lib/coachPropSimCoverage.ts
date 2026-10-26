@@ -40,3 +40,11 @@ export function postedPropCoverageForBatch<T extends ParsedPick>(
   for (const key of ambiguous) out.delete(key);
   return out;
 }
+
+/** New participants and stat families first; retain every remaining seed. */
+export function prioritizeUnscannedPropSeeds<T extends ParsedPick>(remaining: readonly T[], attempted: readonly ParsedPick[]): T[] {
+  const player = (p: ParsedPick) => [p.sport,p.eventId??p.game,p.athleteId??p.player].join("|");
+  const family = (p: ParsedPick) => propSharedDistributionMarketKey(p.propMarketKey??p.market);
+  const players=new Set(attempted.map(player)), families=new Set(attempted.map(family));
+  return remaining.map((pick,index)=>({pick,index,p:Number(players.has(player(pick))),f:Number(families.has(family(pick)))})).sort((a,b)=>a.p-b.p||a.f-b.f||a.index-b.index).map(x=>x.pick);
+}
