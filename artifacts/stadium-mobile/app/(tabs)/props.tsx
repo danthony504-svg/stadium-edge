@@ -27,6 +27,7 @@ import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
+import type { ConsiderPick } from "@/lib/teamMatchupConsider";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -430,8 +431,8 @@ function PropsScreen() {
     });
   };
 
-  // Open the team-props sheet from a team search hit. We carry only the team
-  // names + game context; the sheet fetches everything it shows from real feeds.
+  // Open the matchup Team Props sheet. Prefer full event identity (odds event id
+  // + home/away names) so both-team analysis and player binding stay exact.
   const openTeam = (t: {
     team: string;
     opp: string;
@@ -439,7 +440,11 @@ function PropsScreen() {
     sport: string;
     gameLabel: string;
     startsAt: string;
+    eventId?: string | null;
+    homeTeam?: string;
+    awayTeam?: string;
   }) => {
+    const [awayFromLabel, homeFromLabel] = t.gameLabel.split(" @ ").map((s) => s?.trim());
     setTeamSheet({
       team: t.team,
       opp: t.opp,
@@ -447,6 +452,26 @@ function PropsScreen() {
       sport: t.sport,
       gameLabel: t.gameLabel,
       startsAt: t.startsAt,
+      eventId: t.eventId ?? null,
+      homeTeam: t.homeTeam ?? homeFromLabel ?? (t.isHome ? t.team : t.opp),
+      awayTeam: t.awayTeam ?? awayFromLabel ?? (t.isHome ? t.opp : t.team),
+    });
+  };
+
+  const openConsiderPick = (pick: ConsiderPick, allProps: PlayerProp[]) => {
+    const playerProps = allProps.filter((p) => p.player === pick.player);
+    const seed = playerProps.find((p) => p.market === pick.marketKey) ?? pick.prop;
+    setSheet({
+      player: pick.player,
+      athleteId: pick.athleteId,
+      headshot: pick.headshot,
+      playerTeamId: seed.playerTeamId ?? null,
+      teamAbbr: null,
+      sport: teamSheet?.sport ?? sport,
+      gameLabel: teamSheet?.gameLabel ?? `${pick.oppName} vs ${pick.teamName}`,
+      startsAt: teamSheet?.startsAt ?? "",
+      initialMarket: pick.marketKey,
+      props: playerProps.length ? playerProps : [seed],
     });
   };
 
@@ -1791,6 +1816,9 @@ function PropsScreen() {
                                 sport: g.sport,
                                 gameLabel: `${g.awayTeam} @ ${g.homeTeam}`,
                                 startsAt: g.commenceTime,
+                                eventId: g.id,
+                                homeTeam: g.homeTeam,
+                                awayTeam: g.awayTeam,
                               })
                             }
                             style={({ pressed }) => ({
@@ -2034,7 +2062,11 @@ function PropsScreen() {
           setSheetHidden(false);
         }}
       />
-      <TeamPropsSheet data={teamSheet} onClose={() => setTeamSheet(null)} />
+      <TeamPropsSheet
+        data={teamSheet}
+        onClose={() => setTeamSheet(null)}
+        onOpenConsiderPick={openConsiderPick}
+      />
     </View>
   );
 }
