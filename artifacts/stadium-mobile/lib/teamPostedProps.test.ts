@@ -262,3 +262,117 @@ test("provider key inventory documents supported vs unsupported team concepts", 
   ]);
   assert.ok(TEAM_PROP_PROVIDER_KEYS.unsupported.includes("Team Total Yards"));
 });
+
+test("ambiguous nickname match fails closed (no invented team prop)", () => {
+  const g = game({
+    sport: "ncaaf",
+    homeTeam: "Auburn Tigers",
+    awayTeam: "Missouri Tigers",
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          // Ambiguous short token — must not bind to either side.
+          { name: "Tigers Over", price: -110, point: 24.5 },
+          { name: "Tigers Under", price: -110, point: 24.5 },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(extractTeamPostedProps(g, "Auburn Tigers"), []);
+  assert.deepEqual(extractTeamPostedProps(g, "Missouri Tigers"), []);
+  assert.equal(gameHasTeamPostedProps(g), false);
+});
+
+test("unsupported team-yard markets are ignored (never fabricated)", () => {
+  const g = game({
+    sport: "ncaaf",
+    homeTeam: "Alabama Crimson Tide",
+    awayTeam: "Georgia Bulldogs",
+    markets: [
+      {
+        // Not a real Odds API key — must never surface as a team prop.
+        key: "team_total_yards",
+        outcomes: [
+          { name: "Alabama Crimson Tide Over", price: -110, point: 380.5 },
+        ],
+      },
+      {
+        key: "team_totals",
+        outcomes: [
+          { name: "Alabama Crimson Tide Over", price: -110, point: 27.5 },
+          { name: "Alabama Crimson Tide Under", price: -110, point: 27.5 },
+        ],
+      },
+    ],
+  });
+  const rows = extractTeamPostedProps(g, "Alabama Crimson Tide");
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.marketKey === "team_totals"));
+  assert.ok(!rows.some((r) => /yard/i.test(r.market) || /yard/i.test(r.marketKey)));
+});
+
+test("team total stays distinct from combined game total", () => {
+  const g = game({
+    markets: [
+      {
+        key: "totals",
+        outcomes: [
+          { name: "Over", price: -110, point: 220.5 },
+          { name: "Under", price: -110, point: 220.5 },
+        ],
+      },
+      {
+        key: "team_totals",
+        outcomes: [
+          { name: "Boston Celtics Over", price: -110, point: 112.5 },
+          { name: "Boston Celtics Under", price: -110, point: 112.5 },
+        ],
+      },
+    ],
+  });
+  const rows = extractTeamPostedProps(g, "Boston Celtics");
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.market === "Team Total"));
+  assert.ok(rows.every((r) => r.line === 112.5));
+  assert.ok(!rows.some((r) => r.line === 220.5));
+});
+
+test("games with team props but no player-prop markets still extract", () => {
+  // Odds-only event: no player_* markets (player-prop feed would be empty).
+  const g = game({
+    id: "odds-only",
+    sport: "nba",
+    homeTeam: "Miami Heat",
+    awayTeam: "Chicago Bulls",
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          {
+            name: "Miami Heat Over",
+            price: -115,
+            point: 112.5,
+            books: [
+              { book: "DraftKings", price: -115 },
+              { book: "BetMGM", price: -118 },
+            ],
+          },
+          {
+            name: "Chicago Bulls Under",
+            price: -105,
+            point: 107.5,
+            books: [{ book: "FanDuel", price: -105 }],
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(gameHasTeamPostedProps(g), true);
+  assert.equal(extractTeamPostedProps(g, "Miami Heat").length, 1);
+  assert.equal(extractTeamPostedProps(g, "Chicago Bulls").length, 1);
+  assert.equal(
+    extractTeamPostedProps(g, "Miami Heat")[0]!.sportsbook,
+    "DraftKings",
+  );
+});
