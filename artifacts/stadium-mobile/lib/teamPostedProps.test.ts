@@ -1,16 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { OddsGame } from "./api.ts";
 import {
   extractTeamPostedProps,
   findOddsGameForMatchup,
+  fullTeamIdentityMatch,
   gameHasTeamPostedProps,
+  isTeamPropsSport,
   isTeamTotalMarketKey,
   parseTeamTotalOutcome,
   resolveOutcomeTeam,
   TEAM_PROP_PROVIDER_KEYS,
+  TEAM_PROPS_SPORTS,
   teamPostedPropToRealOdds,
 } from "./teamPostedProps.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const slipKey = (game: string, market: string, pick: string) =>
+  `${game}|${market}|${pick}`.toLowerCase();
 
 function game(partial: Partial<OddsGame> & Pick<OddsGame, "markets">): OddsGame {
   return {
@@ -375,4 +385,169 @@ test("games with team props but no player-prop markets still extract", () => {
     extractTeamPostedProps(g, "Miami Heat")[0]!.sportsbook,
     "DraftKings",
   );
+});
+
+test("missing / stale matchup identity fails closed", () => {
+  const live = game({
+    id: "live",
+    homeTeam: "Dallas Cowboys",
+    awayTeam: "New York Giants",
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          { name: "Dallas Cowboys Over", price: -110, point: 24.5 },
+          { name: "Dallas Cowboys Under", price: -110, point: 24.5 },
+        ],
+      },
+    ],
+  });
+  assert.equal(fullTeamIdentityMatch("Dallas Cowboys", "Dallas Cowboys"), true);
+  assert.equal(fullTeamIdentityMatch("Cowboys", "Dallas Cowboys"), false);
+  // Wrong opponent / nickname-only / empty feed → no matchup bind.
+  assert.equal(findOddsGameForMatchup([live], "Dallas Cowboys", "Philadelphia Eagles"), null);
+  assert.equal(findOddsGameForMatchup([live], "Cowboys", "Giants"), null);
+  assert.equal(findOddsGameForMatchup([], "Dallas Cowboys", "New York Giants"), null);
+  // Full verified names still bind — extract stays honest for that event.
+  const hit = findOddsGameForMatchup([live], "Dallas Cowboys", "New York Giants");
+  assert.equal(hit?.id, "live");
+  assert.equal(extractTeamPostedProps(hit!, "Dallas Cowboys").length, 2);
+});
+
+test("missing price / missing sportsbook / missing quote stay honest", () => {
+  const g = game({
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          // price null → dropped (never invent -110)
+          { name: "Boston Celtics Over", price: Number.NaN, point: 112.5 },
+          // valid price, no books[] → sportsbook null; quote always null today
+          { name: "Boston Celtics Under", price: -108, point: 112.5 },
+        ],
+      },
+    ],
+  });
+  const rows = extractTeamPostedProps(g, "Boston Celtics");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.side, "Under");
+  assert.equal(rows[0]!.sportsbook, null);
+  assert.equal(rows[0]!.quoteUpdatedAt, null);
+});
+
+test("slip keys: Team Total does not collide with game Total or player props", () => {
+  const sports = ["nba", "nfl", "mlb", "nhl", "ncaaf", "ncaab", "wnba", "soccer"] as const;
+  for (const sport of sports) {
+    const g = game({
+      sport,
+      homeTeam: "Home Team Alpha",
+      awayTeam: "Away Team Beta",
+      markets: [
+        {
+          key: "totals",
+          outcomes: [
+            { name: "Over", price: -110, point: 45.5 },
+            { name: "Under", price: -110, point: 45.5 },
+          ],
+        },
+        {
+          key: "team_totals",
+          outcomes: [
+            {
+              name: "Home Team Alpha Over",
+              price: -115,
+              point: 22.5,
+              books: [{ book: "DraftKings", price: -115 }],
+            },
+            {
+              name: "Home Team Alpha Under",
+              price: -105,
+              point: 22.5,
+              books: [{ book: "FanDuel", price: -105 }],
+            },
+            {
+              name: "Away Team Beta Over",
+              price: -110,
+              point: 21.5,
+              books: [{ book: "Caesars", price: -110 }],
+            },
+            {
+              name: "Away Team Beta Under",
+              price: -110,
+              point: 21.5,
+              books: [{ book: "Caesars", price: -110 }],
+            },
+          ],
+        },
+        {
+          key: "alternate_team_totals",
+          outcomes: [
+            {
+              name: "Home Team Alpha Over",
+              price: -140,
+              point: 25.5,
+              books: [{ book: "BetMGM", price: -140 }],
+            },
+          ],
+        },
+      ],
+    });
+    const home = extractTeamPostedProps(g, "Home Team Alpha");
+    const away = extractTeamPostedProps(g, "Away Team Beta");
+    assert.equal(home.length, 3, sport);
+    assert.equal(away.length, 2, sport);
+
+    const keys = new Set<string>();
+    for (const row of [...home, ...away]) {
+      const e = teamPostedPropToRealOdds(row);
+      assert.match(e.market, /Team Total/i, sport);
+      assert.notEqual(e.market, "Total", sport);
+      assert.notEqual(e.market, "Moneyline", sport);
+      assert.notEqual(e.market, "Spread", sport);
+      const k = slipKey(e.game, e.market, e.pick);
+      assert.equal(keys.has(k), false, `duplicate slip key ${k}`);
+      keys.add(k);
+      // Player-prop style legs use a different market string — must not collide.
+      const playerKey = slipKey(
+        e.game,
+        "Player Points",
+        `Some Player Over 22.5 Points`,
+      );
+      assert.notEqual(k, playerKey);
+      const gameTotalKey = slipKey(e.game, "Total", "Over 45.5");
+      assert.notEqual(k, gameTotalKey);
+    }
+  }
+});
+
+test("Team Props sports align with PROPS_SPORTS; ncaaf/ncaab stay included", () => {
+  // Avoid importing api.ts values (heavy ESM graph); assert against the source
+  // constant and the Team Props allow-list instead.
+  const apiSrc = readFileSync(join(root, "lib/api.ts"), "utf8");
+  const m = apiSrc.match(/export const PROPS_SPORTS = \[([^\]]+)\]/);
+  assert.ok(m, "PROPS_SPORTS export missing");
+  const propsSports = m![1]!
+    .split(",")
+    .map((s) => s.replace(/["'\s]/g, ""))
+    .filter(Boolean);
+  assert.deepEqual([...TEAM_PROPS_SPORTS].sort(), [...propsSports].sort());
+  assert.equal(isTeamPropsSport("ncaaf"), true);
+  assert.equal(isTeamPropsSport("ncaab"), true);
+  assert.equal(isTeamPropsSport("tennis"), false);
+});
+
+test("source regression: Props gate + Team mode odds-only; Coach untouched; no buildRealOdds in sheet", () => {
+  const propsSrc = readFileSync(join(root, "app/(tabs)/props.tsx"), "utf8");
+  const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
+  assert.ok(propsSrc.includes('featureId="props"'));
+  assert.ok(propsSrc.includes('propsMode === "team"'));
+  assert.ok(propsSrc.includes('queryKey: ["odds", sport]'));
+  assert.ok(propsSrc.includes("extractTeamPostedProps") || propsSrc.includes("gameHasTeamPostedProps"));
+  // Team matchup list must not depend on getProps / player-prop emptiness.
+  assert.ok(propsSrc.includes("Upcoming matchups from the odds feed"));
+  assert.ok(!sheetSrc.includes("buildRealOdds"));
+  assert.ok(sheetSrc.includes("extractTeamPostedProps"));
+  assert.ok(sheetSrc.includes("sampleCaption") || sheetSrc.includes("n="));
+  // This PR must not edit Coach selection / sim / quality floors.
+  assert.equal(propsSrc.includes("buildParlay"), false);
 });

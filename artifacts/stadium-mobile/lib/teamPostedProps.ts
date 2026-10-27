@@ -193,6 +193,39 @@ export function gameHasTeamPostedProps(g: OddsGame): boolean {
 }
 
 /**
+ * Event-level identity: teamNameMatches PLUS a guard against nickname-only
+ * queries. A single-word query must not bind a multi-word board name
+ * ("Cowboys" ≠ "Dallas Cowboys"). Outcome tokens from the Odds API may still
+ * use nicknames — that path keeps teamNameMatches via resolveOutcomeTeam.
+ */
+export function fullTeamIdentityMatch(a: string, b: string): boolean {
+  if (!teamNameMatches(a, b)) return false;
+  const aw = String(a ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  const bw = String(b ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  if (aw.length === 0 || bw.length === 0) return false;
+  const [short, long] = aw.length <= bw.length ? [aw, bw] : [bw, aw];
+  // Nickname-only: one token vs city+nickname (or school+mascot).
+  if (long.length >= 2 && short.length === 1) return false;
+  return true;
+}
+
+/**
  * Find the odds-feed event for a matchup by BOTH full team names
  * (order-independent). Nickname-only matching is intentionally insufficient.
  */
@@ -205,8 +238,8 @@ export function findOddsGameForMatchup(
   return (
     rows.find(
       (o) =>
-        (teamNameMatches(o.homeTeam, team) && teamNameMatches(o.awayTeam, opp)) ||
-        (teamNameMatches(o.homeTeam, opp) && teamNameMatches(o.awayTeam, team)),
+        (fullTeamIdentityMatch(o.homeTeam, team) && fullTeamIdentityMatch(o.awayTeam, opp)) ||
+        (fullTeamIdentityMatch(o.homeTeam, opp) && fullTeamIdentityMatch(o.awayTeam, team)),
     ) ?? null
   );
 }
