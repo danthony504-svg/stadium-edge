@@ -11,23 +11,27 @@ import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
-  buildRealOdds,
   getOdds,
   getTeamDefense,
   getTeamHistory,
   searchTeam,
-  type RealOddsEntry,
   type TeamForm,
 } from "@/lib/api";
-import { teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
-import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { teamNameMatches } from "@/lib/injuries";
 import { oddsRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
+import {
+  extractTeamPostedProps,
+  findOddsGameForMatchup,
+  teamPostedPropToRealOdds,
+  type TeamPostedProp,
+} from "@/lib/teamPostedProps";
 
-// One tappable team, opened from the Props-tab search. We carry only the team
-// names + game context; everything shown is fetched fresh from REAL feeds.
+// One tappable team, opened from the Props-tab search or Team Props matchup list.
+// We carry only the team names + game context; everything shown is fetched fresh
+// from REAL feeds (odds for team totals; ESPN for form/defense).
 export type TeamSheetData = {
   team: string;
   opp: string;
@@ -42,6 +46,8 @@ const fmt1 = (v: number | null | undefined) =>
   v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`;
 const rec = (f: TeamForm | null | undefined) =>
   f && f.games ? `${f.wins}-${f.losses}` : "—";
+const sampleCaption = (n: number | null | undefined, unit = "games") =>
+  n != null && n > 0 ? `n=${n} ${unit}` : "sample unavailable";
 
 export function TeamPropsSheet({
   data,
@@ -61,7 +67,7 @@ export function TeamPropsSheet({
   const sportLabel = data ? SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase() : "";
 
   // Resolve the team to an ESPN id (the search gives us only a name), then pull
-  // its real history. Two-step so the sheet works straight from the props feed.
+  // its real history. Two-step so the sheet works straight from the odds feed.
   const resolveQ = useQuery({
     queryKey: ["team-resolve", sport, team],
     enabled: !!sport && !!team,
@@ -107,10 +113,8 @@ export function TeamPropsSheet({
 
   const split = data?.isHome ? history?.homeSplit : history?.awaySplit;
 
-  // Real posted markets for THIS team's game. We match the odds feed game by
-  // BOTH nicknames (order-independent), then read the team's own moneyline +
-  // spread and the game total straight from buildRealOdds so the pick strings
-  // match the Coach/slip format exactly (clean dedupe). Never priced if absent.
+  // Posted TEAM props only (team totals / alt / period). Same ["odds", sport]
+  // cache as the Team Props tab — never invent ML/spread/game totals as props.
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
     enabled: !!sport && !!data,
@@ -120,32 +124,11 @@ export function TeamPropsSheet({
   const markets = useMemo(() => {
     if (!data || !oddsQ.data) return null;
     const oddsRows = oddsRowsFromQuery(oddsQ.data, sport);
-    // Require BOTH full names to match (order-independent) — nickname-only sets
-    // can misbind in leagues with duplicate nicknames. The paired match also
-    // disambiguates which side is "our" team regardless of feed orientation.
-    const g = oddsRows.find(
-      (o) =>
-        (teamNameMatches(o.homeTeam, team) && teamNameMatches(o.awayTeam, opp)) ||
-        (teamNameMatches(o.homeTeam, opp) && teamNameMatches(o.awayTeam, team)),
-    );
+    const g = findOddsGameForMatchup(oddsRows, team, opp);
     if (!g) return null;
-    const teamNick = teamNameMatches(g.homeTeam, team)
-      ? nickname(g.homeTeam)
-      : nickname(g.awayTeam);
-    const real = buildRealOdds(g);
-    const ml = real.find(
-      (e) => e.market === "Moneyline" && e.pick.startsWith(`${teamNick} `),
-    );
-    const spread = real.find(
-      (e) => e.market === "Spread" && e.pick.startsWith(`${teamNick} `),
-    );
-    const totals = real.filter((e) => e.market === "Total");
-    const rows: RealOddsEntry[] = [];
-    if (ml) rows.push(ml);
-    if (spread) rows.push(spread);
-    rows.push(...totals);
-    return rows.length ? { game: g, rows } : null;
-  }, [data, oddsQ.data, team, opp]);
+    const rows = extractTeamPostedProps(g, team);
+    return { game: g, rows };
+  }, [data, oddsQ.data, sport, team, opp]);
 
   // Opponent's REAL season points-allowed (fail closed: same-sport name match).
   const oppDefenseQ = useQuery({
@@ -170,15 +153,15 @@ export function TeamPropsSheet({
     [sport, team, opp, data?.isHome],
   );
 
-  const addMarket = (e: RealOddsEntry) => {
-    const game = e.game;
-    if (hasLeg(game, e.market, e.pick)) {
-      removeLeg(`${game}|${e.market}|${e.pick}`.toLowerCase());
+  const addMarket = (p: TeamPostedProp) => {
+    const e = teamPostedPropToRealOdds(p);
+    if (hasLeg(e.game, e.market, e.pick)) {
+      removeLeg(`${e.game}|${e.market}|${e.pick}`.toLowerCase());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       return;
     }
     const ok = addLeg({
-      game,
+      game: e.game,
       market: e.market,
       pick: e.pick,
       odds: e.odds,
@@ -285,7 +268,7 @@ export function TeamPropsSheet({
           {loading ? (
             <Loading />
           ) : errored ? (
-            <EmptyNote text={`We couldn't reach the real results feed for ${team} right now. Posted markets below are still live.`} />
+            <EmptyNote text={`We couldn't reach the real results feed for ${team} right now. Posted team totals below are still live when available.`} />
           ) : noData ? (
             <EmptyNote text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers.`} />
           ) : (
@@ -296,21 +279,21 @@ export function TeamPropsSheet({
                   icon="award"
                   label="RECORD"
                   value={history?.record.games ? `${history.record.wins}-${history.record.losses}` : "—"}
-                  caption={history?.record.games ? `last ${history.record.games}` : "season"}
+                  caption={history?.record.games ? sampleCaption(history.record.games) : "season unavailable"}
                   tint={colors.foreground}
                 />
                 <MetricTile
                   icon="trending-up"
                   label="LAST 10"
                   value={rec(history?.last10)}
-                  caption="recent form"
+                  caption={sampleCaption(history?.last10.games)}
                   tint={colors.foreground}
                 />
                 <MetricTile
                   icon="zap"
                   label="STREAK"
                   value={history?.streak ? `${history.streak.type}${history.streak.count}` : "—"}
-                  caption="current"
+                  caption={history?.streak ? "current" : "unavailable"}
                   tint={
                     history?.streak?.type === "W"
                       ? colors.success
@@ -322,24 +305,28 @@ export function TeamPropsSheet({
               </View>
 
               {/* The numbers — real, derived from final scores only */}
-              <Section title="THE NUMBERS · LAST 10">
+              <Section title="MATCHUP STATS · RECENT FORM">
                 <View style={{ gap: 0 }}>
                   <BreakdownRow
                     icon="activity"
                     label="Scoring margin"
-                    sub="Avg points minus opponent"
+                    sub={`${sampleCaption(history?.last10.games)} · avg points minus opponent`}
                     value={fmt1(history?.last10.avgMargin)}
                   />
                   <BreakdownRow
                     icon="arrow-up-circle"
                     label="Points per game"
-                    sub="Scored · allowed"
+                    sub={`${sampleCaption(history?.last10.games)} · scored · allowed`}
                     value={`${history?.last10.ptsFor?.toFixed(1) ?? "—"} · ${history?.last10.ptsAgainst?.toFixed(1) ?? "—"}`}
                   />
                   <BreakdownRow
                     icon="home"
                     label={data.isHome ? "Home form" : "Away form"}
-                    sub={data.isHome ? "Record at home" : "Record on the road"}
+                    sub={
+                      split?.games
+                        ? sampleCaption(split.games)
+                        : `${data.isHome ? "Home" : "Away"} split unavailable`
+                    }
                     value={rec(split)}
                     last
                   />
@@ -347,7 +334,7 @@ export function TeamPropsSheet({
               </Section>
 
               {/* Recent games — real per-game margins */}
-              <Section title="RECENT GAMES · MARGIN">
+              <Section title={`RECENT GAMES · MARGIN · n=${n}`}>
                 <View style={{ gap: 8 }}>
                   {games.map((g, i) => {
                     const won = g.margin > 0;
@@ -390,15 +377,22 @@ export function TeamPropsSheet({
             </>
           )}
 
-          {/* Posted markets — REAL prices straight from the odds feed */}
-          {markets ? (
-            <Section title="POSTED MARKETS">
+          {/* Posted TEAM totals — never ML / spread / combined game total */}
+          {markets && markets.rows.length > 0 ? (
+            <Section title="POSTED TEAM PROPS">
               <View style={{ gap: 8 }}>
                 {markets.rows.map((e, i) => {
                   const added = hasLeg(e.game, e.market, e.pick);
+                  const metaParts = [
+                    e.market,
+                    e.sportsbook ? e.sportsbook : null,
+                    e.quoteUpdatedAt
+                      ? formatGameTime(e.quoteUpdatedAt) || e.quoteUpdatedAt
+                      : null,
+                  ].filter(Boolean);
                   return (
                     <Pressable
-                      key={`${e.market}-${e.pick}-${i}`}
+                      key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
                       onPress={() => addMarket(e)}
                       style={({ pressed }) => ({
                         flexDirection: "row",
@@ -417,7 +411,9 @@ export function TeamPropsSheet({
                           {e.pick}
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 }}>
-                          {humanizeOddsApiMarketKey(e.market) || e.market}
+                          {metaParts.join(" · ")}
+                          {!e.sportsbook ? " · sportsbook unavailable" : ""}
+                          {!e.quoteUpdatedAt ? " · quote time unavailable" : ""}
                         </Text>
                       </View>
                       <View
@@ -452,12 +448,19 @@ export function TeamPropsSheet({
                   );
                 })}
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                  Live posted prices — moneyline & spread for {nickname(team)}, plus the game total.
+                  Team totals for {nickname(team)} only — not the combined game total, moneyline, or spread.
+                  Unsupported book concepts (team yards, etc.) are never invented.
                 </Text>
               </View>
             </Section>
           ) : oddsQ.isLoading ? null : (
-            <EmptyNote text={`No posted team markets are live for this ${sportLabel} game right now.`} />
+            <EmptyNote
+              text={
+                markets == null
+                  ? `We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`
+                  : `No posted team props (team totals) are live for ${nickname(team)} in this ${sportLabel} game right now.`
+              }
+            />
           )}
 
           {/* Opponent defense — REAL season points-allowed */}
@@ -467,25 +470,60 @@ export function TeamPropsSheet({
                 <BreakdownRow
                   icon="shield"
                   label={oppDefense.teamName ?? opp}
-                  sub="Points allowed per game (season)"
+                  sub="Points allowed per game (season · team-wide)"
                   value={oppDefense.avgPointsAgainst.toFixed(1)}
-                  last={oppDefense.avgPointsFor == null}
+                  last={
+                    oppDefense.avgPointsFor == null &&
+                    !(oppDefense.rushDefense?.sampleSize) &&
+                    !(oppDefense.passDefense?.sampleSize)
+                  }
                 />
                 {oppDefense.avgPointsFor != null ? (
                   <BreakdownRow
                     icon="zap"
                     label="Opponent offense"
-                    sub="Points scored per game (season)"
+                    sub="Points scored per game (season · team-wide)"
                     value={oppDefense.avgPointsFor.toFixed(1)}
+                    last={
+                      !(oppDefense.rushDefense?.sampleSize) &&
+                      !(oppDefense.passDefense?.sampleSize)
+                    }
+                  />
+                ) : null}
+                {oppDefense.rushDefense && oppDefense.rushDefense.sampleSize > 0 ? (
+                  <BreakdownRow
+                    icon="trending-down"
+                    label="Rush yards allowed"
+                    sub={sampleCaption(oppDefense.rushDefense.sampleSize)}
+                    value={
+                      oppDefense.rushDefense.rushingYardsAllowedPerGame != null
+                        ? oppDefense.rushDefense.rushingYardsAllowedPerGame.toFixed(1)
+                        : "—"
+                    }
+                    last={!(oppDefense.passDefense?.sampleSize)}
+                  />
+                ) : null}
+                {oppDefense.passDefense && oppDefense.passDefense.sampleSize > 0 ? (
+                  <BreakdownRow
+                    icon="send"
+                    label="Pass yards allowed"
+                    sub={sampleCaption(oppDefense.passDefense.sampleSize)}
+                    value={
+                      oppDefense.passDefense.passingYardsAllowedPerGame != null
+                        ? oppDefense.passDefense.passingYardsAllowedPerGame.toFixed(1)
+                        : "—"
+                    }
                     last
                   />
                 ) : null}
               </View>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                Team-wide season rates — not position-specific.
+                Verified rates only — position-specific defense is unavailable and not estimated.
               </Text>
             </Section>
-          ) : null}
+          ) : oppDefenseQ.isLoading ? null : (
+            <EmptyNote text={`Opponent defensive rates for ${nickname(opp)} are unavailable right now — nothing estimated.`} />
+          )}
 
           {/* What you're still missing — game-level advisory checklist */}
           <Section title="WHAT YOU'RE STILL MISSING">
