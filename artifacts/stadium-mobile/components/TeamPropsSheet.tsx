@@ -6,22 +6,42 @@ import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FactorGrid } from "@/components/FactorCards";
+import { InjuryReport } from "@/components/InjuryReport";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
+  fetchPropSimulations,
+  getGames,
   getOdds,
+  getProps,
   getTeamDefense,
   getTeamHistory,
   searchTeam,
+  type EspnGame,
+  type PlayerProp,
   type TeamForm,
+  type TeamSearchResult,
 } from "@/lib/api";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { teamNameMatches } from "@/lib/injuries";
+import { GRADE_MIN_SAMPLE, gradePropCands, type GradeResult } from "@/lib/propGrade";
 import { oddsRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
+import {
+  buildConsiderCandidates,
+  buildConsiderPick,
+  candidatesToPropPool,
+  candidatesToSimPicks,
+  countPostedAlts,
+  emptyConsiderMessage,
+  MATCHUP_CONSIDER_MIN_SIMULATIONS,
+  summarizeTeamForm,
+  teamDefenseRows,
+  type ConsiderPick,
+} from "@/lib/teamMatchupConsider";
 import {
   extractTeamPostedProps,
   findOddsGameForMatchup,
@@ -29,9 +49,8 @@ import {
   type TeamPostedProp,
 } from "@/lib/teamPostedProps";
 
-// One tappable team, opened from the Props-tab search or Team Props matchup list.
-// We carry only the team names + game context; everything shown is fetched fresh
-// from REAL feeds (odds for team totals; ESPN for form/defense).
+// Matchup-scoped sheet opened from Team Props. Carries focus team + full
+// matchup identity so BOTH sides can be analyzed without guessing.
 export type TeamSheetData = {
   team: string;
   opp: string;
@@ -39,6 +58,10 @@ export type TeamSheetData = {
   sport: string;
   gameLabel: string;
   startsAt: string;
+  /** Odds API event id when known (Team mode matchup list). */
+  eventId?: string | null;
+  homeTeam?: string;
+  awayTeam?: string;
 };
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -49,12 +72,25 @@ const rec = (f: TeamForm | null | undefined) =>
 const sampleCaption = (n: number | null | undefined, unit = "games") =>
   n != null && n > 0 ? `n=${n} ${unit}` : "sample unavailable";
 
+async function resolveTeam(
+  sport: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<TeamSearchResult | null> {
+  const r = await searchTeam(name, signal);
+  const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
+  return sportHits.find((t) => teamNameMatches(t.name, name)) ?? null;
+}
+
 export function TeamPropsSheet({
   data,
   onClose,
+  onOpenConsiderPick,
 }: {
   data: TeamSheetData | null;
   onClose: () => void;
+  /** Optional — open player props / breakdown for a qualified consider pick. */
+  onOpenConsiderPick?: (pick: ConsiderPick, allProps: PlayerProp[]) => void;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -66,22 +102,31 @@ export function TeamPropsSheet({
   const opp = data?.opp ?? "";
   const sportLabel = data ? SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase() : "";
 
-  // Resolve the team to an ESPN id (the search gives us only a name), then pull
-  // its real history. Two-step so the sheet works straight from the odds feed.
-  const resolveQ = useQuery({
+  const homeTeam = data?.homeTeam ?? (data?.isHome ? data.team : data?.opp) ?? "";
+  const awayTeam = data?.awayTeam ?? (data?.isHome ? data?.opp : data?.team) ?? "";
+  const gameLabel = data?.gameLabel || `${awayTeam} @ ${homeTeam}`;
+
+  const focusResolveQ = useQuery({
     queryKey: ["team-resolve", sport, team],
     enabled: !!sport && !!team,
     staleTime: 30 * 60_000,
-    queryFn: async ({ signal }) => {
-      // Fail-closed: only accept a same-sport result whose name actually
-      // matches. No fallback to "first hit" — a wrong team would surface real
-      // stats for the wrong entity (a fabrication). Null → "unavailable".
-      const r = await searchTeam(team, signal);
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      return sportHits.find((t) => teamNameMatches(t.name, team)) ?? null;
-    },
+    queryFn: ({ signal }) => resolveTeam(sport, team, signal),
   });
-  const resolved = resolveQ.data ?? null;
+  const homeResolveQ = useQuery({
+    queryKey: ["team-resolve", sport, homeTeam],
+    enabled: !!sport && !!homeTeam,
+    staleTime: 30 * 60_000,
+    queryFn: ({ signal }) => resolveTeam(sport, homeTeam, signal),
+  });
+  const awayResolveQ = useQuery({
+    queryKey: ["team-resolve", sport, awayTeam],
+    enabled: !!sport && !!awayTeam,
+    staleTime: 30 * 60_000,
+    queryFn: ({ signal }) => resolveTeam(sport, awayTeam, signal),
+  });
+  const resolved = focusResolveQ.data ?? null;
+  const homeResolved = homeResolveQ.data ?? null;
+  const awayResolved = awayResolveQ.data ?? null;
 
   const historyQ = useQuery({
     queryKey: ["team-history", sport, resolved?.teamId],
@@ -89,9 +134,20 @@ export function TeamPropsSheet({
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
   });
+  const homeHistoryQ = useQuery({
+    queryKey: ["team-history", sport, homeResolved?.teamId],
+    enabled: !!sport && !!homeResolved?.teamId,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getTeamHistory(sport, homeResolved!.teamId, signal),
+  });
+  const awayHistoryQ = useQuery({
+    queryKey: ["team-history", sport, awayResolved?.teamId],
+    enabled: !!sport && !!awayResolved?.teamId,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getTeamHistory(sport, awayResolved!.teamId, signal),
+  });
   const history = historyQ.data ?? null;
 
-  // Real recent margins (final scores only), newest first, capped at 10.
   const games = useMemo(() => {
     const rows = history?.recent ?? [];
     return rows
@@ -110,11 +166,8 @@ export function TeamPropsSheet({
     () => Math.max(1, ...games.map((g) => Math.abs(g.margin))),
     [games],
   );
-
   const split = data?.isHome ? history?.homeSplit : history?.awaySplit;
 
-  // Posted TEAM props only (team totals / alt / period). Same ["odds", sport]
-  // cache as the Team Props tab — never invent ML/spread/game totals as props.
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
     enabled: !!sport && !!data,
@@ -124,30 +177,214 @@ export function TeamPropsSheet({
   const markets = useMemo(() => {
     if (!data || !oddsQ.data) return null;
     const oddsRows = oddsRowsFromQuery(oddsQ.data, sport);
-    const g = findOddsGameForMatchup(oddsRows, team, opp);
+    const g =
+      (data.eventId && oddsRows.find((o) => o.id === data.eventId)) ||
+      findOddsGameForMatchup(oddsRows, team, opp);
     if (!g) return null;
-    const rows = extractTeamPostedProps(g, team);
-    return { game: g, rows };
+    const focusRows = extractTeamPostedProps(g, team);
+    const homeRows = extractTeamPostedProps(g, g.homeTeam);
+    const awayRows = extractTeamPostedProps(g, g.awayTeam);
+    return { game: g, rows: focusRows, homeRows, awayRows };
   }, [data, oddsQ.data, sport, team, opp]);
 
-  // Opponent's REAL season points-allowed (fail closed: same-sport name match).
-  const oppDefenseQ = useQuery({
-    queryKey: ["opp-defense", sport, opp],
-    enabled: !!sport && !!opp,
+  const eventId = data?.eventId || markets?.game?.id || null;
+
+  const homeDefenseQ = useQuery({
+    queryKey: ["team-defense", sport, homeResolved?.teamId],
+    enabled: !!sport && !!homeResolved?.teamId,
     staleTime: 30 * 60_000,
+    queryFn: ({ signal }) => getTeamDefense(sport, homeResolved!.teamId, signal),
+  });
+  const awayDefenseQ = useQuery({
+    queryKey: ["team-defense", sport, awayResolved?.teamId],
+    enabled: !!sport && !!awayResolved?.teamId,
+    staleTime: 30 * 60_000,
+    queryFn: ({ signal }) => getTeamDefense(sport, awayResolved!.teamId, signal),
+  });
+
+  // ESPN games → home/away team ids (reuse cache with Props tab when possible).
+  const espnGamesQ = useQuery({
+    queryKey: ["games", sport],
+    enabled: !!sport && !!data,
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) => getGames(sport, signal).catch(() => [] as EspnGame[]),
+  });
+  const espnIds = useMemo(() => {
+    const rows = espnGamesQ.data ?? [];
+    const hit = rows.find(
+      (g) =>
+        (teamNameMatches(g.homeTeam ?? "", homeTeam) &&
+          teamNameMatches(g.awayTeam ?? "", awayTeam)) ||
+        (teamNameMatches(g.homeTeam ?? "", awayTeam) &&
+          teamNameMatches(g.awayTeam ?? "", homeTeam)),
+    );
+    if (hit) {
+      return {
+        homeTeamId: hit.homeTeamId ?? homeResolved?.teamId ?? null,
+        awayTeamId: hit.awayTeamId ?? awayResolved?.teamId ?? null,
+      };
+    }
+    return {
+      homeTeamId: homeResolved?.teamId ?? null,
+      awayTeamId: awayResolved?.teamId ?? null,
+    };
+  }, [espnGamesQ.data, homeTeam, awayTeam, homeResolved?.teamId, awayResolved?.teamId]);
+
+  // Independent of Coach — event player props for this matchup only.
+  const eventPropsQ = useQuery({
+    queryKey: ["team-matchup-props", sport, eventId, espnIds.homeTeamId, espnIds.awayTeamId],
+    enabled: !!sport && !!eventId && !!data,
+    staleTime: 2 * 60_000,
+    queryFn: ({ signal }) =>
+      getProps(
+        {
+          sport,
+          eventId: eventId!,
+          home: homeTeam,
+          away: awayTeam,
+          homeTeamId: espnIds.homeTeamId,
+          awayTeamId: espnIds.awayTeamId,
+          startsAt: data?.startsAt,
+        },
+        signal,
+      ),
+  });
+  const eventProps = eventPropsQ.data?.props ?? [];
+  const identityIds = {
+    homeTeamId:
+      eventPropsQ.data?.identity?.homeTeamId != null
+        ? String(eventPropsQ.data.identity.homeTeamId)
+        : espnIds.homeTeamId,
+    awayTeamId:
+      eventPropsQ.data?.identity?.awayTeamId != null
+        ? String(eventPropsQ.data.identity.awayTeamId)
+        : espnIds.awayTeamId,
+  };
+
+  const considerBuilt = useMemo(
+    () =>
+      buildConsiderCandidates({
+        props: eventProps,
+        sport,
+        homeTeam,
+        awayTeam,
+        ids: identityIds,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [eventProps, sport, homeTeam, awayTeam, identityIds.homeTeamId, identityIds.awayTeamId],
+  );
+
+  const considerEvalQ = useQuery({
+    queryKey: [
+      "team-matchup-consider",
+      sport,
+      eventId,
+      considerBuilt.candidates.map((c) => c.key).join("|"),
+    ],
+    enabled:
+      !!sport &&
+      !!eventId &&
+      considerBuilt.candidates.length > 0 &&
+      !eventPropsQ.isError,
+    staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
-      const r = await searchTeam(opp, signal);
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      const hit = sportHits.find((t) => teamNameMatches(t.name, opp)) ?? null;
-      if (!hit) return null;
-      return getTeamDefense(sport, hit.teamId, signal);
+      const cands = considerBuilt.candidates;
+      const pool = candidatesToPropPool(cands, sport, gameLabel, data!.startsAt);
+      const picks = candidatesToSimPicks(cands, sport, gameLabel);
+      const gradeCands = cands.map((c) => ({
+        key: c.key,
+        player: c.prop.player,
+        athleteId: c.prop.athleteId,
+        marketKey: c.prop.market,
+        line: c.prop.line,
+        side: c.side,
+      }));
+      const [grades, simPack] = await Promise.all([
+        gradePropCands(gradeCands, sport, signal),
+        fetchPropSimulations(picks, pool, {
+          homeTeam,
+          awayTeam,
+          homeTeamId: identityIds.homeTeamId,
+          awayTeamId: identityIds.awayTeamId,
+          startsAt: data!.startsAt,
+          tier: "deep",
+          simulations: MATCHUP_CONSIDER_MIN_SIMULATIONS,
+        }, signal),
+      ]);
+      return { grades, sims: simPack.hits };
     },
   });
-  const oppDefense = oppDefenseQ.data ?? null;
 
-  // Advisory "what you're still missing" cards — game-level context to research
-  // before a team bet. Pure guidance, lightly personalized with the REAL team
-  // and opponent names and the home/away flag. No fabricated numbers.
+  const considerPicks = useMemo(() => {
+    const out: ConsiderPick[] = [];
+    const grades = considerEvalQ.data?.grades;
+    const sims = considerEvalQ.data?.sims;
+    if (!grades || !sims) return out;
+    const homeDef = homeDefenseQ.data;
+    const awayDef = awayDefenseQ.data;
+    for (const cand of considerBuilt.candidates) {
+      const simKey = `${cand.prop.player}|${cand.prop.market}|${cand.prop.line}|${cand.side}`;
+      let sim = sims.get(simKey);
+      if (!sim) {
+        for (const [k, v] of sims) {
+          if (
+            v.player === cand.prop.player &&
+            v.market === cand.prop.market &&
+            v.line === cand.prop.line &&
+            v.side === cand.side
+          ) {
+            sim = v;
+            break;
+          }
+          if (k.toLowerCase() === simKey.toLowerCase()) {
+            sim = v;
+            break;
+          }
+        }
+      }
+      if (!sim) continue;
+      const grade: GradeResult | null = grades.get(cand.key) ?? null;
+      const oppDef = cand.teamSide === "home" ? awayDef : homeDef;
+      const defenseNote =
+        oppDef?.avgPointsAgainst != null
+          ? `${cand.oppName} allows ${oppDef.avgPointsAgainst.toFixed(1)} PPG (team-wide season · ESPN).`
+          : null;
+      const pick = buildConsiderPick({
+        cand,
+        sim,
+        grade,
+        altCount: countPostedAlts(eventProps, cand.prop.player, cand.prop.market),
+        defenseNote,
+      });
+      if (pick) out.push(pick);
+    }
+    out.sort((a, b) => b.simHitPct - a.simHitPct || b.price - a.price);
+    return out;
+  }, [
+    considerBuilt.candidates,
+    considerEvalQ.data,
+    eventProps,
+    homeDefenseQ.data,
+    awayDefenseQ.data,
+  ]);
+
+  const homeForm = useMemo(
+    () => summarizeTeamForm(homeResolved?.name ?? homeTeam, homeHistoryQ.data),
+    [homeResolved?.name, homeTeam, homeHistoryQ.data],
+  );
+  const awayForm = useMemo(
+    () => summarizeTeamForm(awayResolved?.name ?? awayTeam, awayHistoryQ.data),
+    [awayResolved?.name, awayTeam, awayHistoryQ.data],
+  );
+  const homeDefRows = useMemo(
+    () => teamDefenseRows(sport, homeDefenseQ.data),
+    [sport, homeDefenseQ.data],
+  );
+  const awayDefRows = useMemo(
+    () => teamDefenseRows(sport, awayDefenseQ.data),
+    [sport, awayDefenseQ.data],
+  );
+
   const teamFactors = useMemo(
     () => factorsForTeam({ sport, teamName: team, oppName: opp, isHome: data?.isHome }),
     [sport, team, opp, data?.isHome],
@@ -170,16 +407,41 @@ export function TeamPropsSheet({
     Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
   };
 
+  const addConsider = (pick: ConsiderPick) => {
+    const market = `${pick.marketLabel}`;
+    const pickStr = `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`;
+    if (hasLeg(gameLabel, market, pickStr)) {
+      removeLeg(`${gameLabel}|${market}|${pickStr}`.toLowerCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
+    const ok = addLeg({
+      game: gameLabel,
+      market,
+      pick: pickStr,
+      odds: pick.price,
+      sport,
+    });
+    Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
+  };
+
   if (!data) return null;
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
+  const loading = focusResolveQ.isLoading || historyQ.isLoading;
+  const errored = focusResolveQ.isError || historyQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
+
+  const considerEmpty = emptyConsiderMessage({
+    propsLoaded: eventPropsQ.isFetched,
+    propsError: eventPropsQ.isError,
+    candidateCount: considerBuilt.candidates.length,
+    qualifiedCount: considerPicks.length,
+    skipReason: considerBuilt.skipReason,
+  });
 
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
-        {/* Header */}
         <View
           style={{
             paddingTop: insets.top + 8,
@@ -193,7 +455,7 @@ export function TeamPropsSheet({
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
-            Team Props
+            Matchup Props
           </Text>
           <Pressable onPress={onClose} hitSlop={10}>
             <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>Close</Text>
@@ -207,7 +469,7 @@ export function TeamPropsSheet({
             gap: 14,
           }}
         >
-          {/* Title block */}
+          {/* Matchup title */}
           <View
             style={{
               backgroundColor: colors.surface,
@@ -218,43 +480,17 @@ export function TeamPropsSheet({
               gap: 10,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
-                style={{
-                  paddingVertical: 4,
-                  paddingHorizontal: 10,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.card,
-                }}
-              >
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                  TEAM
-                </Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Feather name="check-circle" size={12} color={colors.success} />
-                <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                  REAL STATS
-                </Text>
-              </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Badge text="MATCHUP" />
+              <Badge text="REAL STATS" tone="success" />
+              <Badge text={sportLabel} />
             </View>
-
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              {resolved?.logo ? (
-                <Image source={{ uri: resolved.logo }} style={{ width: 48, height: 48 }} resizeMode="contain" />
-              ) : null}
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
-                  {resolved?.name ?? team}
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
-                  {data.isHome ? "Home" : "Away"} vs {nickname(opp)} · {sportLabel}
-                </Text>
-              </View>
-            </View>
-
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, lineHeight: 24 }}>
+              {awayTeam} @ {homeTeam}
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
+              Focus: {resolved?.name ?? team} ({data.isHome ? "Home" : "Away"})
+            </Text>
             {formatGameTime(data.startsAt) ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                 <Feather name="clock" size={12} color={colors.mutedForeground} />
@@ -265,6 +501,37 @@ export function TeamPropsSheet({
             ) : null}
           </View>
 
+          {/* Injuries — both teams, verified ESPN feed */}
+          <InjuryReport
+            sport={sport}
+            teams={[awayTeam, homeTeam]}
+            title="INJURIES & AVAILABILITY"
+            caption="ESPN injury feed · statuses only when verified for this matchup. Missing teams labeled unavailable."
+            framing="matchup"
+          />
+
+          {/* Both-team form */}
+          <Section title="BOTH TEAMS · RECENT FORM">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 4 }}>
+              Source: ESPN team-history · timeframe: last-10 finals when available · sample sizes shown.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <TeamFormCard form={awayForm} label="AWAY" logo={awayResolved?.logo} />
+              <TeamFormCard form={homeForm} label="HOME" logo={homeResolved?.logo} />
+            </View>
+          </Section>
+
+          {/* Both-team defense — team-wide only */}
+          <Section title="BOTH TEAMS · DEFENSE (TEAM-WIDE)">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
+              Team-level rates only. Position-specific allowances are not in this feed and are never implied.
+            </Text>
+            <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
+            <View style={{ height: 10 }} />
+            <DefenseBlock title={homeResolved?.name ?? homeTeam} rows={homeDefRows} loading={homeDefenseQ.isLoading} />
+          </Section>
+
+          {/* Focus team detail (existing) */}
           {loading ? (
             <Loading />
           ) : errored ? (
@@ -273,7 +540,6 @@ export function TeamPropsSheet({
             <EmptyNote text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers.`} />
           ) : (
             <>
-              {/* Real metric tiles */}
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <MetricTile
                   icon="award"
@@ -304,13 +570,12 @@ export function TeamPropsSheet({
                 />
               </View>
 
-              {/* The numbers — real, derived from final scores only */}
-              <Section title="MATCHUP STATS · RECENT FORM">
+              <Section title={`FOCUS · ${nickname(team)} · LAST 10`}>
                 <View style={{ gap: 0 }}>
                   <BreakdownRow
                     icon="activity"
                     label="Scoring margin"
-                    sub={`${sampleCaption(history?.last10.games)} · avg points minus opponent`}
+                    sub={`${sampleCaption(history?.last10.games)} · ESPN finals`}
                     value={fmt1(history?.last10.avgMargin)}
                   />
                   <BreakdownRow
@@ -333,7 +598,6 @@ export function TeamPropsSheet({
                 </View>
               </Section>
 
-              {/* Recent games — real per-game margins */}
               <Section title={`RECENT GAMES · MARGIN · n=${n}`}>
                 <View style={{ gap: 8 }}>
                   {games.map((g, i) => {
@@ -369,65 +633,125 @@ export function TeamPropsSheet({
                       </View>
                     );
                   })}
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
-                    Bars are real scoring margins. Green = a win — vs varied opponents, not this game's line.
-                  </Text>
                 </View>
               </Section>
             </>
           )}
 
-          {/* Posted TEAM totals — never ML / spread / combined game total */}
+          {/* Posted team totals — focus team */}
           {markets && markets.rows.length > 0 ? (
-            <Section title="POSTED TEAM PROPS">
-              <View style={{ gap: 8 }}>
-                {markets.rows.map((e, i) => {
-                  const added = hasLeg(e.game, e.market, e.pick);
-                  const metaParts = [
-                    e.market,
-                    e.sportsbook ? e.sportsbook : null,
-                    e.quoteUpdatedAt
-                      ? formatGameTime(e.quoteUpdatedAt) || e.quoteUpdatedAt
-                      : null,
-                  ].filter(Boolean);
+            <Section title={`POSTED TEAM PROPS · ${nickname(team)}`}>
+              <PostedTeamPropList rows={markets.rows} onAdd={addMarket} hasLeg={hasLeg} />
+            </Section>
+          ) : oddsQ.isLoading ? null : (
+            <EmptyNote
+              text={
+                markets == null
+                  ? `We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`
+                  : `No posted team props (team totals) are live for ${nickname(team)} right now.`
+              }
+            />
+          )}
+
+          {/* Other side team totals (if any) */}
+          {markets && (data.isHome ? markets.awayRows : markets.homeRows).length > 0 ? (
+            <Section title={`POSTED TEAM PROPS · ${nickname(opp)}`}>
+              <PostedTeamPropList
+                rows={data.isHome ? markets.awayRows : markets.homeRows}
+                onAdd={addMarket}
+                hasLeg={hasLeg}
+              />
+            </Section>
+          ) : null}
+
+          {/* Players to Consider — BOTH teams */}
+          <Section title="PLAYERS TO CONSIDER · BOTH TEAMS">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+              From real posted player props for this exact event. Requires{" "}
+              {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim evidence and ≥{GRADE_MIN_SAMPLE} sample
+              games. Over/Under use posted prices; alts counted when posted. Nothing fabricated.
+            </Text>
+            {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 8 }}>
+                Evaluating posted props with deep simulation…
+              </Text>
+            ) : considerPicks.length === 0 ? (
+              <EmptyNote text={considerEmpty || "No qualifying player props for this matchup."} />
+            ) : (
+              <View style={{ gap: 10, marginTop: 8 }}>
+                {considerPicks.map((pick) => {
+                  const pickStr = `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`;
+                  const added = hasLeg(gameLabel, pick.marketLabel, pickStr);
                   return (
-                    <Pressable
-                      key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
-                      onPress={() => addMarket(e)}
-                      style={({ pressed }) => ({
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        backgroundColor: colors.card,
-                        borderColor: added ? colors.primary : colors.border,
+                    <View
+                      key={pick.key}
+                      style={{
                         borderWidth: 1,
+                        borderColor: colors.border,
                         borderRadius: colors.radius,
+                        backgroundColor: colors.card,
                         padding: 12,
-                        opacity: pressed ? 0.8 : 1,
-                      })}
+                        gap: 8,
+                      }}
                     >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
-                          {e.pick}
-                        </Text>
-                        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 }}>
-                          {metaParts.join(" · ")}
-                          {!e.sportsbook ? " · sportsbook unavailable" : ""}
-                          {!e.quoteUpdatedAt ? " · quote time unavailable" : ""}
-                        </Text>
-                      </View>
-                      <View
-                        style={{
+                      <Pressable
+                        onPress={() => onOpenConsiderPick?.(pick, eventProps)}
+                        disabled={!onOpenConsiderPick}
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                          {pick.headshot ? (
+                            <Image
+                              source={{ uri: pick.headshot }}
+                              style={{ width: 36, height: 36, borderRadius: 18 }}
+                            />
+                          ) : (
+                            <View
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor: colors.surface,
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <Feather name="user" size={16} color={colors.mutedForeground} />
+                            </View>
+                          )}
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+                              {pick.player}
+                            </Text>
+                            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                              {nickname(pick.teamName)} · {pick.side} {pick.line} {pick.marketLabel}
+                              {pick.grade ? ` · ${pick.grade}` : ""}
+                              {pick.altCount > 0 ? ` · ${pick.altCount} alt${pick.altCount === 1 ? "" : "s"} posted` : ""}
+                            </Text>
+                          </View>
+                          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 16 }}>
+                            {pick.simHitPct}%
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+                        {pick.explanation}
+                        {pick.sportsbook ? ` · ${pick.sportsbook}` : " · sportsbook unavailable"}
+                      </Text>
+                      <Pressable
+                        onPress={() => addConsider(pick)}
+                        style={({ pressed }) => ({
+                          alignSelf: "flex-start",
                           flexDirection: "row",
                           alignItems: "center",
                           gap: 6,
-                          borderRadius: 10,
                           paddingVertical: 8,
                           paddingHorizontal: 12,
+                          borderRadius: 10,
                           backgroundColor: added ? colors.surface : colors.primary,
                           borderWidth: added ? 1 : 0,
                           borderColor: colors.primary,
-                        }}
+                          opacity: pressed ? 0.85 : 1,
+                        })}
                       >
                         <Feather
                           name={added ? "check" : "plus"}
@@ -438,97 +762,22 @@ export function TeamPropsSheet({
                           style={{
                             color: added ? colors.primary : colors.primaryForeground,
                             fontFamily: FONT.bold,
-                            fontSize: 14,
+                            fontSize: 13,
                           }}
                         >
-                          {formatAmerican(e.odds)}
+                          {formatAmerican(pick.price)}
                         </Text>
-                      </View>
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   );
                 })}
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                  Team totals for {nickname(team)} only — not the combined game total, moneyline, or spread.
-                  Unsupported book concepts (team yards, etc.) are never invented.
-                </Text>
               </View>
-            </Section>
-          ) : oddsQ.isLoading ? null : (
-            <EmptyNote
-              text={
-                markets == null
-                  ? `We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`
-                  : `No posted team props (team totals) are live for ${nickname(team)} in this ${sportLabel} game right now.`
-              }
-            />
-          )}
+            )}
+          </Section>
 
-          {/* Opponent defense — REAL season points-allowed */}
-          {oppDefense && oppDefense.avgPointsAgainst != null ? (
-            <Section title="OPPONENT DEFENSE">
-              <View style={{ gap: 0 }}>
-                <BreakdownRow
-                  icon="shield"
-                  label={oppDefense.teamName ?? opp}
-                  sub="Points allowed per game (season · team-wide)"
-                  value={oppDefense.avgPointsAgainst.toFixed(1)}
-                  last={
-                    oppDefense.avgPointsFor == null &&
-                    !(oppDefense.rushDefense?.sampleSize) &&
-                    !(oppDefense.passDefense?.sampleSize)
-                  }
-                />
-                {oppDefense.avgPointsFor != null ? (
-                  <BreakdownRow
-                    icon="zap"
-                    label="Opponent offense"
-                    sub="Points scored per game (season · team-wide)"
-                    value={oppDefense.avgPointsFor.toFixed(1)}
-                    last={
-                      !(oppDefense.rushDefense?.sampleSize) &&
-                      !(oppDefense.passDefense?.sampleSize)
-                    }
-                  />
-                ) : null}
-                {oppDefense.rushDefense && oppDefense.rushDefense.sampleSize > 0 ? (
-                  <BreakdownRow
-                    icon="trending-down"
-                    label="Rush yards allowed"
-                    sub={sampleCaption(oppDefense.rushDefense.sampleSize)}
-                    value={
-                      oppDefense.rushDefense.rushingYardsAllowedPerGame != null
-                        ? oppDefense.rushDefense.rushingYardsAllowedPerGame.toFixed(1)
-                        : "—"
-                    }
-                    last={!(oppDefense.passDefense?.sampleSize)}
-                  />
-                ) : null}
-                {oppDefense.passDefense && oppDefense.passDefense.sampleSize > 0 ? (
-                  <BreakdownRow
-                    icon="send"
-                    label="Pass yards allowed"
-                    sub={sampleCaption(oppDefense.passDefense.sampleSize)}
-                    value={
-                      oppDefense.passDefense.passingYardsAllowedPerGame != null
-                        ? oppDefense.passDefense.passingYardsAllowedPerGame.toFixed(1)
-                        : "—"
-                    }
-                    last
-                  />
-                ) : null}
-              </View>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                Verified rates only — position-specific defense is unavailable and not estimated.
-              </Text>
-            </Section>
-          ) : oppDefenseQ.isLoading ? null : (
-            <EmptyNote text={`Opponent defensive rates for ${nickname(opp)} are unavailable right now — nothing estimated.`} />
-          )}
-
-          {/* What you're still missing — game-level advisory checklist */}
           <Section title="WHAT YOU'RE STILL MISSING">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
-              Game-level context to research before betting this team — guidance, not predictions.
+              Game-level context to research — guidance, not predictions.
             </Text>
             <FactorGrid factors={teamFactors} />
           </Section>
@@ -537,6 +786,203 @@ export function TeamPropsSheet({
         <SlipBar />
       </View>
     </Modal>
+  );
+}
+
+function PostedTeamPropList({
+  rows,
+  onAdd,
+  hasLeg,
+}: {
+  rows: TeamPostedProp[];
+  onAdd: (p: TeamPostedProp) => void;
+  hasLeg: (game: string, market: string, pick: string) => boolean;
+}) {
+  const colors = useColors();
+  return (
+    <View style={{ gap: 8 }}>
+      {rows.map((e, i) => {
+        const added = hasLeg(e.game, e.market, e.pick);
+        const metaParts = [
+          e.market,
+          e.sportsbook ? e.sportsbook : null,
+          e.quoteUpdatedAt ? formatGameTime(e.quoteUpdatedAt) || e.quoteUpdatedAt : null,
+        ].filter(Boolean);
+        return (
+          <Pressable
+            key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
+            onPress={() => onAdd(e)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              backgroundColor: colors.card,
+              borderColor: added ? colors.primary : colors.border,
+              borderWidth: 1,
+              borderRadius: colors.radius,
+              padding: 12,
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+                {e.pick}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 }}>
+                {metaParts.join(" · ")}
+                {!e.sportsbook ? " · sportsbook unavailable" : ""}
+                {!e.quoteUpdatedAt ? " · quote time unavailable" : ""}
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                borderRadius: 10,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: added ? colors.surface : colors.primary,
+                borderWidth: added ? 1 : 0,
+                borderColor: colors.primary,
+              }}
+            >
+              <Feather
+                name={added ? "check" : "plus"}
+                size={14}
+                color={added ? colors.primary : colors.primaryForeground}
+              />
+              <Text
+                style={{
+                  color: added ? colors.primary : colors.primaryForeground,
+                  fontFamily: FONT.bold,
+                  fontSize: 14,
+                }}
+              >
+                {formatAmerican(e.odds)}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+        Team totals only — not the combined game total, moneyline, or spread.
+      </Text>
+    </View>
+  );
+}
+
+function TeamFormCard({
+  form,
+  label,
+  logo,
+}: {
+  form: ReturnType<typeof summarizeTeamForm>;
+  label: string;
+  logo?: string | null;
+}) {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        flex: 1,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: colors.radius,
+        backgroundColor: colors.card,
+        padding: 10,
+        gap: 6,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {logo ? <Image source={{ uri: logo }} style={{ width: 22, height: 22 }} resizeMode="contain" /> : null}
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10 }}>{label}</Text>
+      </View>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }} numberOfLines={2}>
+        {form.teamName || "—"}
+      </Text>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+        {form.last10 ?? "—"}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+        L10 · {sampleCaption(form.last10Games)}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+        Home {form.homeSplit ?? "n/a"} ({sampleCaption(form.homeGames)})
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+        Away {form.awaySplit ?? "n/a"} ({sampleCaption(form.awayGames)})
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9 }}>
+        {form.source}
+      </Text>
+    </View>
+  );
+}
+
+function DefenseBlock({
+  title,
+  rows,
+  loading,
+}: {
+  title: string;
+  rows: ReturnType<typeof teamDefenseRows>;
+  loading: boolean;
+}) {
+  const colors = useColors();
+  if (loading) {
+    return (
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+        Loading defense for {title}…
+      </Text>
+    );
+  }
+  if (!rows.length) {
+    return (
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+        {title}: defensive rates unavailable — nothing estimated.
+      </Text>
+    );
+  }
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{title}</Text>
+      {rows.map((r) => (
+        <View key={r.key} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>{r.label}</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10 }}>
+              {r.source} · {r.timeframe}
+              {r.sampleSize != null ? ` · n=${r.sampleSize}` : ""} · scope: team
+            </Text>
+          </View>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>{r.value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Badge({ text, tone }: { text: string; tone?: "success" }) {
+  const colors = useColors();
+  const color = tone === "success" ? colors.success : colors.mutedForeground;
+  return (
+    <View
+      style={{
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+      }}
+    >
+      {tone === "success" ? <Feather name="check-circle" size={11} color={color} /> : null}
+      <Text style={{ color, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.5 }}>{text}</Text>
+    </View>
   );
 }
 
