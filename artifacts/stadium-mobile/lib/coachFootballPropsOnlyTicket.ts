@@ -85,6 +85,7 @@ import {
   propOppDefenseTilt,
   shouldBlockRushOverVsDefense,
   shouldDropPropMissingOppDefense,
+  missingRequiredOpponentEvidence,
   shouldPreferDefenseAltPick,
 } from "./footballRushDefense.ts";
 import {
@@ -720,9 +721,20 @@ export async function buildFootballPropsOnlyTicket(
       ? filterPoolByAllowedSports(opts.pool, sportScope)
       : opts.pool;
   const marketConstraint = parseCoachAskMarketConstraint(opts.askText);
-  const scopedPool = filterPropPoolByAskMarkets(sportScopedPool, marketConstraint.allowedMarketKeys, marketConstraint);
+  const marketScopedPool = filterPropPoolByAskMarkets(sportScopedPool, marketConstraint.allowedMarketKeys, marketConstraint);
+  let missingOpponentCount = 0;
+  const scopedPool = marketScopedPool.filter(entry => {
+    const p = parsedPickFromPoolEntry(entry);
+    const opponentTeamId = opponentTeamIdForProp({ sport: entry.sport, game: entry.game,
+      teamAbbr: entry.teamAbbr, espnGames: opts.espnGames, teamIdMap: opts.teamIdMap });
+    const pack = oppDefensePackForOpponent({ sport: entry.sport, opponentTeamId, map: opts.oppRushDefense });
+    if (!missingRequiredOpponentEvidence({ sport: entry.sport, market: entry.marketKey, pack })) return true;
+    missingOpponentCount++;
+    opts.propAudit?.observe(p, "eligible", "missing_opponent_defense");
+    return false;
+  });
   const candidatesPoolAfter = scopedPool.length;
-  const propPoolSize = scopedPool.length;
+  const propPoolSize = marketScopedPool.length;
   const athleteLinked = countAthleteLinked(scopedPool);
   const sports = countPoolSports(scopedPool);
   const oddsSlack = opts.recoveryFill
@@ -749,7 +761,7 @@ export async function buildFootballPropsOnlyTicket(
   if (!candidates.length) {
     const failDiag = buildPropsOnlyFailDiag({
       target: opts.target,
-      pool: propPoolSize,
+      pool: marketScopedPool.length,
       athleteLinked,
       candidates: 0,
       historyLoaded: 0,
@@ -760,13 +772,14 @@ export async function buildFootballPropsOnlyTicket(
       sports,
       nullReasons: {
         no_candidates: 1,
+        ...(missingOpponentCount ? { missing_opponent_defense: missingOpponentCount } : {}),
         ...(athleteLinked <= 0 ? { missing_athlete_id: propPoolSize } : {}),
       },
     });
     return {
       picks: [],
       note: propsOnlyFailNote(
-        "No athlete-linked player props were posted that we can grade from real history.",
+        missingOpponentCount ? "Player props were posted, but required opponent evidence is unavailable. No player-history or simulation requests were made for those props." : "No athlete-linked player props were posted that we can grade from real history.",
         failDiag,
       ),
       propPoolSize,

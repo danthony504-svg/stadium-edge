@@ -661,13 +661,9 @@ export function isNhlScoringMarket(market?: string | null): boolean {
  * rank) so phone "5 leg NHL" does not empty when packs are thin
  * (bestEv=5 oddsOk=0 after #562).
  */
-export function shouldDropPropMissingOppDefense(opts: {
-  sport?: string | null;
-  market?: string | null;
-  side?: string | null;
-  line?: number | null;
-  pack?: FootballOppDefenseSlice | null;
-  vsOpponentGames?: number | null;
+/** Exact-market requirements, checked before loading history or simulations. */
+export function missingRequiredOpponentEvidence(opts: {
+  sport?: string | null; market?: string | null; pack?: FootballOppDefenseSlice | null;
 }): boolean {
   const sport = String(opts.sport ?? "").toLowerCase();
   const market = String(opts.market ?? "");
@@ -678,6 +674,19 @@ export function shouldDropPropMissingOppDefense(opts: {
     const shots = sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market) && p && (p.shotsAgainstSample ?? 0) >= 3 && Number.isFinite(p.shotsAgainst);
     if (!rush && !pass && !shots) return true;
   }
+  return false;
+}
+
+export function shouldDropPropMissingOppDefense(opts: {
+  sport?: string | null;
+  market?: string | null;
+  side?: string | null;
+  line?: number | null;
+  pack?: FootballOppDefenseSlice | null;
+  vsOpponentGames?: number | null;
+}): boolean {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (missingRequiredOpponentEvidence(opts)) return true;
   if (sport !== "nhl") return false;
   if (/^player_shots_on_goal(?:_alternate)?$/.test(opts.market ?? "")) return !(opts.pack && Number.isFinite(opts.pack.shotsAgainst) && (opts.pack.shotsAgainstSample ?? 0) >= 3);
   if (!isNhlScoringMarket(opts.market)) return false;
