@@ -47,12 +47,12 @@ export function explainMatchup(o: {
   history?: PropSimPlayerHistoryPayload | null;
   startsAt: string;
   opponentId?: string | null;
-  isHome: boolean;
+  isHome?: boolean;
   nowMs?: number;
   opponentName: string;
   opponentDefense?: TeamDefense | null;
-  simProbability: number;
-  simSample: number;
+  simProbability?: number;
+  simSample?: number;
 }): MatchupEvidence {
   const observations: string[] = [],
     cautions: string[] = [],
@@ -105,7 +105,7 @@ export function explainMatchup(o: {
       );
     }
     const split = games.filter(
-      (g) => typeof g.isHome === "boolean" && g.isHome === o.isHome,
+      (g) => typeof o.isHome === "boolean" && typeof g.isHome === "boolean" && g.isHome === o.isHome,
     );
     if (split.length >= 3)
       observations.push(
@@ -164,10 +164,11 @@ export function explainMatchup(o: {
   missing.push(
     "Current injury impact, lineup/role changes and detailed opportunity metrics are not supplied to this analysis.",
   );
-  cautions.push(
+  if (o.simSample != null) cautions.push(
     `Simulation history n=${o.simSample}; Monte Carlo draws are not independent historical games. Calibration for this matchup is unverified.`,
   );
-  if (o.simProbability >= 0.95 || o.simProbability <= 0.05)
+  else cautions.push("Historical observations are descriptive; they do not establish a calibrated forecast or a cause.");
+  if (o.simProbability != null && (o.simProbability >= 0.95 || o.simProbability <= 0.05))
     cautions.push(
       "Extreme model estimate: verify identity, stat mapping, opportunity and calibration. This is not near certainty.",
     );
