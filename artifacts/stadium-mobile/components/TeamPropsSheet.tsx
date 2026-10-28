@@ -102,6 +102,8 @@ export function TeamPropsSheet({
   const slipClearance = useSlipClearance();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const [marketFilter, setMarketFilter] = useState<string>("all");
+  /** Team totals start collapsed so player cards stay above the fold. */
+  const [teamTotalsExpanded, setTeamTotalsExpanded] = useState(false);
 
   const sport = data?.sport ?? "";
   const team = data?.team ?? "";
@@ -495,48 +497,227 @@ export function TeamPropsSheet({
             gap: 14,
           }}
         >
-          {/* Matchup title */}
+          {/* SECTION_ORDER:1 compact matchup header — both teams */}
           <View
             style={{
               backgroundColor: colors.surface,
               borderColor: colors.border,
               borderWidth: 1,
               borderRadius: colors.radius,
-              padding: 16,
-              gap: 10,
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              gap: 8,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Badge text="MATCHUP" />
-              <Badge text="REAL STATS" tone="success" />
               <Badge text={sportLabel} />
+              <Badge text="REAL STATS" tone="success" />
             </View>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, lineHeight: 24 }}>
-              {awayTeam} @ {homeTeam}
-            </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
-              Focus: {resolved?.name ?? team} ({data.isHome ? "Home" : "Away"})
-            </Text>
-            {formatGameTime(data.startsAt) ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <Feather name="clock" size={12} color={colors.mutedForeground} />
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
-                  {formatGameTime(data.startsAt)}
-                </Text>
-              </View>
-            ) : null}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              {awayResolved?.logo ? (
+                <Image source={{ uri: awayResolved.logo }} style={{ width: 28, height: 28 }} resizeMode="contain" />
+              ) : null}
+              <Text
+                style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, lineHeight: 22, flex: 1 }}
+                numberOfLines={2}
+              >
+                {awayTeam} @ {homeTeam}
+              </Text>
+              {homeResolved?.logo ? (
+                <Image source={{ uri: homeResolved.logo }} style={{ width: 28, height: 28 }} resizeMode="contain" />
+              ) : null}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+                Focus {nickname(resolved?.name ?? team)} · {data.isHome ? "Home" : "Away"}
+              </Text>
+              {formatGameTime(data.startsAt) ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Feather name="clock" size={11} color={colors.mutedForeground} />
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+                    {formatGameTime(data.startsAt)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
-          {/* Injuries — both teams, verified ESPN feed */}
-          <InjuryReport
-            sport={sport}
-            teams={[awayTeam, homeTeam]}
-            title="INJURIES & AVAILABILITY"
-            caption="ESPN injury feed · statuses only when verified for this matchup. Missing teams labeled unavailable."
-            framing="matchup"
-          />
+          {/* SECTION_ORDER:2 market/role filter chips — always near top */}
+          <View style={{ gap: 8 }} testID="matchup-market-filters">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 }}>
+              MARKET FILTERS
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {filterChips.map((chip) => {
+                const active = marketFilter === chip.key;
+                return (
+                  <Pressable
+                    key={chip.key}
+                    onPress={() => setMarketFilter(chip.key)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    style={{
+                      paddingVertical: 7,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary : colors.card,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active ? colors.primaryForeground : colors.foreground,
+                        fontFamily: FONT.bold,
+                        fontSize: 12,
+                      }}
+                    >
+                      {chip.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
 
-          {/* Both-team form */}
+          {/* SECTION_ORDER:3 both teams defensive matchup stats — team-wide only */}
+          <Section title="DEFENSIVE MATCHUP · TEAM-WIDE">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
+              Team-level rates only. Position-specific allowances and league rankings are not in this feed and are
+              never implied.
+            </Text>
+            <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
+            <View style={{ height: 10 }} />
+            <DefenseBlock title={homeResolved?.name ?? homeTeam} rows={homeDefRows} loading={homeDefenseQ.isLoading} />
+          </Section>
+
+          {/* SECTION_ORDER:4 top players by role — filters already above; empty/loading stay visible */}
+          <Section title="TOP PLAYERS BY ROLE">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+              Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
+              team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
+              exact-market evidence and ≥{GRADE_MIN_SAMPLE} sample games. Proj / sim / edge / grade only from that
+              path — nothing fabricated.
+            </Text>
+
+            {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
+              <Text
+                testID="matchup-players-loading"
+                style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}
+              >
+                Evaluating posted props with deep simulation…
+              </Text>
+            ) : considerPicks.length === 0 ? (
+              <EmptyNote
+                testID="matchup-players-empty"
+                text={considerEmpty || "No qualifying player props for this matchup."}
+              />
+            ) : filteredEmpty ? (
+              <EmptyNote testID="matchup-players-filter-empty" text={filteredEmpty} />
+            ) : (
+              <View style={{ gap: 14, marginTop: 4 }} testID="matchup-players-list">
+                {considerGroups.map((group) => (
+                  <View key={group.roleKey} style={{ gap: 8 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13, letterSpacing: 0.3 }}>
+                      {group.roleLabel.toUpperCase()}
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                        {` · top ${group.picks.length}`}
+                      </Text>
+                    </Text>
+                    {group.picks.map((pick) => (
+                      <ConsiderPickCard
+                        key={pick.key}
+                        pick={pick}
+                        gameLabel={gameLabel}
+                        added={hasLeg(
+                          gameLabel,
+                          pick.marketLabel,
+                          `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
+                        )}
+                        onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
+                        canOpen={!!onOpenConsiderPick}
+                        onAdd={() => addConsider(pick)}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+            )}
+          </Section>
+
+          {/* SECTION_ORDER:5 Team Totals — collapsed by default; expand both teams */}
+          <Section title="TEAM TOTALS">
+            <Pressable
+              testID="team-totals-toggle"
+              onPress={() => setTeamTotalsExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: teamTotalsExpanded }}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                paddingVertical: 4,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, flex: 1 }}>
+                {teamTotalsExpanded
+                  ? "Hide posted team totals"
+                  : "Show posted team totals for both teams"}
+              </Text>
+              <Feather
+                name={teamTotalsExpanded ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={colors.mutedForeground}
+              />
+            </Pressable>
+            {teamTotalsExpanded ? (
+              <View style={{ gap: 12 }} testID="team-totals-expanded">
+                {oddsQ.isLoading ? (
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+                    Loading posted team totals…
+                  </Text>
+                ) : markets == null ? (
+                  <EmptyNote
+                    text={`We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`}
+                  />
+                ) : (
+                  <>
+                    <View style={{ gap: 6 }}>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11 }}>
+                        {nickname(awayTeam).toUpperCase()} · AWAY
+                      </Text>
+                      {markets.awayRows.length > 0 ? (
+                        <PostedTeamPropList rows={markets.awayRows} onAdd={addMarket} hasLeg={hasLeg} />
+                      ) : (
+                        <EmptyNote text={`No posted team totals are live for ${nickname(awayTeam)} right now.`} />
+                      )}
+                    </View>
+                    <View style={{ gap: 6 }}>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11 }}>
+                        {nickname(homeTeam).toUpperCase()} · HOME
+                      </Text>
+                      {markets.homeRows.length > 0 ? (
+                        <PostedTeamPropList rows={markets.homeRows} onAdd={addMarket} hasLeg={hasLeg} />
+                      ) : (
+                        <EmptyNote text={`No posted team totals are live for ${nickname(homeTeam)} right now.`} />
+                      )}
+                    </View>
+                  </>
+                )}
+              </View>
+            ) : (
+              <Text
+                testID="team-totals-collapsed"
+                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}
+              >
+                Collapsed so player matchups stay primary. Expand to view team totals for both sides.
+              </Text>
+            )}
+          </Section>
+
+          {/* SECTION_ORDER:6 detailed form + recent-game history below players */}
           <Section title="BOTH TEAMS · RECENT FORM">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 4 }}>
               Source: ESPN team-history · timeframe: last-10 finals when available · sample sizes shown.
@@ -547,23 +728,24 @@ export function TeamPropsSheet({
             </View>
           </Section>
 
-          {/* Both-team defense — team-wide only */}
-          <Section title="BOTH TEAMS · DEFENSE (TEAM-WIDE)">
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
-              Team-level rates only. Position-specific allowances are not in this feed and are never implied.
-            </Text>
-            <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
-            <View style={{ height: 10 }} />
-            <DefenseBlock title={homeResolved?.name ?? homeTeam} rows={homeDefRows} loading={homeDefenseQ.isLoading} />
-          </Section>
+          <InjuryReport
+            sport={sport}
+            teams={[awayTeam, homeTeam]}
+            title="INJURIES & AVAILABILITY"
+            caption="ESPN injury feed · statuses only when verified for this matchup. Missing teams labeled unavailable."
+            framing="matchup"
+          />
 
-          {/* Focus team detail (existing) */}
           {loading ? (
             <Loading />
           ) : errored ? (
-            <EmptyNote text={`We couldn't reach the real results feed for ${team} right now. Posted team totals below are still live when available.`} />
+            <EmptyNote
+              text={`We couldn't reach the real results feed for ${team} right now. Posted team totals above are still live when available.`}
+            />
           ) : noData ? (
-            <EmptyNote text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers.`} />
+            <EmptyNote
+              text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers.`}
+            />
           ) : (
             <>
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -663,111 +845,6 @@ export function TeamPropsSheet({
               </Section>
             </>
           )}
-
-          {/* Posted team totals — focus team */}
-          {markets && markets.rows.length > 0 ? (
-            <Section title={`POSTED TEAM PROPS · ${nickname(team)}`}>
-              <PostedTeamPropList rows={markets.rows} onAdd={addMarket} hasLeg={hasLeg} />
-            </Section>
-          ) : oddsQ.isLoading ? null : (
-            <EmptyNote
-              text={
-                markets == null
-                  ? `We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`
-                  : `No posted team props (team totals) are live for ${nickname(team)} right now.`
-              }
-            />
-          )}
-
-          {/* Other side team totals (if any) */}
-          {markets && (data.isHome ? markets.awayRows : markets.homeRows).length > 0 ? (
-            <Section title={`POSTED TEAM PROPS · ${nickname(opp)}`}>
-              <PostedTeamPropList
-                rows={data.isHome ? markets.awayRows : markets.homeRows}
-                onAdd={addMarket}
-                hasLeg={hasLeg}
-              />
-            </Section>
-          ) : null}
-
-          {/* Matchup player props — BOTH teams, role-ranked, market filters */}
-          <Section title="MATCHUP PROPS · TOP PLAYERS BY ROLE">
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-              Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
-              team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
-              exact-market evidence and ≥{GRADE_MIN_SAMPLE} sample games. Proj / sim / edge / grade only from that
-              path — nothing fabricated.
-            </Text>
-
-            {/* Market / role filters */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-              {filterChips.map((chip) => {
-                const active = marketFilter === chip.key;
-                return (
-                  <Pressable
-                    key={chip.key}
-                    onPress={() => setMarketFilter(chip.key)}
-                    style={{
-                      paddingVertical: 7,
-                      paddingHorizontal: 12,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: active ? colors.primary : colors.border,
-                      backgroundColor: active ? colors.primary : colors.card,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: active ? colors.primaryForeground : colors.foreground,
-                        fontFamily: FONT.bold,
-                        fontSize: 12,
-                      }}
-                    >
-                      {chip.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-                Evaluating posted props with deep simulation…
-              </Text>
-            ) : considerPicks.length === 0 ? (
-              <EmptyNote text={considerEmpty || "No qualifying player props for this matchup."} />
-            ) : filteredEmpty ? (
-              <EmptyNote text={filteredEmpty} />
-            ) : (
-              <View style={{ gap: 14, marginTop: 4 }}>
-                {considerGroups.map((group) => (
-                  <View key={group.roleKey} style={{ gap: 8 }}>
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13, letterSpacing: 0.3 }}>
-                      {group.roleLabel.toUpperCase()}
-                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                        {` · top ${group.picks.length}`}
-                      </Text>
-                    </Text>
-                    {group.picks.map((pick) => (
-                      <ConsiderPickCard
-                        key={pick.key}
-                        pick={pick}
-                        gameLabel={gameLabel}
-                        added={hasLeg(
-                          gameLabel,
-                          pick.marketLabel,
-                          `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
-                        )}
-                        onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
-                        canOpen={!!onOpenConsiderPick}
-                        onAdd={() => addConsider(pick)}
-                      />
-                    ))}
-                  </View>
-                ))}
-              </View>
-            )}
-          </Section>
 
           <Section title="WHAT YOU'RE STILL MISSING">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
@@ -1287,10 +1364,11 @@ function BreakdownRow({
   );
 }
 
-function EmptyNote({ text }: { text: string }) {
+function EmptyNote({ text, testID }: { text: string; testID?: string }) {
   const colors = useColors();
   return (
     <View
+      testID={testID}
       style={{
         backgroundColor: colors.surface,
         borderColor: colors.border,
