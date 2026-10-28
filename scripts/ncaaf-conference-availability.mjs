@@ -208,8 +208,8 @@ export function buildConferenceArchive(conference, published, history) {
 }
 /**
  * Empty or failed conference captures must stay retryable inside the same slot.
- * Once a capture records verifiedEvents > 0 the attempt key remains terminal so
- * authenticated bindings are not silently replaced. Never invents report dates.
+ * Captures with deferred future reports also retry after backoff; new source
+ * archives/bindings are appended, never rewritten. Never invents report dates.
  */
 export function shouldRetryConferenceCapture(
   attempt,
@@ -230,7 +230,7 @@ export function shouldRetryConferenceCapture(
     return false;
   if (nowMs - finished < minAgeMs) return false;
   if (attempt.state === "failed") return true;
-  if (attempt.state === "processed" && (attempt.verifiedEvents ?? 0) === 0)
+  if (attempt.state === "processed" && ((attempt.verifiedEvents ?? 0) === 0 || (attempt.deferredFutureReports ?? 0) > 0))
     return true;
   return false;
 }

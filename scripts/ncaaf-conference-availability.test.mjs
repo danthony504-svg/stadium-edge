@@ -292,3 +292,10 @@ test("failure diagnostics never persist arbitrary errors or provider data",()=>{
  assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failureCode,'conference_internal_failure');
  assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failurePhase,'unknown');
 });
+
+test("mixed captures stay retryable after backoff without rewriting earlier evidence",()=>{
+ const attempt={state:'processed',verifiedEvents:1,deferredFutureReports:2,finishedAt:now};
+ assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+29*60000),false);
+ assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+30*60000),true);
+ assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+30*60000),false);
+});
