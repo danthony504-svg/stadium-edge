@@ -3,6 +3,8 @@ import type { PropSimPlayerHistoryPayload, TeamDefense } from "./api.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 export type MatchupEvidence = {
   observations: string[];
+  opportunity: string[];
+  positionContext: string | null;
   cautions: string[];
   missing: string[];
   source: string;
@@ -47,13 +49,15 @@ export function explainMatchup(o: {
   history?: PropSimPlayerHistoryPayload | null;
   startsAt: string;
   opponentId?: string | null;
-  isHome: boolean;
+  position?: string | null;
+  isHome?: boolean;
   nowMs?: number;
   opponentName: string;
   opponentDefense?: TeamDefense | null;
-  simProbability: number;
-  simSample: number;
+  simProbability?: number;
+  simSample?: number;
 }): MatchupEvidence {
+  const opportunity: string[] = [];
   const observations: string[] = [],
     cautions: string[] = [],
     missing: string[] = [];
@@ -105,7 +109,7 @@ export function explainMatchup(o: {
       );
     }
     const split = games.filter(
-      (g) => typeof g.isHome === "boolean" && g.isHome === o.isHome,
+      (g) => typeof o.isHome === "boolean" && typeof g.isHome === "boolean" && g.isHome === o.isHome,
     );
     if (split.length >= 3)
       observations.push(
@@ -146,33 +150,72 @@ export function explainMatchup(o: {
     missing.push(
       "Dated, athlete-bound history for this exact market unavailable.",
     );
+  // Unique machine fields or unambiguous display labels only. Missing is not zero.
+  const opportunityFields: Array<[string, string[]]> =
+    ["nba", "wnba", "ncaab", "cbb"].includes(o.sport)
+      ? [["Field-goal attempts", ["fieldGoalsAttempted", "FGA"]], ["Three-point attempts", ["threePointFieldGoalsAttempted", "3PA"]]]
+      : ["nfl", "ncaaf", "cfb"].includes(o.sport)
+        ? [["Pass attempts", ["passingAttempts"]], ["Carries", ["rushingAttempts"]], ["Targets", ["receivingTargets"]]]
+        : o.sport === "mlb"
+          ? [["Plate appearances", ["plateAppearances", "PA"]], ["At-bats", ["atBats", "AB"]]]
+          : o.sport === "nhl"
+            ? [["Shots on goal", ["shotsOnGoal", "S"]]]
+            : o.sport === "soccer"
+              ? [["Minutes played", ["minutesPlayed", "MIN"]]] : [];
+  for (const [label, keys] of opportunityFields) {
+    const values = games.flatMap(g => {
+      // Conflicting aliases fail closed rather than silently choosing one.
+      const vals = keys.filter(k => !ambiguous.has(k)).flatMap(k => {
+        const raw = g.stats?.[k];
+        if (typeof raw !== "string" || !/^\d+(?:\.\d+)?$/.test(raw.trim())) return [];
+        const v = Number(raw);
+        return Number.isFinite(v) && v >= 0 ? [v] : [];
+      });
+      const unique = [...new Set(vals)];
+      return unique.length === 1 ? unique : [];
+    });
+    if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (n=${values.length}; logged history).`);
+  }
+  // Logged playing time is genuine opportunity evidence, even without usage%.
+  opportunity.push(...observations.filter(t => t.startsWith("Playing time:")));
+  observations.push(...opportunity.filter(t => !observations.includes(t)));
+  if (!opportunity.length) missing.push("Logged opportunity sample unavailable or fewer than 3 verified games.");
   const boundDefense =
     o.opponentId && o.opponentDefense?.teamId === o.opponentId
       ? o.opponentDefense
       : null;
+  const positionRows = boundDefense?.positionAllowances;
+  const position = o.position?.toUpperCase();
+  const positional = positionRows?.rows.find(r => r.position === position && r.market === o.market && r.games >= 3 && r.minutes > 0 && Number.isFinite(r.per36) && r.per36 >= 0 && Date.parse(r.lastGame) < cutoff && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
+  const positionContext = positional ? `${o.opponentName}: opposing ${position} players produced ${positional.per36.toFixed(1)} ${o.market.replace(/^player_/, "").replace(/_/g," ")} per 36 pooled minutes (n=${positional.games} games; ${positional.appearances} player appearances; ${positional.minutes} minutes; ${positional.firstGame.slice(0,10)}–${positional.lastGame.slice(0,10)}). Observed primary-position production, not a league rank or individual-player forecast. Source: ${positionRows!.source}.` : null;
+  if (positionContext) observations.push(positionContext);
+  else missing.push("Verified primary-position opponent allowance unavailable or fewer than 3 completed games.");
   const defense = marketDefenseContext(
     o.sport,
     o.market,
     o.opponentName,
     boundDefense,
   );
-  if (defense) observations.push(defense);
-  else
+  if (defense && !positional) observations.push(defense);
+  else if (!positional && !defense)
     missing.push(
       "Market-specific opponent allowance unavailable; overall points allowed is not a substitute.",
     );
   missing.push(
-    "Current injury impact, lineup/role changes and detailed opportunity metrics are not supplied to this analysis.",
+    "Current injury impact, confirmed lineup/role changes and future opportunity are not supplied to this analysis. Logged activity does not establish future usage.",
   );
-  cautions.push(
+  if (o.simSample != null) cautions.push(
     `Simulation history n=${o.simSample}; Monte Carlo draws are not independent historical games. Calibration for this matchup is unverified.`,
   );
-  if (o.simProbability >= 0.95 || o.simProbability <= 0.05)
+  else cautions.push("Historical observations are descriptive; they do not establish a calibrated forecast or a cause.");
+  if (o.simProbability != null && (o.simProbability >= 0.95 || o.simProbability <= 0.05))
     cautions.push(
       "Extreme model estimate: verify identity, stat mapping, opportunity and calibration. This is not near certainty.",
     );
   return {
     observations,
+    opportunity,
+    positionContext,
     cautions,
     missing,
     source: games.length

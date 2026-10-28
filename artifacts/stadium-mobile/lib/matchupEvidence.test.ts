@@ -147,3 +147,37 @@ test("wrong-opponent defensive rates are never presented as matchup evidence", (
     e.missing.some((x) => x.includes("Market-specific opponent allowance")),
   );
 });
+
+test("logged opportunity fills gaps across sports without inventing usage or ambiguous attempts", () => {
+ for (const [sport, market, stat, field, label] of [
+  ["nba", "player_points", "PTS", "fieldGoalsAttempted", "Field-goal attempts"],
+  ["nfl", "player_rush_yds", "rushingYards", "rushingAttempts", "Carries"],
+  ["ncaaf", "player_reception_yds", "receivingYards", "receivingTargets", "Targets"],
+  ["mlb", "batter_hits", "H", "plateAppearances", "Plate appearances"],
+  ["nhl", "player_shots_on_goal", "S", "shotsOnGoal", "Shots on goal"],
+  ["soccer", "player_shots", "SH", "minutesPlayed", "Minutes played"],
+ ]) {
+  const h=history(sport,stat);
+  h.recent=h.recent.map(g=>({...g,stats:{[stat]:"8",[field]:"8"}}));
+  const e=explainMatchup({...base,sport,market,history:h});
+  assert.ok(e.opportunity.some(t=>t.includes(`${label}: 8.0/game (n=5`)),sport);
+  assert.ok(!e.missing.some(t=>t.startsWith("Logged opportunity sample unavailable")),sport);
+ }
+ const h=history("nfl","rushingYards");
+ h.recent=h.recent.map(g=>({...g,stats:{rushingYards:"12",ATT:"20"}}));
+ assert.equal(explainMatchup({...base,sport:"nfl",market:"player_rush_yds",history:h}).opportunity.length,0);
+});
+test("conflicting aliases and short opportunity samples remain unavailable; missing is not zero",()=>{
+ const h=history();
+ h.recent=h.recent.map(g=>({...g,stats:{PTS:"12",FGA:"5",fieldGoalsAttempted:"9"}}));
+ assert.equal(explainMatchup({...base,history:h}).opportunity.length,0);
+ h.recent=h.recent.slice(0,2).map(g=>({...g,stats:{PTS:"12",FGA:"0"}}));
+ assert.equal(explainMatchup({...base,history:h}).opportunity.length,0);
+});
+
+test("positional opponent observations require exact defending team, verified position, stat and pregame cutoff",()=>{
+ const pack={source:"ESPN completed boxes",receivedAt:"2026-10-28T10:00Z",rows:[{position:"C",market:"player_points",per36:24,games:4,appearances:6,minutes:180,firstGame:"2026-10-20T00:00Z",lastGame:"2026-10-26T00:00Z"}]};
+ const opts={...base,position:"C",opponentDefense:{...def,positionAllowances:pack}};
+ assert.ok(explainMatchup(opts).observations.some(t=>t.includes("opposing C players produced 24.0")));
+ for(const patch of [{position:null},{position:"F/C"},{market:"player_assists"},{opponentId:"wrong"},{startsAt:"2026-10-25T00:00Z"}])assert.ok(!explainMatchup({...opts,...patch}).observations.some(t=>t.includes("opposing C players")));
+});

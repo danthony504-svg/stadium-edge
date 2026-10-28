@@ -2,7 +2,7 @@
  * Team Props matchup analysis helpers — both-team context + "Players to Consider".
  *
  * Pure evaluation over REAL posted player props for one odds event. Uses the
- * same recommendSide / gradePropCands / fetchPropSimulations paths as Props UI,
+ * same gradePropCands / fetchPropSimulations paths as Props UI for BOTH priced sides,
  * but never touches Coach board assembly. Fail closed: no fabricated lines,
  * odds, players, probabilities, or recommendations.
  */
@@ -37,7 +37,7 @@ export const MATCHUP_CONSIDER_MIN_SIMULATIONS = EXACT_MARKET_10K_MIN_SIMULATIONS
 /** Need enough real games in the sim sample to trust a hit rate. */
 export const MATCHUP_CONSIDER_MIN_SAMPLE_GAMES = GRADE_MIN_SAMPLE;
 
-/** Cap candidates sent to deep sim (independent of Coach; keeps sheet snappy). */
+/** Base market budget; at most twice this many priced sides reach deep sim. */
 export const MATCHUP_CONSIDER_MAX_CANDIDATES = 16;
 
 export type MatchupTeamSide = "home" | "away";
@@ -538,8 +538,10 @@ export function buildConsiderCandidates(opts: {
     if (filter && filter !== "all" && softRoleFromMarket(opts.sport, p.market)?.key !== filter &&
         p.market.toLowerCase() !== filter && !p.market.toLowerCase().startsWith(`${filter}_`)) continue;
     if (!propBelongsToGameTeams(p.playerTeamId, homeId, awayId)) continue;
-    const sel = recommendSide(p);
-    if (!sel) continue;
+    const sides = ([{ side: "Over" as const, price: p.overPrice }, { side: "Under" as const, price: p.underPrice }])
+      .filter((v): v is { side: "Over" | "Under"; price: number } =>
+        typeof v.price === "number" && Number.isFinite(v.price) && Math.abs(v.price) >= 100);
+    for (const sel of sides) {
 
     const onHome = String(p.playerTeamId).trim() === String(homeId).trim();
     const teamSide: MatchupTeamSide = onHome ? "home" : "away";
@@ -554,6 +556,7 @@ export function buildConsiderCandidates(opts: {
     };
     if (teamSide === "home") home.push(row);
     else away.push(row);
+    }
   }
 
   // Balance market groups before the cap; selected filters narrow the input first.
@@ -566,12 +569,12 @@ export function buildConsiderCandidates(opts: {
       groups.set(role, group);
     }
     const out: ConsiderCandidate[] = [];
-    while (out.length < maxPer) {
+    while (out.length < maxPer * 2) {
       let advanced = false;
       for (const group of groups.values()) {
         const row = group.shift();
         if (row) { out.push(row); advanced = true; }
-        if (out.length >= maxPer) break;
+        if (out.length >= maxPer * 2) break;
       }
       if (!advanced) break;
     }

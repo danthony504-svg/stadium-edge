@@ -185,16 +185,16 @@ export function TeamPropsSheet({
   const eventId = data?.eventId || matchupGame?.id || null;
 
   const homeDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, homeResolved?.teamId],
+    queryKey: ["team-defense", sport, homeResolved?.teamId, "positions-v1"],
     enabled: !!sport && !!homeResolved?.teamId,
     staleTime: 30 * 60_000,
-    queryFn: ({ signal }) => getTeamDefense(sport, homeResolved!.teamId, signal),
+    queryFn: ({ signal }) => getTeamDefense(sport, homeResolved!.teamId, signal, true),
   });
   const awayDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, awayResolved?.teamId],
+    queryKey: ["team-defense", sport, awayResolved?.teamId, "positions-v1"],
     enabled: !!sport && !!awayResolved?.teamId,
     staleTime: 30 * 60_000,
-    queryFn: ({ signal }) => getTeamDefense(sport, awayResolved!.teamId, signal),
+    queryFn: ({ signal }) => getTeamDefense(sport, awayResolved!.teamId, signal, true),
   });
 
   // ESPN games → home/away team ids (reuse cache with Props tab when possible).
@@ -498,8 +498,7 @@ export function TeamPropsSheet({
           {/* SECTION_ORDER:3 both teams defensive matchup stats — team-wide only */}
           <Section title="DEFENSIVE MATCHUP · TEAM-WIDE">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
-              Team-level rates only. Position-specific allowances and league rankings are not in this feed and are
-              never implied.
+              Team-level rates below. Verified positional observations appear in player evidence when available; league rankings are not supplied.
             </Text>
             <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
             <View style={{ height: 10 }} />
@@ -546,9 +545,10 @@ export function TeamPropsSheet({
             </ScrollView>
           </View>
 
+
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
               Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
-              team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
+              team’s defense. Verified positional observations are shown when available. Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
               exact-market evidence, ≥{GRADE_MIN_SAMPLE} history games, ≥52% simulated hit probability, positive edge,
               and a passing recent-form grade. Market groups are not verified roster positions. Grades describe recent hit rates, not simulation calibration.
             </Text>
@@ -585,6 +585,7 @@ export function TeamPropsSheet({
                         pick={pick}
                         gameLabel={gameLabel}
                         evidence={explainMatchup({
+                          position: pick.positionVerified ? pick.position : null,
                           sport, athleteId: pick.athleteId, market: pick.marketKey, line: pick.line, side: pick.side,
                           history: pick.athleteId ? considerEvalQ.data?.histories[pick.athleteId] : null,
                           startsAt: data.startsAt, isHome: pick.teamSide === "home",
@@ -770,7 +771,7 @@ function ConsiderPickCard({
   const edgeLabel =
     pick.edgePct == null
       ? "Edge unavailable"
-      : `Edge ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
+      : `Model vs price ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
   const projLabel =
     pick.meanProjection == null ? "Proj unavailable" : `Proj ${pick.meanProjection.toFixed(1)}`;
 
@@ -814,8 +815,8 @@ function ConsiderPickCard({
             </Text>
           </View>
           <View style={{ alignItems: "flex-end", gap: 2 }}>
-            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 18 }}>{pick.simHitPct}%</Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>model estimate</Text>
+            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>Exploratory</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>calibration unverified</Text>
           </View>
         </View>
       </Pressable>
@@ -830,10 +831,10 @@ function ConsiderPickCard({
         {pick.formSummary}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {pick.opportunitySummary}
+        {evidence.opportunity.length ? evidence.opportunity.join(" ") : pick.opportunitySummary}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {pick.defenseSummary}
+        {evidence.positionContext ?? pick.defenseSummary}
       </Text>
 
       <View style={{ gap: 6 }}>
@@ -845,6 +846,7 @@ function ConsiderPickCard({
           <Text style={{color:colors.primary,fontSize:12}}>{showEvidenceDetails ? "Hide evidence details" : `More evidence · ${evidence.missing.length} gaps`}</Text>
         </Pressable>
         {showEvidenceDetails && <>
+        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Raw simulation estimate: {pick.simHitPct}%. This is not a verified win probability. Model-vs-price edge is exploratory.</Text>
         <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>MISSING EVIDENCE</Text>
         {evidence.missing.map((text, i) => <Text key={`m${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
         <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{evidence.source}</Text>
