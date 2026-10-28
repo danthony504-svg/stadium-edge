@@ -35,9 +35,12 @@ import {
   buildConsiderPick,
   candidatesToPropPool,
   candidatesToSimPicks,
+  considerSlipPayload,
   countPostedAlts,
   emptyConsiderMessage,
   filterConsiderPicks,
+  lookupExactConsiderSim,
+  MATCHUP_CONSIDER_MIN_HIT_PCT,
   MATCHUP_CONSIDER_MIN_SIMULATIONS,
   MATCHUP_TOP_PER_ROLE,
   matchupFilterChips,
@@ -332,25 +335,8 @@ export function TeamPropsSheet({
     const homeDef = homeDefenseQ.data;
     const awayDef = awayDefenseQ.data;
     for (const cand of considerBuilt.candidates) {
-      const simKey = `${cand.prop.player}|${cand.prop.market}|${cand.prop.line}|${cand.side}`;
-      let sim = sims.get(simKey);
-      if (!sim) {
-        for (const [k, v] of sims) {
-          if (
-            v.player === cand.prop.player &&
-            v.market === cand.prop.market &&
-            v.line === cand.prop.line &&
-            v.side === cand.side
-          ) {
-            sim = v;
-            break;
-          }
-          if (k.toLowerCase() === simKey.toLowerCase()) {
-            sim = v;
-            break;
-          }
-        }
-      }
+      // Exact selection only — never bind a mismatched side/line/market sim.
+      const sim = lookupExactConsiderSim(sims, cand);
       if (!sim) continue;
       const grade: GradeResult | null = grades.get(cand.key) ?? null;
       // Each player is graded vs the OPPOSING team's defense pack (team-wide only).
@@ -371,7 +357,12 @@ export function TeamPropsSheet({
       });
       if (pick) out.push(pick);
     }
-    out.sort((a, b) => b.simHitPct - a.simHitPct || b.price - a.price);
+    out.sort(
+      (a, b) =>
+        b.simHitPct - a.simHitPct ||
+        (b.edgePct ?? -999) - (a.edgePct ?? -999) ||
+        b.price - a.price,
+    );
     return out;
   }, [
     considerBuilt.candidates,
@@ -383,9 +374,10 @@ export function TeamPropsSheet({
   ]);
 
   const considerGroups = useMemo(() => {
-    const filtered = filterConsiderPicks(considerPicks, marketFilter);
+    const filtered = filterConsiderPicks(considerPicks, marketFilter, sport);
+    // Never relax floors to fill two slots — rank only already-qualified picks.
     return rankConsiderPicksByRole(filtered, MATCHUP_TOP_PER_ROLE);
-  }, [considerPicks, marketFilter]);
+  }, [considerPicks, marketFilter, sport]);
 
   const considerFlatVisible = useMemo(
     () => considerGroups.flatMap((g) => g.picks),
@@ -432,18 +424,17 @@ export function TeamPropsSheet({
   };
 
   const addConsider = (pick: ConsiderPick) => {
-    const market = `${pick.marketLabel}`;
-    const pickStr = `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`;
-    if (hasLeg(gameLabel, market, pickStr)) {
-      removeLeg(`${gameLabel}|${market}|${pickStr}`.toLowerCase());
+    const leg = considerSlipPayload(pick, gameLabel);
+    if (hasLeg(leg.game, leg.market, leg.pick)) {
+      removeLeg(`${leg.game}|${leg.market}|${leg.pick}`.toLowerCase());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       return;
     }
     const ok = addLeg({
-      game: gameLabel,
-      market,
-      pick: pickStr,
-      odds: pick.price,
+      game: leg.game,
+      market: leg.market,
+      pick: leg.pick,
+      odds: leg.odds,
       sport,
     });
     Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
@@ -594,10 +585,11 @@ export function TeamPropsSheet({
           {/* SECTION_ORDER:4 top players by role — filters already above; empty/loading stay visible */}
           <Section title="TOP PLAYERS BY ROLE">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-              Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
-              team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
-              exact-market evidence and ≥{GRADE_MIN_SAMPLE} sample games. Proj / sim / edge / grade only from that
-              path — nothing fabricated.
+              Up to {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side — floors never relaxed to
+              fill slots. Requires ≥{MATCHUP_CONSIDER_MIN_HIT_PCT}% sim hit, {GRADE_MIN_SAMPLE}+ graded games at
+              C+, positive model edge, and {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim exact-market
+              provenance. Each card uses the opposing team’s defense (team-wide only — not positional). Missing
+              grades do not qualify.
             </Text>
 
             {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
@@ -624,21 +616,20 @@ export function TeamPropsSheet({
                         {` · top ${group.picks.length}`}
                       </Text>
                     </Text>
-                    {group.picks.map((pick) => (
-                      <ConsiderPickCard
-                        key={pick.key}
-                        pick={pick}
-                        gameLabel={gameLabel}
-                        added={hasLeg(
-                          gameLabel,
-                          pick.marketLabel,
-                          `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
-                        )}
-                        onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
-                        canOpen={!!onOpenConsiderPick}
-                        onAdd={() => addConsider(pick)}
-                      />
-                    ))}
+                    {group.picks.map((pick) => {
+                      const leg = considerSlipPayload(pick, gameLabel);
+                      return (
+                        <ConsiderPickCard
+                          key={pick.key}
+                          pick={pick}
+                          gameLabel={gameLabel}
+                          added={hasLeg(leg.game, leg.market, leg.pick)}
+                          onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
+                          canOpen={!!onOpenConsiderPick}
+                          onAdd={() => addConsider(pick)}
+                        />
+                      );
+                    })}
                   </View>
                 ))}
               </View>
@@ -939,11 +930,21 @@ function ConsiderPickCard({
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <MetaChip label={projLabel} />
         <MetaChip label={edgeLabel} />
-        <MetaChip label={`${pick.simulations.toLocaleString()} sims · n=${pick.sampleGames}`} />
+        <MetaChip label={`${pick.simulations.toLocaleString()} sims`} />
+        <MetaChip label={`Sim history n=${pick.sampleGames}`} />
+        {pick.gradeN != null ? (
+          <MetaChip label={`Hit-rate sample n=${pick.gradeN}`} />
+        ) : (
+          <MetaChip label="Hit-rate sample unavailable" />
+        )}
       </View>
 
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
         {pick.formSummary}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+        Simulation-history n={pick.sampleGames} is separate from recent hit-rate sample
+        {pick.gradeN != null ? ` (n=${pick.gradeN})` : " (unavailable)"}.
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
         {pick.opportunitySummary}

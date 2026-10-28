@@ -17,6 +17,11 @@ import type {
   TeamDefense,
   TeamHistory,
 } from "./api.ts";
+import {
+  COACH_SIM_MIN_CONFIDENCE,
+  COACH_SIM_MIN_GRADE,
+  meetsCoachSimQualityFloor,
+} from "./gameSimQualityGates.ts";
 import { propBelongsToGameTeams } from "./propGameTeamGate.ts";
 import {
   GRADE_MIN_SAMPLE,
@@ -34,6 +39,12 @@ export const MATCHUP_CONSIDER_MIN_SIMULATIONS = EXACT_MARKET_10K_MIN_SIMULATIONS
 
 /** Need enough real games in the sim sample to trust a hit rate. */
 export const MATCHUP_CONSIDER_MIN_SAMPLE_GAMES = GRADE_MIN_SAMPLE;
+
+/** Shared confidence floor — sim hit % must clear this (same as Coach). */
+export const MATCHUP_CONSIDER_MIN_HIT_PCT = COACH_SIM_MIN_CONFIDENCE;
+
+/** Shared grade floor — missing grades never qualify. */
+export const MATCHUP_CONSIDER_MIN_GRADE = COACH_SIM_MIN_GRADE;
 
 /** Cap candidates sent to deep sim (independent of Coach; keeps sheet snappy). */
 export const MATCHUP_CONSIDER_MAX_CANDIDATES = 16;
@@ -212,8 +223,8 @@ export function softRoleFromMarket(sport: string, market: string): MatchupRole |
 }
 
 /**
- * Map verified roster abbreviations onto soft role keys when compatible.
- * Incompatible roster/market pairs keep the market role and mark position unverified for grouping.
+ * Map verified roster abbreviations onto filter/group keys when authentic.
+ * Never invent a position — returns null when abbreviation is unrecognized.
  */
 export function rosterPositionToRoleKey(sport: string, position: string | null | undefined): string | null {
   const p = String(position ?? "").trim().toUpperCase();
@@ -222,19 +233,31 @@ export function rosterPositionToRoleKey(sport: string, position: string | null |
   if (s === "nfl" || s === "ncaaf" || s === "cfb") {
     if (p === "QB") return "qb";
     if (p === "RB" || p === "FB" || p === "HB") return "rb";
-    if (p === "WR" || p === "TE") return "wr_te";
+    if (p === "WR") return "wr";
+    if (p === "TE") return "te";
+    return null;
+  }
+  if (s === "nba" || s === "wnba" || s === "ncaab" || s === "cbb") {
+    if (["PG", "SG", "SF", "PF", "C", "G", "F"].includes(p)) return p.toLowerCase();
     return null;
   }
   if (s === "mlb") {
     if (["P", "SP", "RP", "CL", "LHP", "RHP"].includes(p)) return "pitcher";
-    // Position players / DH / OF / IF — batter role
     return "batter";
   }
   if (s === "nhl") {
-    if (p === "G") return "shots"; // goalie props rare; don't invent a G role without markets
-    return "skater_pts";
+    if (p === "G") return "g";
+    if (p === "D" || p === "LD" || p === "RD") return "d";
+    if (p === "C" || p === "LW" || p === "RW" || p === "F" || p === "W") return "f";
+    return null;
   }
-  // Basketball / soccer: roster positions don't map 1:1 onto market chips — keep market role.
+  if (s === "soccer") {
+    if (["F", "FW", "ST", "CF"].includes(p)) return "fwd";
+    if (["M", "MF", "CM", "DM", "AM", "LM", "RM"].includes(p)) return "mid";
+    if (["D", "DF", "CB", "LB", "RB"].includes(p)) return "def";
+    if (["G", "GK"].includes(p)) return "gk";
+    return null;
+  }
   return null;
 }
 
@@ -246,11 +269,13 @@ export type ResolvedMatchupRole = {
   positionVerified: boolean;
   /** True when role came only from market family (soft). */
   roleFromMarketOnly: boolean;
+  /** How the group was chosen — never claim market groups are roster positions. */
+  groupSource: "roster_position" | "market";
 };
 
 /**
- * Prefer soft market role for grouping (props are market-bound). Surface verified
- * roster position when available; never invent a position string.
+ * Group by verified sport-specific roster position when available.
+ * Market-family fallback is labeled honestly (never as positional defense).
  */
 export function resolveMatchupRole(opts: {
   sport: string;
@@ -259,26 +284,35 @@ export function resolveMatchupRole(opts: {
 }): ResolvedMatchupRole {
   const soft = softRoleFromMarket(opts.sport, opts.market);
   const pos = String(opts.rosterPosition ?? "").trim() || null;
-  const roleKey = soft?.key ?? "other";
-  const roleLabel = soft?.label ?? propMarketLabel(opts.market);
-  if (!pos) {
+  if (pos) {
+    const posKey = rosterPositionToRoleKey(opts.sport, pos);
+    if (posKey) {
+      return {
+        roleKey: posKey,
+        roleLabel: pos.toUpperCase(),
+        position: pos,
+        positionVerified: true,
+        roleFromMarketOnly: false,
+        groupSource: "roster_position",
+      };
+    }
+    // Position string present but unrecognized — still show it; group by market.
     return {
-      roleKey,
-      roleLabel,
-      position: null,
-      positionVerified: false,
-      roleFromMarketOnly: true,
+      roleKey: soft?.key ?? "other",
+      roleLabel: soft ? `${soft.label} · market` : propMarketLabel(opts.market),
+      position: pos,
+      positionVerified: true,
+      roleFromMarketOnly: !soft,
+      groupSource: "market",
     };
   }
-  const mapped = rosterPositionToRoleKey(opts.sport, pos);
-  // Verified position always shown; grouping stays on market role so WR with
-  // rush props still sits under the market chip that matches the posted line.
   return {
-    roleKey,
-    roleLabel: soft?.label ?? mapped ?? pos,
-    position: pos,
-    positionVerified: true,
-    roleFromMarketOnly: !soft,
+    roleKey: soft?.key ?? "other",
+    roleLabel: soft ? `${soft.label} · market` : propMarketLabel(opts.market),
+    position: null,
+    positionVerified: false,
+    roleFromMarketOnly: true,
+    groupSource: "market",
   };
 }
 
@@ -522,8 +556,54 @@ export type ConsiderCandidate = {
 };
 
 /**
+ * Require exact-event identity before sim/qualify. Never infer team from
+ * nickname or headshot — ambiguous bindings are excluded.
+ */
+export function candidateIdentityOk(opts: {
+  prop: PlayerProp;
+  sport: string;
+  ids: MatchupTeamIds;
+}): { ok: true } | { ok: false; reason: string } {
+  const p = opts.prop;
+  if (!propBelongsToGameTeams(p.playerTeamId, opts.ids.homeTeamId, opts.ids.awayTeamId)) {
+    return { ok: false, reason: "Player team is not bound to this event's home/away ids." };
+  }
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (sport !== "soccer" && !String(p.athleteId ?? "").trim()) {
+    return { ok: false, reason: "Missing verified athlete id — cannot bind simulation identity." };
+  }
+  if (sport === "soccer" && !String(p.athleteId ?? "").trim() && !String(p.player ?? "").trim()) {
+    return { ok: false, reason: "Missing player identity for soccer prop." };
+  }
+  // Event id when present on the row must be non-empty; null is allowed only
+  // when the sheet already scoped getProps by eventId (caller responsibility).
+  if (p.eventId != null && !String(p.eventId).trim() && p.oddsEventId != null && !String(p.oddsEventId).trim()) {
+    return { ok: false, reason: "Ambiguous empty event id on prop row." };
+  }
+  return { ok: true };
+}
+
+/** Posted sides to evaluate — both when priced, else the single available side. */
+export function candidateSidesForProp(
+  p: PlayerProp,
+): Array<{ side: "Over" | "Under"; price: number }> {
+  const out: Array<{ side: "Over" | "Under"; price: number }> = [];
+  if (p.overPrice != null && Number.isFinite(p.overPrice)) {
+    out.push({ side: "Over", price: p.overPrice });
+  }
+  if (p.underPrice != null && Number.isFinite(p.underPrice)) {
+    out.push({ side: "Under", price: p.underPrice });
+  }
+  if (out.length) return out;
+  const fallback = recommendSide(p);
+  return fallback ? [fallback] : [];
+}
+
+/**
  * Build scored candidates from posted mains for THIS event only.
- * Unbound / alt-only / irrelevant / unpriced rows are dropped (fail closed).
+ * Unbound / alt-only / irrelevant / unpriced / ambiguous-identity rows drop (fail closed).
+ * Both Over and Under are candidates when both are priced so qualification
+ * always matches the exact displayed side/line/price.
  */
 export function buildConsiderCandidates(opts: {
   props: PlayerProp[];
@@ -551,41 +631,37 @@ export function buildConsiderCandidates(opts: {
     if (p.alt) continue;
     if (p.line == null || !Number.isFinite(p.line)) continue;
     if (!isRelevantPlayerMarket(opts.sport, p.market)) continue;
-    if (!propBelongsToGameTeams(p.playerTeamId, homeId, awayId)) continue;
-    const sel = recommendSide(p);
-    if (!sel) continue;
+    const idCheck = candidateIdentityOk({ prop: p, sport: opts.sport, ids: opts.ids });
+    if (!idCheck.ok) continue;
 
     const onHome = String(p.playerTeamId).trim() === String(homeId).trim();
     const teamSide: MatchupTeamSide = onHome ? "home" : "away";
-    const row: ConsiderCandidate = {
-      key: `${p.player}|${p.market}|${p.line}|${sel.side}|${teamSide}`.toLowerCase(),
-      prop: p,
-      side: sel.side,
-      price: sel.price,
-      teamSide,
-      teamName: onHome ? opts.homeTeam : opts.awayTeam,
-      oppName: onHome ? opts.awayTeam : opts.homeTeam,
-    };
-    if (teamSide === "home") home.push(row);
-    else away.push(row);
+    for (const sel of candidateSidesForProp(p)) {
+      const row: ConsiderCandidate = {
+        key: `${p.player}|${p.market}|${p.line}|${sel.side}|${teamSide}`.toLowerCase(),
+        prop: p,
+        side: sel.side,
+        price: sel.price,
+        teamSide,
+        teamName: onHome ? opts.homeTeam : opts.awayTeam,
+        oppName: onHome ? opts.awayTeam : opts.homeTeam,
+      };
+      if (teamSide === "home") home.push(row);
+      else away.push(row);
+    }
   }
 
-  // Prefer diverse markets; stable player order from feed.
+  // Prefer diverse players/markets; stable order from feed. Cap keeps deep-sim load bounded.
   const take = (rows: ConsiderCandidate[]) => {
-    const seenPlayer = new Set<string>();
+    const seenPlayerSide = new Set<string>();
     const out: ConsiderCandidate[] = [];
     for (const r of rows) {
       if (out.length >= maxPer) break;
-      const pk = r.prop.player.toLowerCase();
-      // Allow a second market for the same player only after first pass fills.
-      if (seenPlayer.has(pk) && out.length < maxPer) {
-        // skip duplicates in first pass
-        continue;
-      }
-      seenPlayer.add(pk);
+      const pk = `${r.prop.player}|${r.side}`.toLowerCase();
+      if (seenPlayerSide.has(pk)) continue;
+      seenPlayerSide.add(pk);
       out.push(r);
     }
-    // Second pass: additional markets if room.
     if (out.length < maxPer) {
       for (const r of rows) {
         if (out.length >= maxPer) break;
@@ -604,7 +680,7 @@ export function buildConsiderCandidates(opts: {
     return {
       candidates: [],
       skipReason: anyBound
-        ? "No relevant posted player-prop mains with a real price are available for this matchup."
+        ? "No relevant posted player-prop mains with a real price and verified identity are available for this matchup."
         : "No posted player props could be bound to either team for this event.",
     };
   }
@@ -615,12 +691,63 @@ export type ConsiderQualification =
   | { status: "qualified"; reason: null }
   | { status: "rejected"; reason: string };
 
-/** Qualify a deep-sim result against quality floors — never invent a pass. */
+/**
+ * Exact selection binding — sim row must match the displayed player/market/line/side.
+ * Prevents qualifying Over while rendering Under (or an alternate line).
+ */
+export function simMatchesConsiderSelection(
+  sim: PropSimulationResult | null | undefined,
+  cand: Pick<ConsiderCandidate, "side" | "prop">,
+): boolean {
+  if (!sim) return false;
+  const p = cand.prop;
+  if (String(sim.player).trim() !== String(p.player).trim()) return false;
+  if (String(sim.market).toLowerCase() !== String(p.market).toLowerCase()) return false;
+  if (sim.side !== cand.side) return false;
+  if (p.line == null || !Number.isFinite(p.line) || !Number.isFinite(sim.line)) return false;
+  if (Math.abs(sim.line - p.line) > 1e-9) return false;
+  return true;
+}
+
+/** Look up the exact sim for a candidate — never accept a mismatched side/line. */
+export function lookupExactConsiderSim(
+  sims: Map<string, PropSimulationResult> | null | undefined,
+  cand: ConsiderCandidate,
+): PropSimulationResult | null {
+  if (!sims) return null;
+  const simKey = `${cand.prop.player}|${cand.prop.market}|${cand.prop.line}|${cand.side}`;
+  const direct = sims.get(simKey) ?? sims.get(simKey.toLowerCase());
+  if (direct && simMatchesConsiderSelection(direct, cand)) return direct;
+  for (const [k, v] of sims) {
+    if (k.toLowerCase() === simKey.toLowerCase() && simMatchesConsiderSelection(v, cand)) {
+      return v;
+    }
+    if (simMatchesConsiderSelection(v, cand)) return v;
+  }
+  return null;
+}
+
+/**
+ * Qualify against shared Coach floors + exact-market provenance for the
+ * displayed selection. Missing grades never qualify. Negative edge / sub-52%
+ * hit never qualify. Floors are never relaxed to fill top-2 slots.
+ */
 export function qualifyConsiderSim(
   sim: PropSimulationResult | null | undefined,
+  opts?: {
+    cand?: ConsiderCandidate;
+    grade?: GradeResult | null;
+    price?: number | null;
+  },
 ): ConsiderQualification {
   if (!sim) {
     return { status: "rejected", reason: "Simulation evidence unavailable." };
+  }
+  if (opts?.cand && !simMatchesConsiderSelection(sim, opts.cand)) {
+    return {
+      status: "rejected",
+      reason: "Simulation identity does not match the displayed player/market/side/line.",
+    };
   }
   if (sim.nullReason) {
     return {
@@ -634,15 +761,55 @@ export function qualifyConsiderSim(
   if ((sim.simulations ?? 0) < MATCHUP_CONSIDER_MIN_SIMULATIONS) {
     return {
       status: "rejected",
-      reason: `Needs ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()} simulations (got ${sim.simulations ?? 0}).`,
+      reason: `Needs ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()} exact-market simulations (got ${sim.simulations ?? 0}).`,
     };
   }
   if ((sim.sampleGames ?? 0) < MATCHUP_CONSIDER_MIN_SAMPLE_GAMES) {
     return {
       status: "rejected",
-      reason: `Insufficient game-log sample (n=${sim.sampleGames ?? 0}; need ${MATCHUP_CONSIDER_MIN_SAMPLE_GAMES}).`,
+      reason: `Insufficient simulation-history sample (sim n=${sim.sampleGames ?? 0}; need ≥${MATCHUP_CONSIDER_MIN_SAMPLE_GAMES}).`,
     };
   }
+
+  const hitPct = Math.round(sim.hitProbability * 1000) / 10;
+  if (hitPct < MATCHUP_CONSIDER_MIN_HIT_PCT) {
+    return {
+      status: "rejected",
+      reason: `Simulated probability ${hitPct}% is below the ${MATCHUP_CONSIDER_MIN_HIT_PCT}% floor.`,
+    };
+  }
+
+  const grade = opts?.grade ?? null;
+  if (!grade?.grade) {
+    return {
+      status: "rejected",
+      reason: `Missing hit-rate grade — need ≥${GRADE_MIN_SAMPLE} logged games clearing the ${MATCHUP_CONSIDER_MIN_GRADE} floor (missing grades never qualify).`,
+    };
+  }
+  if (
+    !meetsCoachSimQualityFloor({
+      grade: grade.grade,
+      confidencePct: hitPct,
+    })
+  ) {
+    return {
+      status: "rejected",
+      reason: `Grade ${grade.grade} / ${hitPct}% does not meet ${MATCHUP_CONSIDER_MIN_GRADE} + ${MATCHUP_CONSIDER_MIN_HIT_PCT}% floors.`,
+    };
+  }
+
+  const price = opts?.price ?? opts?.cand?.price ?? null;
+  const edgePct = simulatorModelEdge(sim.hitProbability, price);
+  if (edgePct == null || !Number.isFinite(edgePct)) {
+    return { status: "rejected", reason: "Model edge unavailable for the posted price." };
+  }
+  if (edgePct <= 0) {
+    return {
+      status: "rejected",
+      reason: `Model edge ${edgePct.toFixed(1)} pp is not positive versus the posted price.`,
+    };
+  }
+
   return { status: "qualified", reason: null };
 }
 
@@ -688,6 +855,22 @@ export type ConsiderPick = {
   prop: PlayerProp;
 };
 
+/** Honest recent-form label — never conflate with simulation-history n. */
+export function considerFormSummary(grade: GradeResult | null | undefined): string {
+  if (grade?.grade && grade.n >= GRADE_MIN_SAMPLE) {
+    return `Recent hit-rate form ${grade.hits}/${grade.n} vs this exact line (${GRADE_WINDOW}-game window).`;
+  }
+  if (grade && grade.n > 0 && grade.n < GRADE_MIN_SAMPLE) {
+    return `Recent hit-rate grade unavailable — only ${grade.n} logged games (need ≥${GRADE_MIN_SAMPLE}).`;
+  }
+  return `Recent hit-rate grade unavailable — missing grade or below ${MATCHUP_CONSIDER_MIN_GRADE} threshold (need ≥${GRADE_MIN_SAMPLE} logged games clearing the floor).`;
+}
+
+/** Simulation-history sample — separate from recent hit-rate form sample. */
+export function considerSimSampleSummary(sim: PropSimulationResult, hitPct: number): string {
+  return `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim exact-market hit ${hitPct}% · simulation-history n=${sim.sampleGames} (not the recent hit-rate sample).`;
+}
+
 export function buildConsiderPick(opts: {
   cand: ConsiderCandidate;
   sim: PropSimulationResult;
@@ -698,20 +881,24 @@ export function buildConsiderPick(opts: {
   defenseNote?: string | null;
   nowMs?: number;
 }): ConsiderPick | null {
-  const q = qualifyConsiderSim(opts.sim);
+  const q = qualifyConsiderSim(opts.sim, {
+    cand: opts.cand,
+    grade: opts.grade,
+    price: opts.cand.price,
+  });
   if (q.status !== "qualified") return null;
   const p = opts.cand.prop;
   const hitPct = Math.round((opts.sim.hitProbability as number) * 1000) / 10;
   const edgePct = simulatorModelEdge(opts.sim.hitProbability, opts.cand.price);
+  if (edgePct == null || edgePct <= 0) return null;
   const role = resolveMatchupRole({
     sport: opts.sport,
     market: p.market,
     rosterPosition: p.position ?? null,
   });
 
-  const formSummary = opts.grade
-    ? `Recent form ${opts.grade.hits}/${opts.grade.n} vs this line (${GRADE_WINDOW}-game window).`
-    : `Recent hit-rate grade unavailable (need ≥${GRADE_MIN_SAMPLE} logged games).`;
+  const formSummary = considerFormSummary(opts.grade);
+  const simSampleSummary = considerSimSampleSummary(opts.sim, hitPct);
   const opportunitySummary = opts.usageNote?.trim()
     ? opts.usageNote.trim()
     : "Opportunity / usage metrics unavailable for this card.";
@@ -719,21 +906,22 @@ export function buildConsiderPick(opts: {
     opts.defenseNote?.trim() ||
     "Opponent defensive rates unavailable — nothing estimated. Position-specific allowances are not in this feed.";
 
-  const parts: string[] = [formSummary, opportunitySummary];
-  parts.push(
-    `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim hit ${hitPct}% · sample n=${opts.sim.sampleGames}.`,
-  );
+  const parts: string[] = [formSummary, opportunitySummary, simSampleSummary];
   if (opts.sim.meanProjection != null) {
     parts.push(`Mean projection ${opts.sim.meanProjection.toFixed(1)}.`);
   }
-  if (edgePct != null) {
-    parts.push(`Model edge ${edgePct > 0 ? "+" : ""}${edgePct.toFixed(1)} pp vs posted price.`);
-  }
+  parts.push(`Model edge +${edgePct.toFixed(1)} pp vs posted ${opts.cand.side} price.`);
   parts.push(defenseSummary);
-  if (role.positionVerified && role.position) {
-    parts.push(`Roster position ${role.position} (ESPN).`);
+  if (role.groupSource === "roster_position" && role.position) {
+    parts.push(`Grouped by verified roster position ${role.position} (ESPN).`);
+  } else if (role.positionVerified && role.position) {
+    parts.push(
+      `Roster position ${role.position} (ESPN) · grouped by market role (not positional defense).`,
+    );
   } else {
-    parts.push("Verified roster position unavailable — role inferred from posted market only.");
+    parts.push(
+      "Verified roster position unavailable — grouped by posted market role only (not positional defense).",
+    );
   }
 
   const book =
@@ -779,6 +967,19 @@ export function buildConsiderPick(opts: {
     defenseSummary,
     explanation: parts.join(" "),
     prop: p,
+  };
+}
+
+/** Exact Add-to-Slip payload for a qualified consider pick — same selection as the card. */
+export function considerSlipPayload(
+  pick: ConsiderPick,
+  gameLabel: string,
+): { game: string; market: string; pick: string; odds: number; sport?: string } {
+  return {
+    game: gameLabel,
+    market: pick.marketLabel,
+    pick: `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
+    odds: pick.price,
   };
 }
 
@@ -850,19 +1051,30 @@ export function dedupeConsiderPicks(picks: ConsiderPick[]): ConsiderPick[] {
   return [...best.values()];
 }
 
-/** Filter by role chip key or exact market key; `all` / null = no filter. */
+/**
+ * Filter by role chip / market key / verified position family.
+ * `wr_te` matches WR or TE roster groups and receiving markets.
+ */
 export function filterConsiderPicks(
   picks: ConsiderPick[],
   filterKey: string | null | undefined,
+  sport?: string,
 ): ConsiderPick[] {
   const f = String(filterKey ?? "all").toLowerCase();
   if (!f || f === "all") return picks;
-  return picks.filter(
-    (p) =>
-      p.roleKey.toLowerCase() === f ||
-      p.marketKey.toLowerCase() === f ||
-      p.marketKey.toLowerCase().startsWith(`${f}_`),
-  );
+  return picks.filter((p) => {
+    if (p.roleKey.toLowerCase() === f) return true;
+    if (p.marketKey.toLowerCase() === f || p.marketKey.toLowerCase().startsWith(`${f}_`)) {
+      return true;
+    }
+    const marketRole = softRoleFromMarket(sport ?? "", p.marketKey);
+    if (marketRole?.key === f) return true;
+    if (f === "wr_te" && (p.roleKey === "wr" || p.roleKey === "te")) return true;
+    if (p.positionVerified && rosterPositionToRoleKey(sport ?? "", p.position) === f) {
+      return true;
+    }
+    return false;
+  });
 }
 
 export type MatchupFilterChip = {

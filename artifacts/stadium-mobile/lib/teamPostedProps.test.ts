@@ -554,6 +554,10 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   assert.ok(sheetSrc.includes("oppDefenseNoteForMarket"));
   assert.ok(sheetSrc.includes("Add to Slip"));
   assert.ok(sheetSrc.includes("Position-specific") || sheetSrc.includes("position-specific") || sheetSrc.includes("team-wide"));
+  // Shared floors + exact sim binding + slip payload.
+  assert.ok(sheetSrc.includes("lookupExactConsiderSim"));
+  assert.ok(sheetSrc.includes("considerSlipPayload"));
+  assert.ok(sheetSrc.includes("MATCHUP_CONSIDER_MIN_HIT_PCT"));
   // This PR must not edit Coach selection / sim / quality floors.
   assert.equal(propsSrc.includes("buildParlay"), false);
 });

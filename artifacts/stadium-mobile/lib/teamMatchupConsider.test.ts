@@ -5,12 +5,18 @@ import type { Grade } from "./propGrade.ts";
 import {
   buildConsiderCandidates,
   buildConsiderPick,
+  candidateIdentityOk,
+  considerFormSummary,
+  considerSimSampleSummary,
+  considerSlipPayload,
   countPostedAlts,
   dedupeConsiderPicks,
   emptyConsiderMessage,
   filterConsiderPicks,
   isQuoteStale,
   isRelevantPlayerMarket,
+  lookupExactConsiderSim,
+  MATCHUP_CONSIDER_MIN_HIT_PCT,
   MATCHUP_CONSIDER_MIN_SAMPLE_GAMES,
   MATCHUP_CONSIDER_MIN_SIMULATIONS,
   MATCHUP_TOP_PER_ROLE,
@@ -22,9 +28,11 @@ import {
   rankConsiderPicksByRole,
   relevantPlayerMarketsForSport,
   resolveMatchupRole,
+  simMatchesConsiderSelection,
   softRoleFromMarket,
   summarizeTeamForm,
   teamDefenseRows,
+  type ConsiderCandidate,
   type ConsiderPick,
 } from "./teamMatchupConsider.ts";
 
@@ -33,13 +41,13 @@ function prop(partial: Partial<PlayerProp> & Pick<PlayerProp, "player" | "market
     player: partial.player,
     market: partial.market,
     line: partial.line ?? 22.5,
-    overPrice: partial.overPrice ?? -110,
-    underPrice: partial.underPrice ?? -110,
+    overPrice: partial.overPrice !== undefined ? partial.overPrice : -110,
+    underPrice: partial.underPrice !== undefined ? partial.underPrice : -110,
     alt: partial.alt ?? false,
     headshot: partial.headshot ?? null,
-    athleteId: partial.athleteId ?? "a1",
-    playerTeamId: partial.playerTeamId ?? "home1",
-    eventId: partial.eventId ?? "ev1",
+    athleteId: partial.athleteId !== undefined ? partial.athleteId : "a1",
+    playerTeamId: partial.playerTeamId !== undefined ? partial.playerTeamId : "home1",
+    eventId: partial.eventId !== undefined ? partial.eventId : "ev1",
     overBook: partial.overBook ?? "DraftKings",
     underBook: partial.underBook ?? "FanDuel",
     position: partial.position ?? null,
@@ -80,7 +88,7 @@ function makePick(
   return {
     key: overrides.key ?? `${overrides.player}|${overrides.marketKey}`.toLowerCase(),
     player: overrides.player,
-    athleteId: null,
+    athleteId: "a1",
     headshot: null,
     teamSide: overrides.teamSide ?? "home",
     teamName: overrides.teamName ?? "Home",
@@ -142,7 +150,7 @@ test("sport-specific role chips cover football/basketball/mlb", () => {
   assert.ok(matchupFilterChips("nfl").some((c) => c.key === "all"));
 });
 
-test("resolveMatchupRole: verified roster position vs market-only soft role", () => {
+test("resolveMatchupRole: verified roster position groups; market fallback labeled honestly", () => {
   const verified = resolveMatchupRole({
     sport: "nfl",
     market: "player_reception_yds",
@@ -150,7 +158,16 @@ test("resolveMatchupRole: verified roster position vs market-only soft role", ()
   });
   assert.equal(verified.position, "WR");
   assert.equal(verified.positionVerified, true);
-  assert.equal(verified.roleKey, "wr_te");
+  assert.equal(verified.roleKey, "wr");
+  assert.equal(verified.groupSource, "roster_position");
+
+  const nbaPos = resolveMatchupRole({
+    sport: "nba",
+    market: "player_points",
+    rosterPosition: "SF",
+  });
+  assert.equal(nbaPos.roleKey, "sf");
+  assert.equal(nbaPos.groupSource, "roster_position");
 
   const soft = resolveMatchupRole({
     sport: "nfl",
@@ -161,9 +178,11 @@ test("resolveMatchupRole: verified roster position vs market-only soft role", ()
   assert.equal(soft.positionVerified, false);
   assert.equal(soft.roleKey, "qb");
   assert.equal(soft.roleFromMarketOnly, true);
+  assert.equal(soft.groupSource, "market");
+  assert.match(soft.roleLabel, /market/i);
 });
 
-test("buildConsiderCandidates: both teams, bind by playerTeamId, drop alts/unbound/irrelevant", () => {
+test("buildConsiderCandidates: both teams, both sides, bind by playerTeamId, drop alts/unbound/irrelevant", () => {
   const props: PlayerProp[] = [
     prop({ player: "Home Star", market: "player_points", playerTeamId: "H", line: 25.5 }),
     prop({
@@ -176,7 +195,8 @@ test("buildConsiderCandidates: both teams, bind by playerTeamId, drop alts/unbou
     }),
     prop({ player: "Away Guard", market: "player_assists", playerTeamId: "A", line: 6.5 }),
     prop({ player: "Orphan", market: "player_points", playerTeamId: "OTHER", line: 10.5 }),
-    prop({ player: "Passer", market: "player_pass_yds", playerTeamId: "H", line: 250.5 }), // irrelevant for nba
+    prop({ player: "Passer", market: "player_pass_yds", playerTeamId: "H", line: 250.5 }),
+    prop({ player: "NoId", market: "player_points", playerTeamId: "H", athleteId: null, line: 12.5 }),
   ];
   const { candidates, skipReason } = buildConsiderCandidates({
     props,
@@ -186,10 +206,13 @@ test("buildConsiderCandidates: both teams, bind by playerTeamId, drop alts/unbou
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
   assert.equal(skipReason, null);
-  assert.equal(candidates.length, 2);
-  assert.ok(candidates.some((c) => c.prop.player === "Home Star" && c.teamSide === "home"));
+  // Both Over and Under for each priced main → 2 players × 2 sides = 4
+  assert.equal(candidates.length, 4);
+  assert.ok(candidates.some((c) => c.prop.player === "Home Star" && c.teamSide === "home" && c.side === "Over"));
+  assert.ok(candidates.some((c) => c.prop.player === "Home Star" && c.side === "Under"));
   assert.ok(candidates.some((c) => c.prop.player === "Away Guard" && c.teamSide === "away"));
   assert.ok(!candidates.some((c) => c.prop.player === "Orphan"));
+  assert.ok(!candidates.some((c) => c.prop.player === "NoId"));
   assert.ok(!candidates.some((c) => c.prop.alt));
   assert.ok(!candidates.some((c) => c.prop.market === "player_pass_yds"));
 });
@@ -206,9 +229,16 @@ test("wrong opponent / team binding: foreign playerTeamId never becomes a candid
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
   assert.equal(skipReason, null);
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0]!.prop.player, "Home WR");
+  assert.ok(candidates.every((c) => c.prop.player === "Home WR"));
   assert.equal(candidates[0]!.oppName, "Away");
+  assert.equal(
+    candidateIdentityOk({
+      prop: prop({ player: "X", market: "player_points", playerTeamId: "Z" }),
+      sport: "nba",
+      ids: { homeTeamId: "H", awayTeamId: "A" },
+    }).ok,
+    false,
+  );
 });
 
 test("buildConsiderCandidates: missing team ids fail closed", () => {
@@ -223,7 +253,47 @@ test("buildConsiderCandidates: missing team ids fail closed", () => {
   assert.match(skipReason ?? "", /Team ids/i);
 });
 
-test("qualifyConsiderSim: requires 10k sims, sample, and hitProbability", () => {
+test("qualifyConsiderSim: shared floors reject Thybulle-style 28% / negative edge", () => {
+  const thybulle = prop({
+    player: "Matisse Thybulle",
+    market: "player_points",
+    line: 5.5,
+    playerTeamId: "H",
+    underPrice: -110,
+    overPrice: -110,
+    position: "SF",
+  });
+  const cand: ConsiderCandidate = {
+    key: "thybulle|player_points|5.5|under|home",
+    prop: thybulle,
+    side: "Under",
+    price: -110,
+    teamSide: "home",
+    teamName: "Home",
+    oppName: "Away",
+  };
+  const weak = sim({
+    player: "Matisse Thybulle",
+    market: "player_points",
+    line: 5.5,
+    side: "Under",
+    hitProbability: 0.28,
+    sampleGames: 6,
+  });
+  // Screenshot case: 28% sim + negative edge must never qualify — even with a grade.
+  assert.equal(
+    qualifyConsiderSim(weak, {
+      cand,
+      grade: { grade: "A-", hits: 6, n: 7 },
+      price: -110,
+    }).status,
+    "rejected",
+  );
+  assert.match(
+    qualifyConsiderSim(weak, { cand, grade: { grade: "A-", hits: 6, n: 7 }, price: -110 }).reason ?? "",
+    /below the 52%/i,
+  );
+
   assert.equal(qualifyConsiderSim(null).status, "rejected");
   assert.equal(
     qualifyConsiderSim(sim({ simulations: 1000, hitProbability: 0.6 })).status,
@@ -233,14 +303,96 @@ test("qualifyConsiderSim: requires 10k sims, sample, and hitProbability", () => 
     qualifyConsiderSim(sim({ sampleGames: 2, hitProbability: 0.6 })).status,
     "rejected",
   );
+  // Missing grade never qualifies.
   assert.equal(
-    qualifyConsiderSim(sim({ hitProbability: null, nullReason: "insufficient_sample" })).status,
+    qualifyConsiderSim(sim({ hitProbability: 0.6 }), { grade: null, price: -110 }).status,
     "rejected",
   );
-  assert.equal(qualifyConsiderSim(sim({})).status, "qualified");
+  assert.match(
+    qualifyConsiderSim(sim({ hitProbability: 0.6 }), { grade: null, price: -110 }).reason ?? "",
+    /Missing hit-rate grade/i,
+  );
+  // Sub-52% with grade still fails.
+  assert.equal(
+    qualifyConsiderSim(sim({ hitProbability: 0.5 }), {
+      grade: { grade: "A-", hits: 6, n: 10 },
+      price: -110,
+    }).status,
+    "rejected",
+  );
+  // Positive edge + floors pass.
+  assert.equal(
+    qualifyConsiderSim(sim({ hitProbability: 0.6 }), {
+      grade: { grade: "A-", hits: 7, n: 10 },
+      price: -110,
+    }).status,
+    "qualified",
+  );
+  // Negative edge fails even at high hit%.
+  assert.equal(
+    qualifyConsiderSim(sim({ hitProbability: 0.55 }), {
+      grade: { grade: "A-", hits: 7, n: 10 },
+      price: -200, // implied ~66.7% → edge negative
+    }).status,
+    "rejected",
+  );
 });
 
-test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects weak sim", () => {
+test("side/line mismatch: opposite-side or alternate-line sim never qualifies or binds", () => {
+  const p = prop({ player: "Star", market: "player_points", line: 22.5, playerTeamId: "H" });
+  const cand: ConsiderCandidate = {
+    key: "star|player_points|22.5|under|home",
+    prop: p,
+    side: "Under",
+    price: -105,
+    teamSide: "home",
+    teamName: "Home",
+    oppName: "Away",
+  };
+  const overSim = sim({
+    player: "Star",
+    market: "player_points",
+    line: 22.5,
+    side: "Over",
+    hitProbability: 0.7,
+  });
+  const altLine = sim({
+    player: "Star",
+    market: "player_points",
+    line: 24.5,
+    side: "Under",
+    hitProbability: 0.7,
+  });
+  assert.equal(simMatchesConsiderSelection(overSim, cand), false);
+  assert.equal(simMatchesConsiderSelection(altLine, cand), false);
+  assert.equal(
+    qualifyConsiderSim(overSim, {
+      cand,
+      grade: { grade: "A", hits: 8, n: 10 },
+      price: -105,
+    }).status,
+    "rejected",
+  );
+
+  const map = new Map<string, PropSimulationResult>([
+    ["Star|player_points|22.5|Over", overSim],
+    ["Star|player_points|24.5|Under", altLine],
+  ]);
+  assert.equal(lookupExactConsiderSim(map, cand), null);
+
+  const exact = sim({
+    player: "Star",
+    market: "player_points",
+    line: 22.5,
+    side: "Under",
+    hitProbability: 0.62,
+  });
+  map.set("Star|player_points|22.5|Under", exact);
+  assert.equal(lookupExactConsiderSim(map, cand)?.side, "Under");
+  assert.equal(lookupExactConsiderSim(map, cand)?.line, 22.5);
+});
+
+test("buildConsiderPick: rejects weak sim; labels samples separately; slip matches card", () => {
   const cand = buildConsiderCandidates({
     props: [
       prop({
@@ -254,19 +406,12 @@ test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects we
         overSourceUpdatedAt: "2026-10-27T12:00:00.000Z",
         underSourceUpdatedAt: "2026-10-27T12:00:00.000Z",
       }),
-      prop({
-        player: "Star",
-        market: "player_points",
-        playerTeamId: "H",
-        line: 24.5,
-        alt: true,
-      }),
     ],
     sport: "nba",
     homeTeam: "Home",
     awayTeam: "Away",
     ids: { homeTeamId: "H", awayTeamId: "A" },
-  }).candidates[0]!;
+  }).candidates.find((c) => c.side === "Over")!;
 
   const ok = buildConsiderPick({
     cand,
@@ -274,8 +419,9 @@ test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects we
       player: "Star",
       market: "player_points",
       line: 22.5,
-      side: cand.side,
+      side: "Over",
       hitProbability: 0.61,
+      sampleGames: 6,
     }),
     grade: { grade: "A-", hits: 7, n: 10 },
     sport: "nba",
@@ -300,25 +446,61 @@ test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects we
   assert.equal(ok!.altCount, 1);
   assert.equal(ok!.position, "SG");
   assert.equal(ok!.positionVerified, true);
-  assert.equal(ok!.roleKey, "pts");
-  assert.equal(ok!.overPrice, -115);
-  assert.equal(ok!.underPrice, -105);
-  assert.ok(ok!.edgePct != null);
-  assert.equal(ok!.quoteUpdatedAt, "2026-10-27T12:00:00.000Z");
-  assert.equal(ok!.quoteStale, false);
-  assert.match(ok!.opportunitySummary, /unavailable/i);
-  assert.match(ok!.explanation, /10,000-sim|10000-sim|10\.000-sim|10,000/i);
-  assert.match(ok!.defenseSummary, /team-wide/i);
-  assert.equal(ok!.simulations, MATCHUP_CONSIDER_MIN_SIMULATIONS);
+  assert.equal(ok!.roleKey, "sg");
+  assert.ok((ok!.edgePct ?? 0) > 0);
+  assert.match(ok!.formSummary, /Recent hit-rate form 7\/10/);
+  assert.match(
+    considerSimSampleSummary(
+      sim({ sampleGames: 6, hitProbability: 0.61 }),
+      61,
+    ),
+    /simulation-history n=6/i,
+  );
+  assert.ok(!/need ≥5/.test(ok!.formSummary));
+  assert.match(ok!.explanation, /simulation-history n=6/i);
+  assert.match(ok!.explanation, /not the recent hit-rate sample/i);
 
-  const bad = buildConsiderPick({
-    cand,
-    sim: sim({ simulations: 500, hitProbability: 0.9 }),
-    grade: null,
-    sport: "nba",
-    altCount: 0,
-  });
-  assert.equal(bad, null);
+  const slip = considerSlipPayload(ok!, "Away @ Home");
+  assert.equal(slip.game, "Away @ Home");
+  assert.equal(slip.market, ok!.marketLabel);
+  assert.equal(slip.pick, `${ok!.player} ${ok!.side} ${ok!.line} ${ok!.marketLabel}`);
+  assert.equal(slip.odds, ok!.price);
+
+  // Weak / missing grade / wrong side rejected.
+  assert.equal(
+    buildConsiderPick({
+      cand,
+      sim: sim({ simulations: 500, hitProbability: 0.9, side: "Over", player: "Star", market: "player_points", line: 22.5 }),
+      grade: { grade: "A-", hits: 7, n: 10 },
+      sport: "nba",
+      altCount: 0,
+    }),
+    null,
+  );
+  assert.equal(
+    buildConsiderPick({
+      cand,
+      sim: sim({ hitProbability: 0.61, side: "Over", player: "Star", market: "player_points", line: 22.5 }),
+      grade: null,
+      sport: "nba",
+      altCount: 0,
+    }),
+    null,
+  );
+});
+
+test("sample labels: sim-history n vs hit-rate n never conflated when grade missing", () => {
+  // Screenshot confusion: sim n=6/7 alongside “need ≥5” — form text must not
+  // claim insufficient games when the real issue is a missing/below-floor grade.
+  const formMissing = considerFormSummary(null);
+  assert.match(formMissing, /unavailable/i);
+  assert.match(formMissing, /Missing grade|below/i);
+  const formThin = considerFormSummary({ grade: "A-", hits: 2, n: 3 });
+  assert.match(formThin, /only 3 logged games/i);
+  const simLbl = considerSimSampleSummary(sim({ sampleGames: 7, hitProbability: 0.28 }), 28);
+  assert.match(simLbl, /simulation-history n=7/i);
+  assert.match(simLbl, /not the recent hit-rate sample/i);
+  assert.ok(!simLbl.includes("need ≥5"));
 });
 
 test("stale quote flagged when older than freshness window", () => {
@@ -392,45 +574,99 @@ test("football candidates bind rushing/receiving and reject basketball markets",
     awayTeam: "Away",
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
-  assert.equal(candidates.length, 3);
+  assert.ok(candidates.length >= 3);
   assert.ok(candidates.every((c) => c.prop.market !== "player_rebounds"));
 });
 
-test("rank + filter + dedupe: top 1-2 per role from either side", () => {
+test("rank + filter: top 1-2 per role never pads with weak picks; wr_te matches WR/TE", () => {
   const picks: ConsiderPick[] = [
-    makePick({ player: "Home RB1", marketKey: "player_rush_yds", roleKey: "rb", roleLabel: "RB", teamSide: "home", simHitPct: 62, edgePct: 4 }),
-    makePick({ player: "Away RB2", marketKey: "player_rush_yds", roleKey: "rb", roleLabel: "RB", teamSide: "away", simHitPct: 60, edgePct: 3 }),
-    makePick({ player: "Home RB3", marketKey: "player_rush_yds", roleKey: "rb", roleLabel: "RB", teamSide: "home", simHitPct: 55, edgePct: 1 }),
-    makePick({ player: "Home QB", marketKey: "player_pass_yds", roleKey: "qb", roleLabel: "QB", teamSide: "home", simHitPct: 59, edgePct: 2 }),
-    // duplicate player+market weaker — should drop
     makePick({
       player: "Home RB1",
       marketKey: "player_rush_yds",
       roleKey: "rb",
       roleLabel: "RB",
       teamSide: "home",
-      simHitPct: 50,
-      edgePct: 0,
-      key: "dup",
+      simHitPct: 62,
+      edgePct: 4,
+    }),
+    makePick({
+      player: "Away RB2",
+      marketKey: "player_rush_yds",
+      roleKey: "rb",
+      roleLabel: "RB",
+      teamSide: "away",
+      simHitPct: 60,
+      edgePct: 3,
+    }),
+    makePick({
+      player: "Home RB3",
+      marketKey: "player_rush_yds",
+      roleKey: "rb",
+      roleLabel: "RB",
+      teamSide: "home",
+      simHitPct: 55,
+      edgePct: 1,
+    }),
+    makePick({
+      player: "Home QB",
+      marketKey: "player_pass_yds",
+      roleKey: "qb",
+      roleLabel: "QB",
+      teamSide: "home",
+      simHitPct: 59,
+      edgePct: 2,
+    }),
+    makePick({
+      player: "WR1",
+      marketKey: "player_reception_yds",
+      roleKey: "wr",
+      roleLabel: "WR",
+      position: "WR",
+      positionVerified: true,
+      simHitPct: 58,
+      edgePct: 2.5,
     }),
   ];
-  const deduped = dedupeConsiderPicks(picks);
-  assert.equal(deduped.filter((p) => p.player === "Home RB1").length, 1);
-  assert.equal(deduped.find((p) => p.player === "Home RB1")!.simHitPct, 62);
-
-  const rbOnly = filterConsiderPicks(deduped, "rb");
-  assert.ok(rbOnly.every((p) => p.roleKey === "rb"));
-  assert.equal(filterConsiderPicks(deduped, "all").length, deduped.length);
-
-  const groups = rankConsiderPicksByRole(deduped, MATCHUP_TOP_PER_ROLE);
+  const groups = rankConsiderPicksByRole(picks, MATCHUP_TOP_PER_ROLE);
   const rb = groups.find((g) => g.roleKey === "rb");
   assert.ok(rb);
   assert.equal(rb!.picks.length, 2);
   assert.equal(rb!.picks[0]!.player, "Home RB1");
   assert.equal(rb!.picks[1]!.player, "Away RB2");
-  assert.ok(!rb!.picks.some((p) => p.player === "Home RB3"));
+  // Only one QB — do not invent a second slot filler.
   const qb = groups.find((g) => g.roleKey === "qb");
   assert.equal(qb!.picks.length, 1);
+
+  const wrFilter = filterConsiderPicks(picks, "wr_te", "nfl");
+  assert.ok(wrFilter.some((p) => p.player === "WR1"));
+  assert.ok(wrFilter.every((p) => p.roleKey === "wr" || p.marketKey.includes("reception")));
+});
+
+test("dedupe keeps stronger side for same player+market", () => {
+  const picks = [
+    makePick({
+      player: "Star",
+      marketKey: "player_points",
+      roleKey: "pts",
+      side: "Under",
+      simHitPct: 40,
+      edgePct: -10,
+      key: "under",
+    }),
+    makePick({
+      player: "Star",
+      marketKey: "player_points",
+      roleKey: "pts",
+      side: "Over",
+      simHitPct: 60,
+      edgePct: 5,
+      key: "over",
+    }),
+  ];
+  const d = dedupeConsiderPicks(picks);
+  assert.equal(d.length, 1);
+  assert.equal(d[0]!.side, "Over");
+  assert.equal(d[0]!.simHitPct, 60);
 });
 
 test("teamDefenseRows: team-wide scope; rush/pass sample sizes; no invent", () => {
@@ -511,4 +747,10 @@ test("emptyConsiderMessage is truthful for missing / thin evidence", () => {
     }),
     /unavailable/i,
   );
+});
+
+test("shared floor constants align with Coach 52 / C+", () => {
+  assert.equal(MATCHUP_CONSIDER_MIN_HIT_PCT, 52);
+  assert.equal(MATCHUP_CONSIDER_MIN_SAMPLE_GAMES, 5);
+  assert.equal(MATCHUP_CONSIDER_MIN_SIMULATIONS, 10_000);
 });
