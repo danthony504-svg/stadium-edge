@@ -1465,6 +1465,7 @@ export function getFantasyNflPlayerHistory(
 // `avgPointsAgainst` is the only true "opponent allows" rate ESPN exposes per
 // team without box-score aggregation — it is TEAM-WIDE, not position-specific.
 export type TeamDefense = {
+  positionAllowances?: { source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
   sport: string;
   teamId: string;
   teamName: string | null;
@@ -1497,8 +1498,10 @@ export function getTeamDefense(
   sport: string,
   teamId: string,
   signal?: AbortSignal,
+  includePositions = false,
 ): Promise<TeamDefense> {
   const q = new URLSearchParams({ sport, teamId });
+  if (includePositions) q.set("positions", "1");
   return getJson<TeamDefense>(`/sports/team-defense?${q.toString()}`, signal);
 }
 
@@ -2093,6 +2096,8 @@ export type PropPoolEntry = {
   athleteId?: string | null;
   /** ESPN team id for the player's own side — used to derive isHome / opponentTeamId. */
   playerTeamId?: string | null;
+  /** Verified ESPN roster position, carried as evidence metadata only. */
+  position?: string | null;
   marketKey?: string;
   /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
   alt?: boolean;
@@ -4224,6 +4229,7 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
@@ -4247,6 +4253,7 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
@@ -4946,6 +4953,7 @@ export async function buildChatContext(
                 teamAbbr,
                 athleteId,
                 playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Over" ? (p.edge ?? null) : null,
@@ -4968,6 +4976,7 @@ export async function buildChatContext(
                 teamAbbr,
                 athleteId,
                 playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Under" ? (p.edge ?? null) : null,
@@ -5480,6 +5489,7 @@ export async function fetchFullBoardPropPool(
           line: p.line,
           athleteId,
           playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
           marketKey: p.market,
           startsAt: g.commenceTime,
           alt: !!p.alt,

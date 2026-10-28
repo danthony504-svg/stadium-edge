@@ -81,6 +81,7 @@ export type ParsedPick = {
   // show the line/side. Never affects the slip leg key (game/market/pick do).
   athleteId?: string | null;
   playerTeamId?: string | null;
+  rosterPosition?: string | null;
   player?: string;
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
@@ -1347,6 +1348,8 @@ export function backfillProps(
           teamAbbr: e.teamAbbr ?? null,
           player: e.player,
           athleteId: e.athleteId ?? null,
+          playerTeamId: e.playerTeamId ?? null,
+          rosterPosition: e.position ?? null,
           propMarketKey: e.marketKey,
           propLine: e.line,
           propSide: e.side,

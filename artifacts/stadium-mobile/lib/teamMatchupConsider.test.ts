@@ -186,7 +186,7 @@ test("buildConsiderCandidates: both teams, bind by playerTeamId, drop alts/unbou
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
   assert.equal(skipReason, null);
-  assert.equal(candidates.length, 2);
+  assert.equal(candidates.length, 4);
   assert.ok(candidates.some((c) => c.prop.player === "Home Star" && c.teamSide === "home"));
   assert.ok(candidates.some((c) => c.prop.player === "Away Guard" && c.teamSide === "away"));
   assert.ok(!candidates.some((c) => c.prop.player === "Orphan"));
@@ -206,7 +206,7 @@ test("wrong opponent / team binding: foreign playerTeamId never becomes a candid
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
   assert.equal(skipReason, null);
-  assert.equal(candidates.length, 1);
+  assert.equal(candidates.length, 2);
   assert.equal(candidates[0]!.prop.player, "Home WR");
   assert.equal(candidates[0]!.oppName, "Away");
 });
@@ -392,7 +392,7 @@ test("football candidates bind rushing/receiving and reject basketball markets",
     awayTeam: "Away",
     ids: { homeTeamId: "H", awayTeamId: "A" },
   });
-  assert.equal(candidates.length, 3);
+  assert.equal(candidates.length, 6);
   assert.ok(candidates.every((c) => c.prop.market !== "player_rebounds"));
 });
 
@@ -551,10 +551,17 @@ test("selected markets are evaluated before the cap; All balances market groups"
   const opts = {props,sport:"nba",homeTeam:"Home",awayTeam:"Away",ids:{homeTeamId:"H",awayTeamId:"A"},eventId:"ev1"};
   for (const [filterKey,market] of [["reb","player_rebounds"],["threes","player_threes"],["stocks","player_blocks"]]) {
     const result=buildConsiderCandidates({...opts,filterKey});
-    assert.equal(result.candidates.length,1);
+    assert.equal(result.candidates.length,2);
     assert.equal(result.candidates[0]!.prop.market,market);
   }
   const all=buildConsiderCandidates(opts).candidates;
-  assert.equal(all.length,8);
+  assert.equal(all.length,16);
   for(const market of ["player_rebounds","player_threes","player_blocks"]) assert.ok(all.some(c=>c.prop.market===market));
+});
+
+test("both priced sides reach simulation regardless of bookmaker favourite",()=>{
+ const p=prop({player:"P",market:"player_points",playerTeamId:"H",overPrice:-300,underPrice:220});
+ const opts={props:[p],sport:"nba",homeTeam:"Home",awayTeam:"Away",ids:{homeTeamId:"H",awayTeamId:"A"},eventId:"ev1"};
+ assert.deepEqual(buildConsiderCandidates(opts).candidates.map(c=>c.side),["Over","Under"]);
+ assert.deepEqual(buildConsiderCandidates({...opts,props:[{...p,overPrice:null}]}).candidates.map(c=>c.side),["Under"]);
 });
