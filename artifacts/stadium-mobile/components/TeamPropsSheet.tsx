@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,7 +37,12 @@ import {
   candidatesToSimPicks,
   countPostedAlts,
   emptyConsiderMessage,
+  filterConsiderPicks,
   MATCHUP_CONSIDER_MIN_SIMULATIONS,
+  MATCHUP_TOP_PER_ROLE,
+  matchupFilterChips,
+  oppDefenseNoteForMarket,
+  rankConsiderPicksByRole,
   summarizeTeamForm,
   teamDefenseRows,
   type ConsiderPick,
@@ -96,11 +101,13 @@ export function TeamPropsSheet({
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
+  const [marketFilter, setMarketFilter] = useState<string>("all");
 
   const sport = data?.sport ?? "";
   const team = data?.team ?? "";
   const opp = data?.opp ?? "";
   const sportLabel = data ? SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase() : "";
+  const filterChips = useMemo(() => matchupFilterChips(sport), [sport]);
 
   const homeTeam = data?.homeTeam ?? (data?.isHome ? data.team : data?.opp) ?? "";
   const awayTeam = data?.awayTeam ?? (data?.isHome ? data?.opp : data?.team) ?? "";
@@ -344,15 +351,19 @@ export function TeamPropsSheet({
       }
       if (!sim) continue;
       const grade: GradeResult | null = grades.get(cand.key) ?? null;
+      // Each player is graded vs the OPPOSING team's defense pack (team-wide only).
       const oppDef = cand.teamSide === "home" ? awayDef : homeDef;
-      const defenseNote =
-        oppDef?.avgPointsAgainst != null
-          ? `${cand.oppName} allows ${oppDef.avgPointsAgainst.toFixed(1)} PPG (team-wide season · ESPN).`
-          : null;
+      const defenseNote = oppDefenseNoteForMarket({
+        sport,
+        market: cand.prop.market,
+        oppName: cand.oppName,
+        oppDefense: oppDef,
+      });
       const pick = buildConsiderPick({
         cand,
         sim,
         grade,
+        sport,
         altCount: countPostedAlts(eventProps, cand.prop.player, cand.prop.market),
         defenseNote,
       });
@@ -366,7 +377,18 @@ export function TeamPropsSheet({
     eventProps,
     homeDefenseQ.data,
     awayDefenseQ.data,
+    sport,
   ]);
+
+  const considerGroups = useMemo(() => {
+    const filtered = filterConsiderPicks(considerPicks, marketFilter);
+    return rankConsiderPicksByRole(filtered, MATCHUP_TOP_PER_ROLE);
+  }, [considerPicks, marketFilter]);
+
+  const considerFlatVisible = useMemo(
+    () => considerGroups.flatMap((g) => g.picks),
+    [considerGroups],
+  );
 
   const homeForm = useMemo(
     () => summarizeTeamForm(homeResolved?.name ?? homeTeam, homeHistoryQ.data),
@@ -438,6 +460,10 @@ export function TeamPropsSheet({
     qualifiedCount: considerPicks.length,
     skipReason: considerBuilt.skipReason,
   });
+  const filteredEmpty =
+    considerPicks.length > 0 && considerFlatVisible.length === 0
+      ? "No qualifying players for this market filter. Try All or another role."
+      : null;
 
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
@@ -664,113 +690,81 @@ export function TeamPropsSheet({
             </Section>
           ) : null}
 
-          {/* Players to Consider — BOTH teams */}
-          <Section title="PLAYERS TO CONSIDER · BOTH TEAMS">
+          {/* Matchup player props — BOTH teams, role-ranked, market filters */}
+          <Section title="MATCHUP PROPS · TOP PLAYERS BY ROLE">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-              From real posted player props for this exact event. Requires{" "}
-              {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim evidence and ≥{GRADE_MIN_SAMPLE} sample
-              games. Over/Under use posted prices; alts counted when posted. Nothing fabricated.
+              Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
+              team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
+              exact-market evidence and ≥{GRADE_MIN_SAMPLE} sample games. Proj / sim / edge / grade only from that
+              path — nothing fabricated.
             </Text>
+
+            {/* Market / role filters */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+              {filterChips.map((chip) => {
+                const active = marketFilter === chip.key;
+                return (
+                  <Pressable
+                    key={chip.key}
+                    onPress={() => setMarketFilter(chip.key)}
+                    style={{
+                      paddingVertical: 7,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary : colors.card,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active ? colors.primaryForeground : colors.foreground,
+                        fontFamily: FONT.bold,
+                        fontSize: 12,
+                      }}
+                    >
+                      {chip.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
             {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 8 }}>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
                 Evaluating posted props with deep simulation…
               </Text>
             ) : considerPicks.length === 0 ? (
               <EmptyNote text={considerEmpty || "No qualifying player props for this matchup."} />
+            ) : filteredEmpty ? (
+              <EmptyNote text={filteredEmpty} />
             ) : (
-              <View style={{ gap: 10, marginTop: 8 }}>
-                {considerPicks.map((pick) => {
-                  const pickStr = `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`;
-                  const added = hasLeg(gameLabel, pick.marketLabel, pickStr);
-                  return (
-                    <View
-                      key={pick.key}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        borderRadius: colors.radius,
-                        backgroundColor: colors.card,
-                        padding: 12,
-                        gap: 8,
-                      }}
-                    >
-                      <Pressable
-                        onPress={() => onOpenConsiderPick?.(pick, eventProps)}
-                        disabled={!onOpenConsiderPick}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                          {pick.headshot ? (
-                            <Image
-                              source={{ uri: pick.headshot }}
-                              style={{ width: 36, height: 36, borderRadius: 18 }}
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 18,
-                                backgroundColor: colors.surface,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <Feather name="user" size={16} color={colors.mutedForeground} />
-                            </View>
-                          )}
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
-                              {pick.player}
-                            </Text>
-                            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                              {nickname(pick.teamName)} · {pick.side} {pick.line} {pick.marketLabel}
-                              {pick.grade ? ` · ${pick.grade}` : ""}
-                              {pick.altCount > 0 ? ` · ${pick.altCount} alt${pick.altCount === 1 ? "" : "s"} posted` : ""}
-                            </Text>
-                          </View>
-                          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 16 }}>
-                            {pick.simHitPct}%
-                          </Text>
-                        </View>
-                      </Pressable>
-                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-                        {pick.explanation}
-                        {pick.sportsbook ? ` · ${pick.sportsbook}` : " · sportsbook unavailable"}
+              <View style={{ gap: 14, marginTop: 4 }}>
+                {considerGroups.map((group) => (
+                  <View key={group.roleKey} style={{ gap: 8 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13, letterSpacing: 0.3 }}>
+                      {group.roleLabel.toUpperCase()}
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                        {` · top ${group.picks.length}`}
                       </Text>
-                      <Pressable
-                        onPress={() => addConsider(pick)}
-                        style={({ pressed }) => ({
-                          alignSelf: "flex-start",
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderRadius: 10,
-                          backgroundColor: added ? colors.surface : colors.primary,
-                          borderWidth: added ? 1 : 0,
-                          borderColor: colors.primary,
-                          opacity: pressed ? 0.85 : 1,
-                        })}
-                      >
-                        <Feather
-                          name={added ? "check" : "plus"}
-                          size={14}
-                          color={added ? colors.primary : colors.primaryForeground}
-                        />
-                        <Text
-                          style={{
-                            color: added ? colors.primary : colors.primaryForeground,
-                            fontFamily: FONT.bold,
-                            fontSize: 13,
-                          }}
-                        >
-                          {formatAmerican(pick.price)}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
+                    </Text>
+                    {group.picks.map((pick) => (
+                      <ConsiderPickCard
+                        key={pick.key}
+                        pick={pick}
+                        gameLabel={gameLabel}
+                        added={hasLeg(
+                          gameLabel,
+                          pick.marketLabel,
+                          `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
+                        )}
+                        onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
+                        canOpen={!!onOpenConsiderPick}
+                        onAdd={() => addConsider(pick)}
+                      />
+                    ))}
+                  </View>
+                ))}
               </View>
             )}
           </Section>
@@ -786,6 +780,207 @@ export function TeamPropsSheet({
         <SlipBar />
       </View>
     </Modal>
+  );
+}
+
+function ConsiderPickCard({
+  pick,
+  gameLabel,
+  added,
+  onOpen,
+  canOpen,
+  onAdd,
+}: {
+  pick: ConsiderPick;
+  gameLabel: string;
+  added: boolean;
+  onOpen: () => void;
+  canOpen: boolean;
+  onAdd: () => void;
+}) {
+  const colors = useColors();
+  const posLabel = pick.positionVerified && pick.position
+    ? pick.position
+    : "Pos unavailable";
+  const teamPos = `${nickname(pick.teamName)} · ${posLabel}${pick.positionVerified ? "" : " · unverified"}`;
+  const quoteLabel = pick.quoteUpdatedAt
+    ? `${pick.quoteStale ? "Stale quote · " : "Quoted · "}${formatGameTime(pick.quoteUpdatedAt) || pick.quoteUpdatedAt}`
+    : "Quote time unavailable";
+  const edgeLabel =
+    pick.edgePct == null
+      ? "Edge unavailable"
+      : `Edge ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
+  const projLabel =
+    pick.meanProjection == null ? "Proj unavailable" : `Proj ${pick.meanProjection.toFixed(1)}`;
+
+  return (
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: colors.radius,
+        backgroundColor: colors.card,
+        padding: 12,
+        gap: 8,
+      }}
+    >
+      <Pressable onPress={onOpen} disabled={!canOpen}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {pick.headshot ? (
+            <Image source={{ uri: pick.headshot }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+          ) : (
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: colors.surface,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Feather name="user" size={18} color={colors.mutedForeground} />
+            </View>
+          )}
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>{pick.player}</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {teamPos} · vs {nickname(pick.oppName)}
+            </Text>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+              {pick.side} {pick.line} {pick.marketLabel}
+              {pick.grade ? ` · ${pick.grade}` : " · grade unavailable"}
+            </Text>
+          </View>
+          <View style={{ alignItems: "flex-end", gap: 2 }}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 18 }}>{pick.simHitPct}%</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>sim hit</Text>
+          </View>
+        </View>
+      </Pressable>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <MetaChip label={projLabel} />
+        <MetaChip label={edgeLabel} />
+        <MetaChip label={`${pick.simulations.toLocaleString()} sims · n=${pick.sampleGames}`} />
+      </View>
+
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+        {pick.formSummary}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+        {pick.opportunitySummary}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+        {pick.defenseSummary}
+      </Text>
+
+      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <PriceSide
+          label="Over"
+          price={pick.overPrice}
+          book={pick.overBook}
+          active={pick.side === "Over"}
+        />
+        <PriceSide
+          label="Under"
+          price={pick.underPrice}
+          book={pick.underBook}
+          active={pick.side === "Under"}
+        />
+      </View>
+
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+        {pick.sportsbook ? pick.sportsbook : "Sportsbook unavailable"}
+        {" · "}
+        {quoteLabel}
+        {pick.altCount > 0 ? ` · ${pick.altCount} alt${pick.altCount === 1 ? "" : "s"} posted` : ""}
+        {" · "}
+        {gameLabel}
+      </Text>
+
+      <Pressable
+        onPress={onAdd}
+        style={({ pressed }) => ({
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 10,
+          backgroundColor: added ? colors.surface : colors.primary,
+          borderWidth: added ? 1 : 0,
+          borderColor: colors.primary,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Feather name={added ? "check" : "plus"} size={14} color={added ? colors.primary : colors.primaryForeground} />
+        <Text
+          style={{
+            color: added ? colors.primary : colors.primaryForeground,
+            fontFamily: FONT.bold,
+            fontSize: 13,
+          }}
+        >
+          {added ? "On slip" : "Add to Slip"} · {formatAmerican(pick.price)}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function MetaChip({ label }: { label: string }) {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+      }}
+    >
+      <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 10 }}>{label}</Text>
+    </View>
+  );
+}
+
+function PriceSide({
+  label,
+  price,
+  book,
+  active,
+}: {
+  label: string;
+  price: number | null;
+  book: string | null;
+  active: boolean;
+}) {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        flexGrow: 1,
+        minWidth: 120,
+        borderWidth: 1,
+        borderColor: active ? colors.primary : colors.border,
+        borderRadius: 10,
+        padding: 8,
+        backgroundColor: colors.surface,
+        gap: 2,
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10 }}>{label}</Text>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>
+        {price != null ? formatAmerican(price) : "—"}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+        {book ?? "book unavailable"}
+      </Text>
+    </View>
   );
 }
 

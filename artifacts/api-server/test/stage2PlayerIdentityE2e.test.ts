@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   buildPropsResponsePayload,
   lookupRosterEntry,
+  rosterAthletePosition,
   rosterNameKeys,
   stampPropRowIdentity,
 } from "../src/routes/props.ts";
@@ -22,12 +23,23 @@ describe("Stage 2 — roster name keys (suffix aliases, fail-closed collisions)"
     const m = new Map([
       [
         "kengriffey",
-        { headshot: null, athleteId: "123", teamId: "1" },
+        { headshot: null, athleteId: "123", teamId: "1", position: "OF" },
       ],
     ]);
     const hit = lookupRosterEntry(m, "Ken Griffey Jr.");
     assert.equal(hit?.athleteId, "123");
+    assert.equal(hit?.position, "OF");
     assert.equal(lookupRosterEntry(m, "Nobody"), null);
+  });
+
+  it("rosterAthletePosition uses abbreviation, string, or group — never invents", () => {
+    assert.equal(
+      rosterAthletePosition({ position: { abbreviation: "WR" } }),
+      "WR",
+    );
+    assert.equal(rosterAthletePosition({ position: "QB" }), "QB");
+    assert.equal(rosterAthletePosition({}, "RB"), "RB");
+    assert.equal(rosterAthletePosition({}), null);
   });
 });
 
