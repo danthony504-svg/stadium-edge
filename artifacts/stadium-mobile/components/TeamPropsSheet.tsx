@@ -1,15 +1,12 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
-import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FactorGrid } from "@/components/FactorCards";
 import { InjuryReport } from "@/components/InjuryReport";
-import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { FONT } from "@/components/ui";
-import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   fetchPropSimulations,
@@ -50,7 +47,6 @@ import {
 import {
   extractTeamPostedProps,
   findOddsGameForMatchup,
-  teamPostedPropToRealOdds,
   type TeamPostedProp,
 } from "@/lib/teamPostedProps";
 
@@ -99,8 +95,6 @@ export function TeamPropsSheet({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const slipClearance = useSlipClearance();
-  const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const [marketFilter, setMarketFilter] = useState<string>("all");
   /** Team totals start collapsed so player cards stay above the fold. */
   const [teamTotalsExpanded, setTeamTotalsExpanded] = useState(false);
@@ -278,14 +272,15 @@ export function TeamPropsSheet({
         homeTeam,
         awayTeam,
         ids: identityIds,
+        eventId,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [eventProps, sport, homeTeam, awayTeam, identityIds.homeTeamId, identityIds.awayTeamId],
+    [eventProps, sport, homeTeam, awayTeam, eventId, identityIds.homeTeamId, identityIds.awayTeamId],
   );
 
   const considerEvalQ = useQuery({
     queryKey: [
-      "team-matchup-consider",
+      "team-matchup-consider-quality-v2",
       sport,
       eventId,
       considerBuilt.candidates.map((c) => c.key).join("|"),
@@ -414,41 +409,6 @@ export function TeamPropsSheet({
     [sport, team, opp, data?.isHome],
   );
 
-  const addMarket = (p: TeamPostedProp) => {
-    const e = teamPostedPropToRealOdds(p);
-    if (hasLeg(e.game, e.market, e.pick)) {
-      removeLeg(`${e.game}|${e.market}|${e.pick}`.toLowerCase());
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      return;
-    }
-    const ok = addLeg({
-      game: e.game,
-      market: e.market,
-      pick: e.pick,
-      odds: e.odds,
-      sport,
-    });
-    Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const addConsider = (pick: ConsiderPick) => {
-    const market = `${pick.marketLabel}`;
-    const pickStr = `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`;
-    if (hasLeg(gameLabel, market, pickStr)) {
-      removeLeg(`${gameLabel}|${market}|${pickStr}`.toLowerCase());
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      return;
-    }
-    const ok = addLeg({
-      game: gameLabel,
-      market,
-      pick: pickStr,
-      odds: pick.price,
-      sport,
-    });
-    Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
-  };
-
   if (!data) return null;
 
   const loading = focusResolveQ.isLoading || historyQ.isLoading;
@@ -493,7 +453,7 @@ export function TeamPropsSheet({
         <ScrollView
           contentContainerStyle={{
             padding: 16,
-            paddingBottom: insets.bottom + 40 + slipClearance,
+            paddingBottom: insets.bottom + 40,
             gap: 14,
           }}
         >
@@ -596,8 +556,8 @@ export function TeamPropsSheet({
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
               Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
               team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
-              exact-market evidence and ≥{GRADE_MIN_SAMPLE} sample games. Proj / sim / edge / grade only from that
-              path — nothing fabricated.
+              exact-market evidence, ≥{GRADE_MIN_SAMPLE} history games, ≥52% simulated hit probability, positive edge,
+              and a passing recent-form grade. Market groups are not verified roster positions. Grades describe recent hit rates, not simulation calibration.
             </Text>
 
             {considerEvalQ.isLoading || (eventPropsQ.isLoading && !eventPropsQ.isFetched) ? (
@@ -607,6 +567,8 @@ export function TeamPropsSheet({
               >
                 Evaluating posted props with deep simulation…
               </Text>
+            ) : considerEvalQ.isError ? (
+              <EmptyNote testID="matchup-players-error" text="Player analysis could not be completed. No recommendations available; close and reopen to retry." />
             ) : considerPicks.length === 0 ? (
               <EmptyNote
                 testID="matchup-players-empty"
@@ -629,14 +591,8 @@ export function TeamPropsSheet({
                         key={pick.key}
                         pick={pick}
                         gameLabel={gameLabel}
-                        added={hasLeg(
-                          gameLabel,
-                          pick.marketLabel,
-                          `${pick.player} ${pick.side} ${pick.line} ${pick.marketLabel}`,
-                        )}
                         onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
                         canOpen={!!onOpenConsiderPick}
-                        onAdd={() => addConsider(pick)}
                       />
                     ))}
                   </View>
@@ -689,7 +645,7 @@ export function TeamPropsSheet({
                         {nickname(awayTeam).toUpperCase()} · AWAY
                       </Text>
                       {markets.awayRows.length > 0 ? (
-                        <PostedTeamPropList rows={markets.awayRows} onAdd={addMarket} hasLeg={hasLeg} />
+                        <PostedTeamPropList rows={markets.awayRows} />
                       ) : (
                         <EmptyNote text={`No posted team totals are live for ${nickname(awayTeam)} right now.`} />
                       )}
@@ -699,7 +655,7 @@ export function TeamPropsSheet({
                         {nickname(homeTeam).toUpperCase()} · HOME
                       </Text>
                       {markets.homeRows.length > 0 ? (
-                        <PostedTeamPropList rows={markets.homeRows} onAdd={addMarket} hasLeg={hasLeg} />
+                        <PostedTeamPropList rows={markets.homeRows} />
                       ) : (
                         <EmptyNote text={`No posted team totals are live for ${nickname(homeTeam)} right now.`} />
                       )}
@@ -854,7 +810,6 @@ export function TeamPropsSheet({
           </Section>
         </ScrollView>
 
-        <SlipBar />
       </View>
     </Modal>
   );
@@ -863,17 +818,13 @@ export function TeamPropsSheet({
 function ConsiderPickCard({
   pick,
   gameLabel,
-  added,
   onOpen,
   canOpen,
-  onAdd,
 }: {
   pick: ConsiderPick;
   gameLabel: string;
-  added: boolean;
   onOpen: () => void;
   canOpen: boolean;
-  onAdd: () => void;
 }) {
   const colors = useColors();
   const posLabel = pick.positionVerified && pick.position
@@ -926,7 +877,7 @@ function ConsiderPickCard({
             </Text>
             <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
               {pick.side} {pick.line} {pick.marketLabel}
-              {pick.grade ? ` · ${pick.grade}` : " · grade unavailable"}
+              {pick.grade ? ` · Recent form ${pick.grade}` : " · grade unavailable"}
             </Text>
           </View>
           <View style={{ alignItems: "flex-end", gap: 2 }}>
@@ -939,7 +890,7 @@ function ConsiderPickCard({
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <MetaChip label={projLabel} />
         <MetaChip label={edgeLabel} />
-        <MetaChip label={`${pick.simulations.toLocaleString()} sims · n=${pick.sampleGames}`} />
+        <MetaChip label={`${pick.simulations.toLocaleString()} sims · ${pick.sampleGames} simulation-history games`} />
       </View>
 
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
@@ -976,33 +927,7 @@ function ConsiderPickCard({
         {gameLabel}
       </Text>
 
-      <Pressable
-        onPress={onAdd}
-        style={({ pressed }) => ({
-          alignSelf: "flex-start",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          borderRadius: 10,
-          backgroundColor: added ? colors.surface : colors.primary,
-          borderWidth: added ? 1 : 0,
-          borderColor: colors.primary,
-          opacity: pressed ? 0.85 : 1,
-        })}
-      >
-        <Feather name={added ? "check" : "plus"} size={14} color={added ? colors.primary : colors.primaryForeground} />
-        <Text
-          style={{
-            color: added ? colors.primary : colors.primaryForeground,
-            fontFamily: FONT.bold,
-            fontSize: 13,
-          }}
-        >
-          {added ? "On slip" : "Add to Slip"} · {formatAmerican(pick.price)}
-        </Text>
-      </Pressable>
+
     </View>
   );
 }
@@ -1061,85 +986,20 @@ function PriceSide({
   );
 }
 
-function PostedTeamPropList({
-  rows,
-  onAdd,
-  hasLeg,
-}: {
-  rows: TeamPostedProp[];
-  onAdd: (p: TeamPostedProp) => void;
-  hasLeg: (game: string, market: string, pick: string) => boolean;
-}) {
+function PostedTeamPropList({ rows }: { rows: TeamPostedProp[] }) {
   const colors = useColors();
   return (
     <View style={{ gap: 8 }}>
-      {rows.map((e, i) => {
-        const added = hasLeg(e.game, e.market, e.pick);
-        const metaParts = [
-          e.market,
-          e.sportsbook ? e.sportsbook : null,
-          e.quoteUpdatedAt ? formatGameTime(e.quoteUpdatedAt) || e.quoteUpdatedAt : null,
-        ].filter(Boolean);
-        return (
-          <Pressable
-            key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
-            onPress={() => onAdd(e)}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              backgroundColor: colors.card,
-              borderColor: added ? colors.primary : colors.border,
-              borderWidth: 1,
-              borderRadius: colors.radius,
-              padding: 12,
-              opacity: pressed ? 0.8 : 1,
-            })}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
-                {e.pick}
-              </Text>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 }}>
-                {metaParts.join(" · ")}
-                {!e.sportsbook ? " · sportsbook unavailable" : ""}
-                {!e.quoteUpdatedAt ? " · quote time unavailable" : ""}
-              </Text>
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                borderRadius: 10,
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-                backgroundColor: added ? colors.surface : colors.primary,
-                borderWidth: added ? 1 : 0,
-                borderColor: colors.primary,
-              }}
-            >
-              <Feather
-                name={added ? "check" : "plus"}
-                size={14}
-                color={added ? colors.primary : colors.primaryForeground}
-              />
-              <Text
-                style={{
-                  color: added ? colors.primary : colors.primaryForeground,
-                  fontFamily: FONT.bold,
-                  fontSize: 14,
-                }}
-              >
-                {formatAmerican(e.odds)}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-        Team totals only — not the combined game total, moneyline, or spread.
-      </Text>
+      {rows.map((e, i) => (
+        <View key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
+          style={{ padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: colors.radius, gap: 4 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>{e.pick} · {formatAmerican(e.odds)}</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+            {e.market} · {e.sportsbook ?? "Sportsbook unavailable"} · {e.quoteUpdatedAt ? formatGameTime(e.quoteUpdatedAt) : "Quote time unavailable"}
+          </Text>
+        </View>
+      ))}
+      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Posted team totals for research only.</Text>
     </View>
   );
 }
