@@ -365,7 +365,7 @@ test("oppDefenseNoteForMarket: team-wide only; never invents positional allowanc
     oppName: "Jaguars",
     oppDefense: def,
   });
-  assert.match(rush ?? "", /rush ypg/i);
+  assert.match(rush ?? "", /rush yards\/game/i);
   assert.match(rush ?? "", /Position-specific/i);
   assert.match(rush ?? "", /team-wide/i);
   assert.equal(

@@ -21,6 +21,7 @@ import {
   type TeamForm,
   type TeamSearchResult,
 } from "@/lib/api";
+import { explainMatchup } from "@/lib/matchupEvidence";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { teamNameMatches } from "@/lib/injuries";
 import { GRADE_MIN_SAMPLE, gradePropCands, type GradeResult } from "@/lib/propGrade";
@@ -307,7 +308,7 @@ export function TeamPropsSheet({
           simulations: MATCHUP_CONSIDER_MIN_SIMULATIONS,
         }, signal),
       ]);
-      return { grades, sims: simPack.hits };
+      return { grades, sims: simPack.hits, histories: simPack.playerHistories };
     },
   });
 
@@ -583,6 +584,15 @@ export function TeamPropsSheet({
                         key={pick.key}
                         pick={pick}
                         gameLabel={gameLabel}
+                        evidence={explainMatchup({
+                          sport, athleteId: pick.athleteId, market: pick.marketKey, line: pick.line, side: pick.side,
+                          history: pick.athleteId ? considerEvalQ.data?.histories[pick.athleteId] : null,
+                          startsAt: data.startsAt, isHome: pick.teamSide === "home",
+                          opponentId: pick.teamSide === "home" ? identityIds.awayTeamId : identityIds.homeTeamId,
+                          opponentName: pick.oppName,
+                          opponentDefense: pick.teamSide === "home" ? awayDefenseQ.data : homeDefenseQ.data,
+                          simProbability: pick.simHitPct / 100, simSample: pick.sampleGames,
+                        })}
                         onOpen={() => onOpenConsiderPick?.(pick, eventProps)}
                         canOpen={!!onOpenConsiderPick}
                       />
@@ -738,15 +748,18 @@ export function TeamPropsSheet({
 function ConsiderPickCard({
   pick,
   gameLabel,
+  evidence,
   onOpen,
   canOpen,
 }: {
   pick: ConsiderPick;
   gameLabel: string;
+  evidence: ReturnType<typeof explainMatchup>;
   onOpen: () => void;
   canOpen: boolean;
 }) {
   const colors = useColors();
+  const [showEvidenceDetails, setShowEvidenceDetails] = useState(false);
   const posLabel = pick.positionVerified && pick.position
     ? pick.position
     : "Pos unavailable";
@@ -802,7 +815,7 @@ function ConsiderPickCard({
           </View>
           <View style={{ alignItems: "flex-end", gap: 2 }}>
             <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 18 }}>{pick.simHitPct}%</Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>sim hit</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>model estimate</Text>
           </View>
         </View>
       </Pressable>
@@ -823,6 +836,20 @@ function ConsiderPickCard({
         {pick.defenseSummary}
       </Text>
 
+      <View style={{ gap: 6 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>WHY THIS MATCHUP</Text>
+        {evidence.observations.slice(0, showEvidenceDetails ? undefined : 2).map((text, i) => <Text key={`e${i}`} style={{ color: colors.foreground, fontSize: 11 }}>{text}</Text>)}
+        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>CAUTIONS</Text>
+        {evidence.cautions.map((text, i) => <Text key={`c${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+        <Pressable onPress={() => setShowEvidenceDetails(v => !v)} accessibilityRole="button" accessibilityState={{expanded:showEvidenceDetails}}>
+          <Text style={{color:colors.primary,fontSize:12}}>{showEvidenceDetails ? "Hide evidence details" : `More evidence · ${evidence.missing.length} gaps`}</Text>
+        </Pressable>
+        {showEvidenceDetails && <>
+        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>MISSING EVIDENCE</Text>
+        {evidence.missing.map((text, i) => <Text key={`m${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+        <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{evidence.source}</Text>
+        </>}
+      </View>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <PriceSide
           label="Over"
