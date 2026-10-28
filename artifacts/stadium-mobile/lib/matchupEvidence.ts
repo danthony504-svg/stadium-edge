@@ -3,6 +3,7 @@ import type { PropSimPlayerHistoryPayload, TeamDefense } from "./api.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 export type MatchupEvidence = {
   observations: string[];
+  opportunity: string[];
   cautions: string[];
   missing: string[];
   source: string;
@@ -54,6 +55,7 @@ export function explainMatchup(o: {
   simProbability?: number;
   simSample?: number;
 }): MatchupEvidence {
+  const opportunity: string[] = [];
   const observations: string[] = [],
     cautions: string[] = [],
     missing: string[] = [];
@@ -146,6 +148,36 @@ export function explainMatchup(o: {
     missing.push(
       "Dated, athlete-bound history for this exact market unavailable.",
     );
+  // Unique machine fields or unambiguous display labels only. Missing is not zero.
+  const opportunityFields: Array<[string, string[]]> =
+    ["nba", "wnba", "ncaab", "cbb"].includes(o.sport)
+      ? [["Field-goal attempts", ["fieldGoalsAttempted", "FGA"]], ["Three-point attempts", ["threePointFieldGoalsAttempted", "3PA"]]]
+      : ["nfl", "ncaaf", "cfb"].includes(o.sport)
+        ? [["Pass attempts", ["passingAttempts"]], ["Carries", ["rushingAttempts"]], ["Targets", ["receivingTargets"]]]
+        : o.sport === "mlb"
+          ? [["Plate appearances", ["plateAppearances", "PA"]], ["At-bats", ["atBats", "AB"]]]
+          : o.sport === "nhl"
+            ? [["Shots on goal", ["shotsOnGoal", "S"]]]
+            : o.sport === "soccer"
+              ? [["Minutes played", ["minutesPlayed", "MIN"]]] : [];
+  for (const [label, keys] of opportunityFields) {
+    const values = games.flatMap(g => {
+      // Conflicting aliases fail closed rather than silently choosing one.
+      const vals = keys.filter(k => !ambiguous.has(k)).flatMap(k => {
+        const raw = g.stats?.[k];
+        if (typeof raw !== "string" || !/^\d+(?:\.\d+)?$/.test(raw.trim())) return [];
+        const v = Number(raw);
+        return Number.isFinite(v) && v >= 0 ? [v] : [];
+      });
+      const unique = [...new Set(vals)];
+      return unique.length === 1 ? unique : [];
+    });
+    if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (n=${values.length}; logged history).`);
+  }
+  // Logged playing time is genuine opportunity evidence, even without usage%.
+  opportunity.push(...observations.filter(t => t.startsWith("Playing time:")));
+  observations.push(...opportunity.filter(t => !observations.includes(t)));
+  if (!opportunity.length) missing.push("Logged opportunity sample unavailable or fewer than 3 verified games.");
   const boundDefense =
     o.opponentId && o.opponentDefense?.teamId === o.opponentId
       ? o.opponentDefense
@@ -162,7 +194,7 @@ export function explainMatchup(o: {
       "Market-specific opponent allowance unavailable; overall points allowed is not a substitute.",
     );
   missing.push(
-    "Current injury impact, lineup/role changes and detailed opportunity metrics are not supplied to this analysis.",
+    "Current injury impact, confirmed lineup/role changes and future opportunity are not supplied to this analysis. Logged activity does not establish future usage.",
   );
   if (o.simSample != null) cautions.push(
     `Simulation history n=${o.simSample}; Monte Carlo draws are not independent historical games. Calibration for this matchup is unverified.`,
@@ -174,6 +206,7 @@ export function explainMatchup(o: {
     );
   return {
     observations,
+    opportunity,
     cautions,
     missing,
     source: games.length
