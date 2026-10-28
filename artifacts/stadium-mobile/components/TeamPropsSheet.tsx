@@ -25,7 +25,7 @@ import { explainMatchup } from "@/lib/matchupEvidence";
 import { formatGameTime } from "@/lib/format";
 import { teamNameMatches } from "@/lib/injuries";
 import { GRADE_MIN_SAMPLE, gradePropCands, type GradeResult } from "@/lib/propGrade";
-import { oddsRowsFromQuery } from "@/lib/sportFeed";
+import { oddsRowsFromQuery, espnRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
 import {
@@ -205,7 +205,7 @@ export function TeamPropsSheet({
     queryFn: ({ signal }) => getGames(sport, signal).catch(() => [] as EspnGame[]),
   });
   const espnIds = useMemo(() => {
-    const rows = espnGamesQ.data ?? [];
+    const rows = espnRowsFromQuery(espnGamesQ.data, sport);
     const hit = rows.find(
       (g) =>
         (teamNameMatches(g.homeTeam ?? "", homeTeam) &&
@@ -223,7 +223,7 @@ export function TeamPropsSheet({
       homeTeamId: homeResolved?.teamId ?? null,
       awayTeamId: awayResolved?.teamId ?? null,
     };
-  }, [espnGamesQ.data, homeTeam, awayTeam, homeResolved?.teamId, awayResolved?.teamId]);
+  }, [espnGamesQ.data, sport, homeTeam, awayTeam, homeResolved?.teamId, awayResolved?.teamId]);
 
   // Independent of Coach — event player props for this matchup only.
   const eventPropsQ = useQuery({
