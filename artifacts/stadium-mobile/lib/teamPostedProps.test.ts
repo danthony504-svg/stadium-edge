@@ -561,13 +561,13 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   assert.equal(propsSrc.includes("buildParlay"), false);
 });
 
-test("Matchup Props sheet section order: header → filters → defense → players → form", () => {
+test("Matchup Props sheet section order: header → defense → players with filters → form", () => {
   const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
   const markers = [
     "SECTION_ORDER:1 compact matchup header",
-    "SECTION_ORDER:2 market/role filter chips",
     "SECTION_ORDER:3 both teams defensive matchup stats",
     "SECTION_ORDER:4 top players by role",
+    "SECTION_ORDER:2 market/role filter chips",
     "SECTION_ORDER:5 detailed form + recent-game history",
   ];
   let prev = -1;
@@ -579,7 +579,7 @@ test("Matchup Props sheet section order: header → filters → defense → play
   }
   // Players must appear before team totals and before detailed form.
   assert.ok(sheetSrc.indexOf("SECTION_ORDER:4") < sheetSrc.indexOf("SECTION_ORDER:5"));
-  assert.ok(sheetSrc.indexOf("SECTION_ORDER:2") < sheetSrc.indexOf("SECTION_ORDER:4"));
+  assert.ok(sheetSrc.indexOf("SECTION_ORDER:2") > sheetSrc.indexOf("SECTION_ORDER:4"));
 });
 
 test("Matchup Props omits Team Totals and preserves player loading and empty states", () => {
@@ -592,4 +592,15 @@ test("Matchup Props omits Team Totals and preserves player loading and empty sta
   }
   assert.ok(sheetSrc.includes("considerEmpty ||"));
   assert.ok(sheetSrc.includes("TOP PLAYERS BY ROLE"));
+});
+
+
+test("market filters live inside the player section above loading and cards", () => {
+  const src = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
+  const start = src.indexOf('<Section title="TOP PLAYERS BY ROLE">');
+  const end = src.indexOf("</Section>", start);
+  const filters = src.indexOf('testID="matchup-market-filters"');
+  assert.ok(start < filters && filters < end);
+  assert.ok(filters < src.indexOf('testID="matchup-players-loading"'));
+  assert.ok(filters < src.indexOf("<ConsiderPickCard"));
 });
