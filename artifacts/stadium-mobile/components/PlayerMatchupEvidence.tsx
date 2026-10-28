@@ -6,14 +6,14 @@ import { getPlayerHistory, getTeamDefense, searchTeam } from "@/lib/api";
 import { explainMatchup } from "@/lib/matchupEvidence";
 import { resolveEvidenceSides } from "@/lib/playerMatchupContext";
 
-/** Read-only, shared by Player Props and Coach. Fetch only after explicit expansion. */
+/** Read-only, shared by Player Props and Coach. Show evidence on delivered cards; requests do not block ticket construction. */
 export function PlayerMatchupEvidence(p: {
   position?: string | null;
   sport: string; athleteId?: string | null; playerTeamId?: string | null;
   game: string; startsAt?: string | null; market: string; line: number; side: "Over" | "Under";
 }) {
   const colors = useColors();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const history = useQuery({
     queryKey: ["player-history", p.sport, p.athleteId, null],
     enabled: expanded && !!p.sport && !!p.athleteId,
@@ -43,7 +43,7 @@ export function PlayerMatchupEvidence(p: {
   });
   const style = { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 };
   return <View style={{ padding: 14, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 16 }}>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(v => !v)}>
+    <Pressable style={{ minHeight: 44, justifyContent: "center" }} accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(v => !v)}>
       <Text style={{ color: colors.primary, fontWeight: "600" }}>{expanded ? "Hide matchup evidence" : "Why this matchup · evidence & cautions"}</Text>
     </Pressable>
     {expanded && <>
