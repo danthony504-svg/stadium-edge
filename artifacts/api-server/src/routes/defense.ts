@@ -1,3 +1,4 @@
+import {opponentMarketAllowance} from "../lib/loadOpponentMarketAllowance.js";
 import {loadNhlShotAllowance} from "../lib/loadNhlShotAllowance.js";
 import { basketballDefenseAllowed } from "../lib/basketballDefenseAllowed.js";
 import { Router, type IRouter } from "express";
@@ -234,7 +235,8 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         passDefense,
       };
     });
-    res.json(out);
+    const opponentMarkets = await opponentMarketAllowance(sportId, teamId, withPositions);
+    res.json({...out, opponentMarkets});
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team defense");
     res.json({

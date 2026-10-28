@@ -432,9 +432,9 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 1.5,
       pack: hotGoalie,
     }),
-    false,
+    true,
   );
-  // Anytime-goal Over 0.5 does NOT hard-drop (soft demote only) — recovers oddsOk.
+  // Scoring Overs also withhold when exact opponent evidence is absent.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -443,9 +443,9 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 0.5,
       pack: null,
     }),
-    false,
+    true,
   );
-  // Unders never hard-drop for missing pack — demote via nhlScoringMissingOppContext.
+  // Missing opponent evidence withholds Unders as well.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -454,7 +454,7 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 0.5,
       pack: null,
     }),
-    false,
+    true,
   );
   const { nhlScoringMissingOppContext } = await import("./footballRushDefense.ts");
   assert.equal(

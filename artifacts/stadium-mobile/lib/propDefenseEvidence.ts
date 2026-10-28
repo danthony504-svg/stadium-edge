@@ -36,6 +36,7 @@ export function teamDefensePack(def: TeamDefense, fallbackName: string | null = 
     return null;
 }
 return {
+    opponentMarkets: def.opponentMarkets,
     rush,
     pass,
     teamName,

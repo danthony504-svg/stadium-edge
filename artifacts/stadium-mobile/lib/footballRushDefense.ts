@@ -1,3 +1,4 @@
+import {hasOpponentMarketEvidence,isTeamPropEvidenceRequired} from "./opponentMarketGate.ts";
 /**
  * Soft/hard tilt for football skill props vs opponent run/pass defense.
  * Uses real yards-allowed averages from recent box scores only.
@@ -23,6 +24,7 @@ export type PassDefenseSlice = {
 };
 
 export type FootballOppDefenseSlice = {
+  opponentMarkets?: Array<{market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
   rush?: RushDefenseSlice | null;
   pass?: PassDefenseSlice | null;
   teamName?: string | null;
@@ -668,6 +670,14 @@ export function shouldDropPropMissingOppDefense(opts: {
   vsOpponentGames?: number | null;
 }): boolean {
   const sport = String(opts.sport ?? "").toLowerCase();
+  const market = String(opts.market ?? "");
+  if (isTeamPropEvidenceRequired(sport, market) && !hasOpponentMarketEvidence(sport,market,opts.pack?.opponentMarkets)) {
+    const p=opts.pack;
+    const rush = ["nfl","ncaaf"].includes(sport) && /^player_rush_yds(?:_alternate)?$/.test(market) && p?.rush && p.rush.sampleSize >= 3 && Number.isFinite(p.rush.rushingYardsAllowedPerGame);
+    const pass = ["nfl","ncaaf"].includes(sport) && /^player_pass_yds(?:_alternate)?$/.test(market) && p?.pass && p.pass.sampleSize >= 3 && Number.isFinite(p.pass.passingYardsAllowedPerGame);
+    const shots = sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market) && p && (p.shotsAgainstSample ?? 0) >= 3 && Number.isFinite(p.shotsAgainst);
+    if (!rush && !pass && !shots) return true;
+  }
   if (sport !== "nhl") return false;
   if (/^player_shots_on_goal(?:_alternate)?$/.test(opts.market ?? "")) return !(opts.pack && Number.isFinite(opts.pack.shotsAgainst) && (opts.pack.shotsAgainstSample ?? 0) >= 3);
   if (!isNhlScoringMarket(opts.market)) return false;

@@ -356,6 +356,7 @@ export function TeamPropsSheet({
         sport,
         altCount: countPostedAlts(eventProps, cand.prop.player, cand.prop.market),
         defenseNote,
+        opponentMarkets: oppDef?.opponentMarkets,
       });
       if (pick) out.push(pick);
     }
