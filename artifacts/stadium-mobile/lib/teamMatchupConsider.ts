@@ -27,6 +27,7 @@ import {
   type GradeResult,
 } from "./propGrade.ts";
 import { propMarketLabel } from "./propMarketLabel.ts";
+import { meetsCoachSimQualityFloor } from "./gameSimQualityGates.ts";
 import { simulatorModelEdge } from "./simulatorPropMetrics.ts";
 
 /** Deep Monte Carlo floor — same as Coach exact-market seating bar. */
@@ -531,12 +532,13 @@ export function buildConsiderCandidates(opts: {
   homeTeam: string;
   awayTeam: string;
   ids: MatchupTeamIds;
+  eventId?: string | null;
   maxPerTeam?: number;
 }): { candidates: ConsiderCandidate[]; skipReason: string | null } {
   const maxPer = opts.maxPerTeam ?? MATCHUP_CONSIDER_MAX_CANDIDATES / 2;
   const homeId = opts.ids.homeTeamId;
   const awayId = opts.ids.awayTeamId;
-  if (!homeId && !awayId) {
+  if (!homeId || !awayId || homeId === awayId) {
     return {
       candidates: [],
       skipReason:
@@ -549,6 +551,8 @@ export function buildConsiderCandidates(opts: {
 
   for (const p of opts.props) {
     if (p.alt) continue;
+    const eventId = p.eventId ?? p.oddsEventId;
+    if (!p.athleteId || !eventId || (opts.eventId && eventId !== opts.eventId)) continue;
     if (p.line == null || !Number.isFinite(p.line)) continue;
     if (!isRelevantPlayerMarket(opts.sport, p.market)) continue;
     if (!propBelongsToGameTeams(p.playerTeamId, homeId, awayId)) continue;
@@ -558,7 +562,7 @@ export function buildConsiderCandidates(opts: {
     const onHome = String(p.playerTeamId).trim() === String(homeId).trim();
     const teamSide: MatchupTeamSide = onHome ? "home" : "away";
     const row: ConsiderCandidate = {
-      key: `${p.player}|${p.market}|${p.line}|${sel.side}|${teamSide}`.toLowerCase(),
+      key: JSON.stringify([eventId, p.athleteId, p.player, p.playerTeamId, p.market, p.line, sel.side, sel.price, quoteTimestampForSide(p, sel.side)]),
       prop: p,
       side: sel.side,
       price: sel.price,
@@ -631,13 +635,16 @@ export function qualifyConsiderSim(
   if (sim.hitProbability == null || !Number.isFinite(sim.hitProbability)) {
     return { status: "rejected", reason: "Simulation returned no hit probability." };
   }
-  if ((sim.simulations ?? 0) < MATCHUP_CONSIDER_MIN_SIMULATIONS) {
+  if (sim.hitProbability < 0.52 || sim.hitProbability > 1 || sim.deepPending) {
+    return { status: "rejected", reason: "Completed simulation must meet the 52% probability floor." };
+  }
+  if (!Number.isSafeInteger(sim.simulations) || (sim.simulations ?? 0) < MATCHUP_CONSIDER_MIN_SIMULATIONS) {
     return {
       status: "rejected",
       reason: `Needs ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()} simulations (got ${sim.simulations ?? 0}).`,
     };
   }
-  if ((sim.sampleGames ?? 0) < MATCHUP_CONSIDER_MIN_SAMPLE_GAMES) {
+  if (!Number.isSafeInteger(sim.sampleGames) || (sim.sampleGames ?? 0) < MATCHUP_CONSIDER_MIN_SAMPLE_GAMES) {
     return {
       status: "rejected",
       reason: `Insufficient game-log sample (n=${sim.sampleGames ?? 0}; need ${MATCHUP_CONSIDER_MIN_SAMPLE_GAMES}).`,
@@ -701,8 +708,24 @@ export function buildConsiderPick(opts: {
   const q = qualifyConsiderSim(opts.sim);
   if (q.status !== "qualified") return null;
   const p = opts.cand.prop;
+  const sim = opts.sim;
+  const postedPrice = opts.cand.side === "Over" ? p.overPrice : p.underPrice;
+  if (!p.athleteId || !(p.eventId ?? p.oddsEventId) ||
+      sim.player !== p.player || sim.market !== p.market ||
+      sim.line !== p.line || sim.side !== opts.cand.side ||
+      !Number.isFinite(postedPrice) || postedPrice !== opts.cand.price ||
+      Math.abs(opts.cand.price) < 100) return null;
+  const grade = opts.grade;
+  if (!grade || !Number.isInteger(grade.n) || grade.n < GRADE_MIN_SAMPLE ||
+      !Number.isInteger(grade.hits) || grade.hits < 0 || grade.hits > grade.n ||
+      gradeFromHitPct(100 * grade.hits / grade.n) !== grade.grade ||
+      !meetsCoachSimQualityFloor({ grade: grade.grade, confidencePct: sim.hitProbability! * 100 })) return null;
+  const quote = quoteTimestampForSide(p, opts.cand.side);
+  if (quote && (!Number.isFinite(Date.parse(quote)) || Date.parse(quote) > (opts.nowMs ?? Date.now()) ||
+      isQuoteStale(quote, opts.nowMs))) return null;
   const hitPct = Math.round((opts.sim.hitProbability as number) * 1000) / 10;
   const edgePct = simulatorModelEdge(opts.sim.hitProbability, opts.cand.price);
+  if (edgePct == null || edgePct <= 0) return null;
   const role = resolveMatchupRole({
     sport: opts.sport,
     market: p.market,
@@ -710,7 +733,7 @@ export function buildConsiderPick(opts: {
   });
 
   const formSummary = opts.grade
-    ? `Recent form ${opts.grade.hits}/${opts.grade.n} vs this line (${GRADE_WINDOW}-game window).`
+    ? `Recent form ${opts.grade.hits}/${opts.grade.n} vs this side and line (${GRADE_WINDOW}-game window; separate from simulation history).`
     : `Recent hit-rate grade unavailable (need ≥${GRADE_MIN_SAMPLE} logged games).`;
   const opportunitySummary = opts.usageNote?.trim()
     ? opts.usageNote.trim()
@@ -721,7 +744,7 @@ export function buildConsiderPick(opts: {
 
   const parts: string[] = [formSummary, opportunitySummary];
   parts.push(
-    `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim hit ${hitPct}% · sample n=${opts.sim.sampleGames}.`,
+    `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim hit ${hitPct}% · simulation history n=${opts.sim.sampleGames}.`,
   );
   if (opts.sim.meanProjection != null) {
     parts.push(`Mean projection ${opts.sim.meanProjection.toFixed(1)}.`);
@@ -963,7 +986,7 @@ export function emptyConsiderMessage(opts: {
     return "No posted player props are available to evaluate for this matchup.";
   }
   if (opts.qualifiedCount === 0) {
-    return `Reviewed ${opts.candidateCount} posted prop${opts.candidateCount === 1 ? "" : "s"}; none cleared the ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-simulation quality floor with sufficient sample. Nothing recommended.`;
+    return `Reviewed ${opts.candidateCount} posted prop${opts.candidateCount === 1 ? "" : "s"}; none cleared the ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-simulation quality floor, recent-form grade and positive model edge with sufficient samples. Nothing recommended.`;
   }
   return "";
 }
