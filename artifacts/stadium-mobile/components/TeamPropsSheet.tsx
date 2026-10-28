@@ -44,11 +44,7 @@ import {
   teamDefenseRows,
   type ConsiderPick,
 } from "@/lib/teamMatchupConsider";
-import {
-  extractTeamPostedProps,
-  findOddsGameForMatchup,
-  type TeamPostedProp,
-} from "@/lib/teamPostedProps";
+import { findOddsGameForMatchup } from "@/lib/teamPostedProps";
 
 // Matchup-scoped sheet opened from Team Props. Carries focus team + full
 // matchup identity so BOTH sides can be analyzed without guessing.
@@ -97,7 +93,6 @@ export function TeamPropsSheet({
   const insets = useSafeAreaInsets();
   const [marketFilter, setMarketFilter] = useState<string>("all");
   /** Team totals start collapsed so player cards stay above the fold. */
-  const [teamTotalsExpanded, setTeamTotalsExpanded] = useState(false);
 
   const sport = data?.sport ?? "";
   const team = data?.team ?? "";
@@ -177,20 +172,16 @@ export function TeamPropsSheet({
     staleTime: 60_000,
     queryFn: ({ signal }) => getOdds(sport, signal),
   });
-  const markets = useMemo(() => {
+  const matchupGame = useMemo(() => {
     if (!data || !oddsQ.data) return null;
     const oddsRows = oddsRowsFromQuery(oddsQ.data, sport);
     const g =
       (data.eventId && oddsRows.find((o) => o.id === data.eventId)) ||
       findOddsGameForMatchup(oddsRows, team, opp);
-    if (!g) return null;
-    const focusRows = extractTeamPostedProps(g, team);
-    const homeRows = extractTeamPostedProps(g, g.homeTeam);
-    const awayRows = extractTeamPostedProps(g, g.awayTeam);
-    return { game: g, rows: focusRows, homeRows, awayRows };
+    return g || null;
   }, [data, oddsQ.data, sport, team, opp]);
 
-  const eventId = data?.eventId || markets?.game?.id || null;
+  const eventId = data?.eventId || matchupGame?.id || null;
 
   const homeDefenseQ = useQuery({
     queryKey: ["team-defense", sport, homeResolved?.teamId],
@@ -602,79 +593,7 @@ export function TeamPropsSheet({
             )}
           </Section>
 
-          {/* SECTION_ORDER:5 Team Totals — collapsed by default; expand both teams */}
-          <Section title="TEAM TOTALS">
-            <Pressable
-              testID="team-totals-toggle"
-              onPress={() => setTeamTotalsExpanded((v) => !v)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: teamTotalsExpanded }}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-                paddingVertical: 4,
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, flex: 1 }}>
-                {teamTotalsExpanded
-                  ? "Hide posted team totals"
-                  : "Show posted team totals for both teams"}
-              </Text>
-              <Feather
-                name={teamTotalsExpanded ? "chevron-up" : "chevron-down"}
-                size={18}
-                color={colors.mutedForeground}
-              />
-            </Pressable>
-            {teamTotalsExpanded ? (
-              <View style={{ gap: 12 }} testID="team-totals-expanded">
-                {oddsQ.isLoading ? (
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
-                    Loading posted team totals…
-                  </Text>
-                ) : markets == null ? (
-                  <EmptyNote
-                    text={`We couldn't match this matchup on the live odds feed for ${sportLabel}, so no team props are shown.`}
-                  />
-                ) : (
-                  <>
-                    <View style={{ gap: 6 }}>
-                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11 }}>
-                        {nickname(awayTeam).toUpperCase()} · AWAY
-                      </Text>
-                      {markets.awayRows.length > 0 ? (
-                        <PostedTeamPropList rows={markets.awayRows} />
-                      ) : (
-                        <EmptyNote text={`No posted team totals are live for ${nickname(awayTeam)} right now.`} />
-                      )}
-                    </View>
-                    <View style={{ gap: 6 }}>
-                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11 }}>
-                        {nickname(homeTeam).toUpperCase()} · HOME
-                      </Text>
-                      {markets.homeRows.length > 0 ? (
-                        <PostedTeamPropList rows={markets.homeRows} />
-                      ) : (
-                        <EmptyNote text={`No posted team totals are live for ${nickname(homeTeam)} right now.`} />
-                      )}
-                    </View>
-                  </>
-                )}
-              </View>
-            ) : (
-              <Text
-                testID="team-totals-collapsed"
-                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}
-              >
-                Collapsed so player matchups stay primary. Expand to view team totals for both sides.
-              </Text>
-            )}
-          </Section>
-
-          {/* SECTION_ORDER:6 detailed form + recent-game history below players */}
+          {/* SECTION_ORDER:5 detailed form + recent-game history below players */}
           <Section title="BOTH TEAMS · RECENT FORM">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 4 }}>
               Source: ESPN team-history · timeframe: last-10 finals when available · sample sizes shown.
@@ -987,23 +906,6 @@ function PriceSide({
   );
 }
 
-function PostedTeamPropList({ rows }: { rows: TeamPostedProp[] }) {
-  const colors = useColors();
-  return (
-    <View style={{ gap: 8 }}>
-      {rows.map((e, i) => (
-        <View key={`${e.marketKey}-${e.side}-${e.line}-${e.odds}-${i}`}
-          style={{ padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: colors.radius, gap: 4 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>{e.pick} · {formatAmerican(e.odds)}</Text>
-          <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
-            {e.market} · {e.sportsbook ?? "Sportsbook unavailable"} · {e.quoteUpdatedAt ? formatGameTime(e.quoteUpdatedAt) : "Quote time unavailable"}
-          </Text>
-        </View>
-      ))}
-      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Posted team totals for research only.</Text>
-    </View>
-  );
-}
 
 function TeamFormCard({
   form,
