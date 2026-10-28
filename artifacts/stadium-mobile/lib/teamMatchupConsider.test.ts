@@ -277,7 +277,7 @@ test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects we
       side: cand.side,
       hitProbability: 0.61,
     }),
-    grade: { grade: "A-", hits: 7, n: 10 },
+    grade: { grade: "A", hits: 7, n: 10 },
     sport: "nba",
     altCount: countPostedAlts(
       [
@@ -511,4 +511,31 @@ test("emptyConsiderMessage is truthful for missing / thin evidence", () => {
     }),
     /unavailable/i,
   );
+});
+
+
+test("recommendations reject weak, ungraded, stale and mismatched exact selections across sports", () => {
+  for (const [sport, market] of [["nba", "player_points"], ["nfl", "player_rush_yds"], ["mlb", "batter_hits"], ["nhl", "player_shots_on_goal"], ["soccer", "player_shots"]]) {
+    const cand = buildConsiderCandidates({props:[prop({player:"P", market, playerTeamId:"H"})], sport, homeTeam:"Home", awayTeam:"Away", ids:{homeTeamId:"H",awayTeamId:"A"}, eventId:"ev1"}).candidates[0]!;
+    const good = {cand, sim:sim({market}), grade:{grade:"A" as Grade,hits:7,n:10}, sport, altCount:0};
+    assert.ok(buildConsiderPick(good), sport);
+    for (const patch of [{hitProbability:0.28},{hitProbability:0.519},{hitProbability:1.01},{hitProbability:NaN},{sampleGames:NaN},{simulations:NaN},{deepPending:true},{player:"Other"},{market:"wrong_market"},{line:23.5},{side:"Under" as const}]) {
+      assert.equal(buildConsiderPick({...good,sim:{...good.sim,...patch}}),null,`${sport} ${JSON.stringify(patch)}`);
+    }
+    assert.equal(buildConsiderPick({...good,grade:null}),null);
+    assert.equal(buildConsiderPick({...good,grade:{grade:"A",hits:1,n:10}}),null);
+    assert.equal(buildConsiderPick({...good,cand:{...cand,price:-500,prop:{...cand.prop,overPrice:-500}}}),null);
+    assert.equal(buildConsiderPick({...good,cand:{...cand,price:105}}),null);
+    assert.equal(buildConsiderPick({...good,cand:{...cand,prop:{...cand.prop,overSourceUpdatedAt:"2000-01-01T00:00:00Z"}}}),null);
+    assert.match(buildConsiderPick(good)!.formSummary,/separate from simulation history/);
+  }
+});
+
+test("event and athlete binding plus quote-sensitive cache identity", () => {
+  const p=prop({player:"P",market:"player_points",playerTeamId:"H"});
+  const build=(props:PlayerProp[])=>buildConsiderCandidates({props,sport:"nba",homeTeam:"Home",awayTeam:"Away",ids:{homeTeamId:"H",awayTeamId:"A"},eventId:"ev1"}).candidates;
+  assert.equal(build([{...p,eventId:"other"}]).length,0);
+  assert.equal(build([{...p,athleteId:null}]).length,0);
+  assert.notEqual(build([p])[0]!.key,build([{...p,overPrice:110}])[0]!.key);
+  assert.notEqual(build([p])[0]!.key,build([{...p,overSourceUpdatedAt:"2026-10-27T12:00Z"}])[0]!.key);
 });

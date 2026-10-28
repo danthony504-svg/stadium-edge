@@ -552,7 +552,10 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   assert.ok(sheetSrc.includes("matchupFilterChips"));
   assert.ok(sheetSrc.includes("rankConsiderPicksByRole"));
   assert.ok(sheetSrc.includes("oppDefenseNoteForMarket"));
-  assert.ok(sheetSrc.includes("Add to Slip"));
+  assert.ok(!sheetSrc.includes("Add to Slip"));
+  for (const action of ["useBetSlip", "<SlipBar", "onAdd", "addLeg", "removeLeg", "hasLeg", "teamPostedPropToRealOdds"]) {
+    assert.ok(!sheetSrc.includes(action), `Matchup sheet must be read-only: ${action}`);
+  }
   assert.ok(sheetSrc.includes("Position-specific") || sheetSrc.includes("position-specific") || sheetSrc.includes("team-wide"));
   // This PR must not edit Coach selection / sim / quality floors.
   assert.equal(propsSrc.includes("buildParlay"), false);
