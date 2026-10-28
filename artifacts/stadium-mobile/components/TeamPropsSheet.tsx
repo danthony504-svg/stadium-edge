@@ -185,13 +185,13 @@ export function TeamPropsSheet({
   const eventId = data?.eventId || matchupGame?.id || null;
 
   const homeDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, homeResolved?.teamId, "positions-v1"],
+    queryKey: ["team-defense", sport, homeResolved?.teamId, "positions-v2"],
     enabled: !!sport && !!homeResolved?.teamId,
     staleTime: 30 * 60_000,
     queryFn: ({ signal }) => getTeamDefense(sport, homeResolved!.teamId, signal, true),
   });
   const awayDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, awayResolved?.teamId, "positions-v1"],
+    queryKey: ["team-defense", sport, awayResolved?.teamId, "positions-v2"],
     enabled: !!sport && !!awayResolved?.teamId,
     staleTime: 30 * 60_000,
     queryFn: ({ signal }) => getTeamDefense(sport, awayResolved!.teamId, signal, true),

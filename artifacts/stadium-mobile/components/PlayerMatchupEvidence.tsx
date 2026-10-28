@@ -21,7 +21,7 @@ export function PlayerMatchupEvidence(p: {
     queryFn: ({ signal }) => getPlayerHistory({ sport: p.sport, athleteId: p.athleteId! }, signal),
   });
   const context = useQuery({
-    queryKey: ["player-matchup-evidence", p.sport, p.game, p.playerTeamId, "positions-v1"],
+    queryKey: ["player-matchup-evidence", p.sport, p.game, p.playerTeamId, "positions-v2"],
     enabled: expanded && !!p.playerTeamId && !!p.sport,
     staleTime: 10 * 60_000,
     queryFn: async ({ signal }) => {
