@@ -61,11 +61,17 @@ test("shared-draw coverage qualifies every posted rung before ladder seating wit
   };
   try {
     const result = await buildFootballPropsOnlyTicket({ target: 5, pool, realOdds: [], teamIdMap: new Map(),
-      playerHistory: playerHistory as never, allowedSports: ["nfl"], askText: "5 leg receiving yards", signal: AbortSignal.timeout(5000) });
+      playerHistory: playerHistory as never,
+      espnGames: [{ sport: "nfl", homeTeam: "San Francisco 49ers", awayTeam: "Washington Commanders", homeTeamId: "25", awayTeamId: "28", homeAbbr: "SF", awayAbbr: "WSH" }] as never,
+      oppRushDefense: { "nfl#25": { opponentMarkets: [{ market: "player_reception_yds", perGame: 220, sampleSize: 8, firstGame: new Date(Date.now() - 8 * 86400000).toISOString(), lastGame: new Date(Date.now() - 86400000).toISOString(), scope: "team_allowed", source: "test observed completed boxes" }] } } as never,
+      allowedSports: ["nfl"], askText: "5 leg receiving yards", signal: AbortSignal.timeout(5000) });
     assert.equal(result.perf?.candidatesSelected, 12);
     assert.equal(result.propSimEvaluated, 48);
     assert.equal(calls, 2); // old 40-side sample required five 8-side batches
     assert.equal(result.picks.length, 5);
+    const missingEvidence = await buildFootballPropsOnlyTicket({ target: 5, pool, realOdds: [], teamIdMap: new Map(),
+      playerHistory: playerHistory as never, allowedSports: ["nfl"], askText: "5 leg receiving yards", signal: AbortSignal.timeout(5000) });
+    assert.equal(missingEvidence.picks.length, 0, "shared draws must not bypass missing opponent evidence");
     for (const p of result.picks) {
       assert.equal(p.propLine, 20.5); // higher-EV 80.5 fails genuine confidence
       assert.ok((p.finalAiScore?.confidencePct ?? 0) >= 52);
