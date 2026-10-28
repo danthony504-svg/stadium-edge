@@ -557,3 +557,51 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   // This PR must not edit Coach selection / sim / quality floors.
   assert.equal(propsSrc.includes("buildParlay"), false);
 });
+
+test("Matchup Props sheet section order: header → filters → defense → players → collapsed totals → form", () => {
+  const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
+  const markers = [
+    "SECTION_ORDER:1 compact matchup header",
+    "SECTION_ORDER:2 market/role filter chips",
+    "SECTION_ORDER:3 both teams defensive matchup stats",
+    "SECTION_ORDER:4 top players by role",
+    "SECTION_ORDER:5 Team Totals",
+    "SECTION_ORDER:6 detailed form + recent-game history",
+  ];
+  let prev = -1;
+  for (const m of markers) {
+    const idx = sheetSrc.indexOf(m);
+    assert.ok(idx >= 0, `missing section marker: ${m}`);
+    assert.ok(idx > prev, `section out of order: ${m}`);
+    prev = idx;
+  }
+  // Players must appear before team totals and before detailed form.
+  assert.ok(sheetSrc.indexOf("SECTION_ORDER:4") < sheetSrc.indexOf("SECTION_ORDER:5"));
+  assert.ok(sheetSrc.indexOf("SECTION_ORDER:4") < sheetSrc.indexOf("SECTION_ORDER:6"));
+  assert.ok(sheetSrc.indexOf("SECTION_ORDER:2") < sheetSrc.indexOf("SECTION_ORDER:4"));
+});
+
+test("Team Totals start collapsed; expand reveals both teams; empty player reason stays visible", () => {
+  const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
+  assert.ok(sheetSrc.includes("useState(false)"), "teamTotalsExpanded must default collapsed");
+  assert.ok(sheetSrc.includes('testID="team-totals-toggle"'));
+  assert.ok(sheetSrc.includes('testID="team-totals-collapsed"'));
+  assert.ok(sheetSrc.includes('testID="team-totals-expanded"'));
+  assert.ok(sheetSrc.includes("setTeamTotalsExpanded"));
+  assert.ok(sheetSrc.includes("markets.awayRows") && sheetSrc.includes("markets.homeRows"));
+  // Filters + player empty/loading stay near top (before team totals).
+  assert.ok(sheetSrc.includes('testID="matchup-market-filters"'));
+  assert.ok(sheetSrc.includes('testID="matchup-players-loading"'));
+  assert.ok(sheetSrc.includes('testID="matchup-players-empty"'));
+  assert.ok(sheetSrc.includes('testID="matchup-players-filter-empty"'));
+  const filtersIdx = sheetSrc.indexOf('testID="matchup-market-filters"');
+  const emptyIdx = sheetSrc.indexOf('testID="matchup-players-empty"');
+  const totalsIdx = sheetSrc.indexOf('testID="team-totals-toggle"');
+  assert.ok(filtersIdx >= 0 && emptyIdx >= 0 && totalsIdx >= 0);
+  assert.ok(filtersIdx < totalsIdx, "filters must stay above team totals");
+  assert.ok(emptyIdx < totalsIdx, "player empty state must stay above team totals");
+  // Empty path must surface considerEmpty reason (not hide the section).
+  assert.ok(sheetSrc.includes("considerEmpty ||"));
+  assert.ok(sheetSrc.includes("TOP PLAYERS BY ROLE"));
+  assert.ok(!/considerPicks\.length === 0 \? null/.test(sheetSrc));
+});
