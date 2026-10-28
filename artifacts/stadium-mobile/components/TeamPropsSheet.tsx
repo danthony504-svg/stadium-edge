@@ -830,7 +830,7 @@ function ConsiderPickCard({
         {pick.formSummary}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {pick.opportunitySummary}
+        {evidence.opportunity.length ? evidence.opportunity.join(" ") : pick.opportunitySummary}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
         {pick.defenseSummary}
