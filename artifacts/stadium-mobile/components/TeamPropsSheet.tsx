@@ -770,7 +770,7 @@ function ConsiderPickCard({
   const edgeLabel =
     pick.edgePct == null
       ? "Edge unavailable"
-      : `Edge ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
+      : `Model vs price ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
   const projLabel =
     pick.meanProjection == null ? "Proj unavailable" : `Proj ${pick.meanProjection.toFixed(1)}`;
 
@@ -814,8 +814,8 @@ function ConsiderPickCard({
             </Text>
           </View>
           <View style={{ alignItems: "flex-end", gap: 2 }}>
-            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 18 }}>{pick.simHitPct}%</Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>model estimate</Text>
+            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>Exploratory</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>calibration unverified</Text>
           </View>
         </View>
       </Pressable>
@@ -845,6 +845,7 @@ function ConsiderPickCard({
           <Text style={{color:colors.primary,fontSize:12}}>{showEvidenceDetails ? "Hide evidence details" : `More evidence · ${evidence.missing.length} gaps`}</Text>
         </Pressable>
         {showEvidenceDetails && <>
+        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Raw simulation estimate: {pick.simHitPct}%. This is not a verified win probability. Model-vs-price edge is exploratory.</Text>
         <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>MISSING EVIDENCE</Text>
         {evidence.missing.map((text, i) => <Text key={`m${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
         <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{evidence.source}</Text>
