@@ -1,3 +1,4 @@
+import { PlayerMatchupEvidence } from "@/components/PlayerMatchupEvidence";
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
@@ -653,6 +654,13 @@ export function PlayerPropsSheet({
               </View>
             )}
           </View>
+
+          {aiSuggestion && <PlayerMatchupEvidence
+            key={`${data.athleteId}:${market}:${aiSuggestion.line}:${aiSuggestion.side}`}
+            sport={data.sport} athleteId={data.athleteId} playerTeamId={data.playerTeamId}
+            game={data.gameLabel} startsAt={data.startsAt} market={market}
+            line={aiSuggestion.line} side={aiSuggestion.side}
+          />}
 
           {/* AI Suggested — real, fail-closed read of this market at the book line */}
           {aiSuggestion ? (
