@@ -686,6 +686,7 @@ export function buildConsiderPick(opts: {
   defenseNote?: string | null;
   nowMs?: number;
 }): ConsiderPick | null {
+  if (opts.sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(opts.cand.prop.market) && !opts.defenseNote) return null;
   const q = qualifyConsiderSim(opts.sim);
   if (q.status !== "qualified") return null;
   const p = opts.cand.prop;

@@ -320,7 +320,7 @@ test("multiSport market-aware: assists use steals, rebounds use dreb", async () 
     sport: "nhl",
     market: "player_shots_on_goal",
     side: "Over",
-    pack: { shotsAgainst: 34, savePct: 0.91 },
+    pack: { shotsAgainst: 34, shotsAgainstSample: 5, savePct: 0.91 },
   });
   assert.ok(sog.tilt > 0);
 
@@ -482,7 +482,7 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
     }),
     false,
   );
-  // SOG never requires scoring-pack gate.
+  // SOG requires its own observed shot-allowance sample.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -491,7 +491,7 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 2.5,
       pack: null,
     }),
-    false,
+    true,
   );
 });
 

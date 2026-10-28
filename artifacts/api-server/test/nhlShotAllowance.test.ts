@@ -1,0 +1,7 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {nhlShotAllowance,type ShotBox} from '../src/lib/nhlShotAllowance.ts';
+const box=(id:string,shots:string):ShotBox=>({header:{id,competitions:[{date:`2026-10-${20+Number(id)}T00:00Z`,status:{type:{completed:true}},competitors:[{team:{id:'D'}},{team:{id:'O'}}]}]},boxscore:{teams:[{team:{id:'D'},statistics:[{name:'shotsTotal',displayValue:'99'}]},{team:{id:'O'},statistics:[{name:'shotsTotal',displayValue:shots}]}]}});
+test('opponent shots per completed game, not own shots or cumulative totals',()=>{const a=nhlShotAllowance([box('1','20'),box('2','25'),box('3','30')],'D',Date.parse('2026-10-28'))!;assert.equal(a.shotsAllowedPerGame,25);assert.equal(a.sampleSize,3);});
+test('wrong team, duplicates, live/future games and fewer than 3 fail closed',()=>{const b=[box('1','20'),box('2','25'),box('3','30')];assert.equal(nhlShotAllowance(b,'X'),null);assert.equal(nhlShotAllowance([b[0]!,b[0]!,b[1]!],'D'),null);assert.equal(nhlShotAllowance(b,'D',Date.parse('2026-10-22')),null);b[2]!.header!.competitions![0]!.status!.type!.completed=false;assert.equal(nhlShotAllowance(b,'D'),null);});
+test('missing/blank shots and goalie saves cannot become shots allowed',()=>{const b=[box('1','20'),box('2','25'),box('3','')];assert.equal(nhlShotAllowance(b,'D'),null);b[2]!.boxscore!.teams![1]!.statistics=[{name:'saves',displayValue:'30'}];assert.equal(nhlShotAllowance(b,'D'),null);});
