@@ -831,12 +831,6 @@ function ConsiderPickCard({
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
         {pick.formSummary}
       </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {evidence.opportunity.length ? evidence.opportunity.join(" ") : pick.opportunitySummary}
-      </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {evidence.positionContext ?? pick.defenseSummary}
-      </Text>
 
       <View style={{ gap: 6 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>WHY THIS MATCHUP</Text>
