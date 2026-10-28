@@ -14,8 +14,15 @@ export function marketDefenseContext(
   market: string,
   name: string,
   d?: TeamDefense | null,
+  cutoffMs = Date.now(),
 ): string | null {
   if (!d || d.sport !== sport) return null;
+  if (sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market)) {
+    const a = d.shotAllowance;
+    if (a && a.sampleSize >= 3 && Number.isFinite(a.shotsAllowedPerGame) && a.shotsAllowedPerGame >= 0 && Number.isFinite(Date.parse(a.firstGame)) && Date.parse(a.firstGame) <= Date.parse(a.lastGame) && Date.parse(a.lastGame) < cutoffMs)
+      return `${name} allows ${a.shotsAllowedPerGame.toFixed(1)} shots on goal/game (n=${a.sampleSize}; ${a.firstGame.slice(0,10)}–${a.lastGame.slice(0,10)}; ${a.source}). Team-wide, not a player or position allowance; ice time and role still matter.`;
+    return null;
+  }
   if (["nfl", "ncaaf", "cfb"].includes(sport)) {
     if (
       /^player_rush_yds(?:_alternate)?$/.test(market) &&
@@ -195,6 +202,7 @@ export function explainMatchup(o: {
     o.market,
     o.opponentName,
     boundDefense,
+    cutoff,
   );
   if (defense && !positional) observations.push(defense);
   else if (!positional && !defense)

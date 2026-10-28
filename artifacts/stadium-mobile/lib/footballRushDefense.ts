@@ -66,6 +66,7 @@ export type FootballOppDefenseSlice = {
   goalsAgainstAvg?: number | null;
   savePct?: number | null;
   shotsAgainst?: number | null;
+  shotsAgainstSample?: number | null;
   blockedShots?: number | null;
   takeaways?: number | null;
   /** Soccer feed fields. */
@@ -668,6 +669,7 @@ export function shouldDropPropMissingOppDefense(opts: {
 }): boolean {
   const sport = String(opts.sport ?? "").toLowerCase();
   if (sport !== "nhl") return false;
+  if (/^player_shots_on_goal(?:_alternate)?$/.test(opts.market ?? "")) return !(opts.pack && Number.isFinite(opts.pack.shotsAgainst) && (opts.pack.shotsAgainstSample ?? 0) >= 3);
   if (!isNhlScoringMarket(opts.market)) return false;
   if (String(opts.side ?? "").toLowerCase() !== "over") return false;
   const line = opts.line;
@@ -792,8 +794,8 @@ export function multiSportOppDefenseTilt(opts: {
         tilt += isOver ? 0.2 : -0.12;
       }
     }
-    if (isShots && pack.shotsAgainst != null) {
-      bits.push(`${pack.shotsAgainst.toFixed(0)} SA`);
+    if (isShots && pack.shotsAgainst != null && (pack.shotsAgainstSample ?? 0) >= 3) {
+      bits.push(`${pack.shotsAgainst.toFixed(1)} shots allowed/game (n=${pack.shotsAgainstSample})`);
       // High shots against → more SOG opportunities for skaters.
       if (pack.shotsAgainst >= 32) tilt += isOver ? 0.25 : -0.15;
       else if (pack.shotsAgainst <= 26) tilt += isOver ? -0.22 : 0.15;

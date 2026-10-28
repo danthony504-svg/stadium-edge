@@ -1,3 +1,4 @@
+import {loadNhlShotAllowance} from "../lib/loadNhlShotAllowance.js";
 import { basketballDefenseAllowed } from "../lib/basketballDefenseAllowed.js";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
@@ -149,7 +150,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
   }
   const withPositions = req.query.positions === "1";
   try {
-    const key = `team-defense:${path}:${teamId}:v7:${withPositions ? "positions" : "team"}`;
+    const key = `team-defense:${path}:${teamId}:v8:${withPositions ? "positions" : "team"}`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
@@ -217,7 +218,9 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       }
 
       const positionAllowances = withPositions ? await basketballDefenseAllowed(sportId, teamId) : null;
+      const shotAllowance = sportId === "nhl" ? await loadNhlShotAllowance(teamId) : null;
       return {
+        shotAllowance,
         positionAllowances,
         sport: sportId,
         teamId,
