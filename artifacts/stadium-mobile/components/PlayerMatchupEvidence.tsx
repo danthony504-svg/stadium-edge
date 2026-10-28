@@ -13,16 +13,16 @@ export function PlayerMatchupEvidence(p: {
   game: string; startsAt?: string | null; market: string; line: number; side: "Over" | "Under";
 }) {
   const colors = useColors();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const history = useQuery({
     queryKey: ["player-history", p.sport, p.athleteId, null],
-    enabled: expanded && !!p.sport && !!p.athleteId,
+    enabled: !!p.sport && !!p.athleteId,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getPlayerHistory({ sport: p.sport, athleteId: p.athleteId! }, signal),
   });
   const context = useQuery({
     queryKey: ["player-matchup-evidence", p.sport, p.game, p.playerTeamId, "positions-v2"],
-    enabled: expanded && !!p.playerTeamId && !!p.sport,
+    enabled: !!p.playerTeamId && !!p.sport,
     staleTime: 10 * 60_000,
     queryFn: async ({ signal }) => {
       const names = p.game.split(/\s+(?:@|vs\.?|at)\s+/i);
@@ -43,8 +43,13 @@ export function PlayerMatchupEvidence(p: {
   });
   const style = { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 };
   return <View style={{ padding: 14, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 16 }}>
+    <Text style={{ color: colors.foreground, fontWeight: "600" }}>Why this matchup</Text>
+    {evidence.observations.filter(t => t.startsWith("Exact-market history:") || t.startsWith("Playing time:") || t.includes("allowed at least one opposing")).slice(0, 3).map((t, i) => <Text key={`key${i}`} style={style}>{t.startsWith("Exact-market history:") ? t.replace("Exact-market history:", "Recent form:").replace(/ \(last .*$/, ".") : t.startsWith("Playing time:") ? t.replace(/; logged MIN\)/, ")").replace(/ Future minutes.*$/, "") : t.replace(/ with complete verified.*$/, ". Each game counts once; not a player hit rate.")}</Text>)}
+    {(history.isFetching || context.isFetching) && <Text style={style}>Loading matchup highlights…</Text>}
+    {(history.isError || context.isError) && <Text style={style}>Some evidence could not load.</Text>}
+    <Text style={style}>Historical results; calibration unverified. {evidence.missing.length > 0 ? `${evidence.missing.length} evidence gaps — see details.` : ""}</Text>
     <Pressable style={{ minHeight: 44, justifyContent: "center" }} accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(v => !v)}>
-      <Text style={{ color: colors.primary, fontWeight: "600" }}>{expanded ? "Hide matchup evidence" : "Why this matchup · evidence & cautions"}</Text>
+      <Text style={{ color: colors.primary, fontWeight: "600" }}>{expanded ? "Read less" : "Read more · full evidence & cautions"}</Text>
     </Pressable>
     {expanded && <>
       {(history.isFetching || context.isFetching) && <Text style={style}>Loading verified matchup evidence…</Text>}

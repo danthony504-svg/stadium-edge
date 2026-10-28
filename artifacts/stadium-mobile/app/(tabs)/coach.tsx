@@ -140,6 +140,7 @@ export default function CoachScreen() {
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  const followLatestRef = useRef(true);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
@@ -1114,7 +1115,13 @@ export default function CoachScreen() {
           data={messages}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ paddingBottom: 16, gap: 10 }}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) => {
+            followLatestRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100;
+          }}
+          scrollEventThrottle={100}
+          onContentSizeChange={() => {
+            if (busy && followLatestRef.current) listRef.current?.scrollToEnd({ animated: true });
+          }}
           renderItem={({ item }) => {
             if (item.role === "user") {
               return (
