@@ -494,6 +494,19 @@ export function TeamPropsSheet({
             </View>
           </View>
 
+          {/* SECTION_ORDER:3 both teams defensive matchup stats — team-wide only */}
+          <Section title="DEFENSIVE MATCHUP · TEAM-WIDE">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
+              Team-level rates only. Position-specific allowances and league rankings are not in this feed and are
+              never implied.
+            </Text>
+            <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
+            <View style={{ height: 10 }} />
+            <DefenseBlock title={homeResolved?.name ?? homeTeam} rows={homeDefRows} loading={homeDefenseQ.isLoading} />
+          </Section>
+
+          {/* SECTION_ORDER:4 top players by role — filters already above; empty/loading stay visible */}
+          <Section title="TOP PLAYERS BY ROLE">
           {/* SECTION_ORDER:2 market/role filter chips — always near top */}
           <View style={{ gap: 8 }} testID="matchup-market-filters">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 }}>
@@ -532,19 +545,6 @@ export function TeamPropsSheet({
             </ScrollView>
           </View>
 
-          {/* SECTION_ORDER:3 both teams defensive matchup stats — team-wide only */}
-          <Section title="DEFENSIVE MATCHUP · TEAM-WIDE">
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginBottom: 6 }}>
-              Team-level rates only. Position-specific allowances and league rankings are not in this feed and are
-              never implied.
-            </Text>
-            <DefenseBlock title={awayResolved?.name ?? awayTeam} rows={awayDefRows} loading={awayDefenseQ.isLoading} />
-            <View style={{ height: 10 }} />
-            <DefenseBlock title={homeResolved?.name ?? homeTeam} rows={homeDefRows} loading={homeDefenseQ.isLoading} />
-          </Section>
-
-          {/* SECTION_ORDER:4 top players by role — filters already above; empty/loading stay visible */}
-          <Section title="TOP PLAYERS BY ROLE">
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
               Top {MATCHUP_TOP_PER_ROLE} qualifying players per role from either side. Each card uses the opposing
               team’s defense (team-wide only). Requires {MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim
