@@ -161,11 +161,13 @@ export function matchupRolesForSport(sport: string): readonly MatchupRole[] {
   }
   if (s === "nba" || s === "wnba" || s === "ncaab" || s === "cbb") {
     return [
-      { key: "pts", label: "Points", markets: ["player_points", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists"] },
+      { key: "pts", label: "Points", markets: ["player_points"] },
+      { key: "combos", label: "Combos", markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists"] },
       { key: "reb", label: "Rebounds", markets: ["player_rebounds"] },
       { key: "ast", label: "Assists", markets: ["player_assists"] },
       { key: "threes", label: "Threes", markets: ["player_threes"] },
-      { key: "stocks", label: "Stocks", markets: ["player_blocks", "player_steals"] },
+      { key: "blocks", label: "Blocks", markets: ["player_blocks"] },
+      { key: "steals", label: "Steals", markets: ["player_steals"] },
     ] as const;
   }
   if (s === "mlb") {

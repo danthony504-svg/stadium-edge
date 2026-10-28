@@ -548,9 +548,10 @@ test("selected markets are evaluated before the cap; All balances market groups"
     prop({player:"Rebound",market:"player_rebounds",playerTeamId:"H"}),
     prop({player:"Three",market:"player_threes",playerTeamId:"H"}),
     prop({player:"Block",market:"player_blocks",playerTeamId:"H"}),
+    prop({player:"Steal",market:"player_steals",playerTeamId:"H"}),
   ];
   const opts = {props,sport:"nba",homeTeam:"Home",awayTeam:"Away",ids:{homeTeamId:"H",awayTeamId:"A"},eventId:"ev1"};
-  for (const [filterKey,market] of [["reb","player_rebounds"],["threes","player_threes"],["stocks","player_blocks"]]) {
+  for (const [filterKey,market] of [["reb","player_rebounds"],["threes","player_threes"],["blocks","player_blocks"],["steals","player_steals"]]) {
     const result=buildConsiderCandidates({...opts,filterKey});
     assert.equal(result.candidates.length,2);
     assert.equal(result.candidates[0]!.prop.market,market);
