@@ -546,7 +546,7 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   // Team matchup list must not depend on getProps / player-prop emptiness.
   assert.ok(propsSrc.includes("Upcoming matchups from the odds feed"));
   assert.ok(!sheetSrc.includes("buildRealOdds"));
-  assert.ok(sheetSrc.includes("extractTeamPostedProps"));
+  assert.ok(sheetSrc.includes("findOddsGameForMatchup"));
   assert.ok(sheetSrc.includes("sampleCaption") || sheetSrc.includes("n="));
   // Matchup Props layout: role filters, top-per-role ranking, opposing defense notes.
   assert.ok(sheetSrc.includes("matchupFilterChips"));
@@ -561,15 +561,14 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   assert.equal(propsSrc.includes("buildParlay"), false);
 });
 
-test("Matchup Props sheet section order: header → filters → defense → players → collapsed totals → form", () => {
+test("Matchup Props sheet section order: header → filters → defense → players → form", () => {
   const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
   const markers = [
     "SECTION_ORDER:1 compact matchup header",
     "SECTION_ORDER:2 market/role filter chips",
     "SECTION_ORDER:3 both teams defensive matchup stats",
     "SECTION_ORDER:4 top players by role",
-    "SECTION_ORDER:5 Team Totals",
-    "SECTION_ORDER:6 detailed form + recent-game history",
+    "SECTION_ORDER:5 detailed form + recent-game history",
   ];
   let prev = -1;
   for (const m of markers) {
@@ -580,31 +579,17 @@ test("Matchup Props sheet section order: header → filters → defense → play
   }
   // Players must appear before team totals and before detailed form.
   assert.ok(sheetSrc.indexOf("SECTION_ORDER:4") < sheetSrc.indexOf("SECTION_ORDER:5"));
-  assert.ok(sheetSrc.indexOf("SECTION_ORDER:4") < sheetSrc.indexOf("SECTION_ORDER:6"));
   assert.ok(sheetSrc.indexOf("SECTION_ORDER:2") < sheetSrc.indexOf("SECTION_ORDER:4"));
 });
 
-test("Team Totals start collapsed; expand reveals both teams; empty player reason stays visible", () => {
+test("Matchup Props omits Team Totals and preserves player loading and empty states", () => {
   const sheetSrc = readFileSync(join(root, "components/TeamPropsSheet.tsx"), "utf8");
-  assert.ok(sheetSrc.includes("useState(false)"), "teamTotalsExpanded must default collapsed");
-  assert.ok(sheetSrc.includes('testID="team-totals-toggle"'));
-  assert.ok(sheetSrc.includes('testID="team-totals-collapsed"'));
-  assert.ok(sheetSrc.includes('testID="team-totals-expanded"'));
-  assert.ok(sheetSrc.includes("setTeamTotalsExpanded"));
-  assert.ok(sheetSrc.includes("markets.awayRows") && sheetSrc.includes("markets.homeRows"));
-  // Filters + player empty/loading stay near top (before team totals).
-  assert.ok(sheetSrc.includes('testID="matchup-market-filters"'));
-  assert.ok(sheetSrc.includes('testID="matchup-players-loading"'));
-  assert.ok(sheetSrc.includes('testID="matchup-players-empty"'));
-  assert.ok(sheetSrc.includes('testID="matchup-players-filter-empty"'));
-  const filtersIdx = sheetSrc.indexOf('testID="matchup-market-filters"');
-  const emptyIdx = sheetSrc.indexOf('testID="matchup-players-empty"');
-  const totalsIdx = sheetSrc.indexOf('testID="team-totals-toggle"');
-  assert.ok(filtersIdx >= 0 && emptyIdx >= 0 && totalsIdx >= 0);
-  assert.ok(filtersIdx < totalsIdx, "filters must stay above team totals");
-  assert.ok(emptyIdx < totalsIdx, "player empty state must stay above team totals");
-  // Empty path must surface considerEmpty reason (not hide the section).
+  for (const removed of ['title="TEAM TOTALS"', "team-totals-toggle", "PostedTeamPropList", "extractTeamPostedProps", "setTeamTotalsExpanded"]) {
+    assert.ok(!sheetSrc.includes(removed), removed);
+  }
+  for (const state of ["matchup-market-filters", "matchup-players-loading", "matchup-players-empty", "matchup-players-filter-empty"]) {
+    assert.ok(sheetSrc.includes(`testID="${state}"`));
+  }
   assert.ok(sheetSrc.includes("considerEmpty ||"));
   assert.ok(sheetSrc.includes("TOP PLAYERS BY ROLE"));
-  assert.ok(!/considerPicks\.length === 0 \? null/.test(sheetSrc));
 });
