@@ -160,7 +160,7 @@ test("logged opportunity fills gaps across sports without inventing usage or amb
   const h=history(sport,stat);
   h.recent=h.recent.map(g=>({...g,stats:{[stat]:"8",[field]:"8"}}));
   const e=explainMatchup({...base,sport,market,history:h});
-  assert.ok(e.opportunity.some(t=>t.includes(`${label}: 8.0/game (n=5`)),sport);
+  assert.ok(e.opportunity.some(t=>t.includes(`${label}: 8.0/game (based on 5 games`)),sport);
   assert.ok(!e.missing.some(t=>t.startsWith("Logged opportunity sample unavailable")),sport);
  }
  const h=history("nfl","rushingYards");
@@ -180,4 +180,13 @@ test("positional opponent observations require exact defending team, verified po
  const opts={...base,position:"C",opponentDefense:{...def,positionAllowances:pack}};
  assert.ok(explainMatchup(opts).observations.some(t=>t.includes("opposing C players produced 24.0")));
  for(const patch of [{position:null},{position:"F/C"},{market:"player_assists"},{opponentId:"wrong"},{startsAt:"2026-10-25T00:00Z"}])assert.ok(!explainMatchup({...opts,...patch}).observations.some(t=>t.includes("opposing C players")));
+});
+
+test("opponent threshold evidence counts games, never players, and requires matching sport/team",()=>{
+ const games=[1,2,3].map(i=>({eventId:String(i),date:`2026-10-0${i}`,values:i===1?[5,6]:[1,2]}));
+ const defense={...def,positionAllowances:{source:"verified boxes",receivedAt:"2026-10-04",rows:[],thresholds:[{position:"G",market:"player_threes",games}]}};
+ const opts={...base,market:"player_threes",line:4.5,position:"PG",opponentDefense:defense};
+ const evidence=explainMatchup(opts);
+ assert.ok(evidence.observations.some(s=>s.includes("guard to exceed 4.5")&&s.includes("1/3 completed games")));
+ for(const d of [{...defense,sport:"wnba"},{...defense,teamId:"wrong"}])assert.ok(!explainMatchup({...opts,opponentDefense:d}).observations.some(s=>s.includes("guard to exceed")));
 });

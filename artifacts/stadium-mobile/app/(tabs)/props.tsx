@@ -1,3 +1,4 @@
+import { propsBrowseDeadline, PROPS_EVENT_BUDGET_MS, PROPS_OPTIONAL_IDS_BUDGET_MS } from "@/lib/propsBrowseDeadline";
 import Feather from "@expo/vector-icons/Feather";
 import { postedMarketKeys } from "@/lib/postedMarketCategories";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -169,7 +170,7 @@ async function fetchAllProps(
 ): Promise<GamePropsPage> {
   const [odds, games] = await Promise.all([
     getOdds(sport, signal),
-    getGames(sport, signal).catch(() => [] as EspnGame[]),
+    propsBrowseDeadline(child => getGames(sport, child), signal, PROPS_OPTIONAL_IDS_BUDGET_MS).catch(() => [] as EspnGame[]),
   ]);
   const idMap = buildIdMap(games);
   // Soccer (World Cup) is a tournament: books post real player props days before
@@ -193,7 +194,7 @@ async function fetchAllProps(
     pickable.map(async (g): Promise<GameProps> => {
       const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
       try {
-        const r = await getProps(
+        const r = await propsBrowseDeadline(child => getProps(
           {
             sport,
             eventId: g.id,
@@ -203,8 +204,8 @@ async function fetchAllProps(
             awayTeamId: ids?.awayTeamId,
             startsAt: g.commenceTime,
           },
-          signal,
-        );
+          child,
+        ), signal, PROPS_EVENT_BUDGET_MS);
         // Keep every priced line. Mains drive the list rows (one per player +
         // market); the full set (incl. alternate rungs) feeds the per-row alt
         // expander and the props sheet.
@@ -217,6 +218,7 @@ async function fetchAllProps(
       }
     }),
   );
+  if (signal?.aborted) { const error = new Error("Player props loading cancelled"); error.name = "AbortError"; throw error; }
   // Honest failure surfacing: if there were pickable games but EVERY props
   // request failed, this is a data-unavailable error, not an empty slate —
   // throw so the UI shows the retryable ErrorState instead of "no props".
@@ -559,11 +561,12 @@ function PropsScreen() {
       return {
         queryKey: ["props-all", s.id, limit],
         queryFn: async ({ signal }: { signal?: AbortSignal }) => {
-          const page = await fetchAllProps(s.id, limit, signal);
+          const page = await propsBrowseDeadline(child => fetchAllProps(s.id, limit, child), signal);
           // Persist the freshest snapshot so the next open is instant-from-cache.
           void savePropsSnapshot(s.id, page);
           return page;
         },
+        retry: false, // A page already owns its deadline; never stack automatic retry waits.
         staleTime: 2 * 60_000,
         // Keep data around long after the tab loses focus so returning to it is
         // instant (default gcTime would drop it after 5 min).
@@ -572,7 +575,7 @@ function PropsScreen() {
         // spinner), and on a cold start fall back to the persisted snapshot so the
         // last-known props paint immediately while fresh data arrives.
         placeholderData: (prev: GamePropsPage | undefined) => prev ?? snapshots[s.id],
-        enabled: s.id === sport || fetchAllSports,
+        enabled: propsMode === "player" && (s.id === sport || fetchAllSports),
       };
     }),
   });
@@ -745,7 +748,7 @@ function PropsScreen() {
     .join(",");
   const gradesQ = useQuery({
     queryKey: ["prop-grades", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) =>
       gradePropCands(
@@ -781,7 +784,7 @@ function PropsScreen() {
 
   const simRankQ = useQuery({
     queryKey: ["props-sim-rank", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
       const picks = gradeCandidates.map((c) => c.pick);
@@ -796,7 +799,7 @@ function PropsScreen() {
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
     queryKey: ["props-upsets", sport],
-    enabled: !isBrowseSport,
+    enabled: propsMode === "player" && !searching && !isBrowseSport,
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 5 * 60_000,
   });

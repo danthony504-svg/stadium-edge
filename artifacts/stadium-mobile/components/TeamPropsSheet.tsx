@@ -68,7 +68,7 @@ const fmt1 = (v: number | null | undefined) =>
 const rec = (f: TeamForm | null | undefined) =>
   f && f.games ? `${f.wins}-${f.losses}` : "—";
 const sampleCaption = (n: number | null | undefined, unit = "games") =>
-  n != null && n > 0 ? `n=${n} ${unit}` : "sample unavailable";
+  n != null && n > 0 ? `based on ${n} ${unit}` : "sample unavailable";
 
 async function resolveTeam(
   sport: string,
@@ -185,13 +185,13 @@ export function TeamPropsSheet({
   const eventId = data?.eventId || matchupGame?.id || null;
 
   const homeDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, homeResolved?.teamId, "positions-v1"],
+    queryKey: ["team-defense", sport, homeResolved?.teamId, "positions-v2"],
     enabled: !!sport && !!homeResolved?.teamId,
     staleTime: 30 * 60_000,
     queryFn: ({ signal }) => getTeamDefense(sport, homeResolved!.teamId, signal, true),
   });
   const awayDefenseQ = useQuery({
-    queryKey: ["team-defense", sport, awayResolved?.teamId, "positions-v1"],
+    queryKey: ["team-defense", sport, awayResolved?.teamId, "positions-v2"],
     enabled: !!sport && !!awayResolved?.teamId,
     staleTime: 30 * 60_000,
     queryFn: ({ signal }) => getTeamDefense(sport, awayResolved!.teamId, signal, true),
@@ -694,7 +694,7 @@ export function TeamPropsSheet({
                 </View>
               </Section>
 
-              <Section title={`RECENT GAMES · MARGIN · n=${n}`}>
+              <Section title={`RECENT GAMES · MARGIN · based on ${n} games`}>
                 <View style={{ gap: 8 }}>
                   {games.map((g, i) => {
                     const won = g.margin > 0;
@@ -966,7 +966,7 @@ function DefenseBlock({
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>{r.label}</Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10 }}>
               {r.source} · {r.timeframe}
-              {r.sampleSize != null ? ` · n=${r.sampleSize}` : ""} · scope: team
+              {r.sampleSize != null ? ` · based on ${r.sampleSize} games` : ""} · scope: team
             </Text>
           </View>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>{r.value}</Text>

@@ -151,7 +151,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
   }
   const withPositions = req.query.positions === "1";
   try {
-    const key = `team-defense:${path}:${teamId}:v8:${withPositions ? "positions" : "team"}`;
+    const key = `team-defense:${path}:${teamId}:v9:${withPositions ? "positions" : "team"}`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),

@@ -5,7 +5,7 @@ const ready=new Map<string,{expires:number;rows:MarketAllowanceRow[]}>(),pending
 export async function opponentMarketAllowance(sport:string,teamId:string,wait=false):Promise<MarketAllowanceRow[]>{
  if(!opponentMarketRules(sport).length)return [];
  const key=sport+':'+teamId,old=ready.get(key);if(old&&old.expires>Date.now())return old.rows;
- let work=pending.get(key);if(!work&&pending.size>=8)return [];if(!work){work=cachedJson(`opponent-markets:${key}:v2`,60*60*1000,async()=>{
+ let work=pending.get(key);if(!work&&pending.size>=8)return [];if(!work){work=cachedJson(`opponent-markets:${key}:v3`,60*60*1000,async()=>{
   const path=ESPN_SPORT_PATHS[sport],read=async(url:string)=>{const r=await fetch(url,{signal:AbortSignal.timeout(4000)});if(!r.ok)throw Error('opponent source unavailable');return r.json();};
   let schedule=await read(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${encodeURIComponent(teamId)}/schedule`) as {season?:{year?:number;type?:number};events?:Array<{id?:string;date?:string;competitions?:Array<{status?:{type?:{completed?:boolean}}}>}>};
   if ((schedule.events??[]).filter(e=>e.competitions?.[0]?.status?.type?.completed).length < 3 && Number.isSafeInteger(schedule.season?.year) && schedule.season?.type !== 2) {

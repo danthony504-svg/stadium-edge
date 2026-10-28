@@ -1,7 +1,7 @@
 /** Exact-stat opponent evidence is required for team-sport prop recommendations.
  * Unknown inputs withhold; no probability or synthetic league baseline is invented.
  */
-export type OpponentMarketEvidence={market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:'team_allowed'|'team_offensive_exposure';source:string};
+export type OpponentMarketEvidence={games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:'team_allowed'|'team_offensive_exposure';source:string};
 export function hasOpponentMarketEvidence(sport:string,market:string,rows:readonly OpponentMarketEvidence[]|null|undefined,cutoff=Date.now()):boolean{
  if(!['nba','wnba','ncaab','nfl','ncaaf','nhl','mlb','soccer'].includes(sport))return false;
  const key=market.replace(/_alternate$/,'');

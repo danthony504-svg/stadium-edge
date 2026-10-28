@@ -665,6 +665,7 @@ async function buildCoachParlayImpl(opts: {
             ].includes(s),
           )
             ? loadFootballOppRushDefense({
+                priorityGames: inputs.propPool,
                 espnGames: inputs.espnGames,
                 signal: signal,
               }).catch(() => ({}))
@@ -1159,7 +1160,9 @@ async function buildCoachParlayImpl(opts: {
           })
         : "";
     const body =
-      failDiagTerminalBody ||
+      picks.length < built.picks.length
+        ? `Returned ${picks.length} of ${target} requested player props after final player, event and exposure checks. Some qualified candidates could not be seated together; no filler was added.`
+        : failDiagTerminalBody ||
       recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({

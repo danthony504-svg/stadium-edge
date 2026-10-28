@@ -629,7 +629,7 @@ export function qualifyConsiderSim(
   if (!Number.isSafeInteger(sim.sampleGames) || (sim.sampleGames ?? 0) < MATCHUP_CONSIDER_MIN_SAMPLE_GAMES) {
     return {
       status: "rejected",
-      reason: `Insufficient game-log sample (n=${sim.sampleGames ?? 0}; need ${MATCHUP_CONSIDER_MIN_SAMPLE_GAMES}).`,
+      reason: `Insufficient game-log sample (based on ${sim.sampleGames ?? 0} games; need ${MATCHUP_CONSIDER_MIN_SAMPLE_GAMES}).`,
     };
   }
   return { status: "qualified", reason: null };
@@ -729,7 +729,7 @@ export function buildConsiderPick(opts: {
 
   const parts: string[] = [formSummary, opportunitySummary];
   parts.push(
-    `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim hit ${hitPct}% · simulation history n=${opts.sim.sampleGames}.`,
+    `${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-sim hit ${hitPct}% · simulation history based on ${opts.sim.sampleGames} games.`,
   );
   if (opts.sim.meanProjection != null) {
     parts.push(`Mean projection ${opts.sim.meanProjection.toFixed(1)}.`);

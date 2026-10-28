@@ -103,7 +103,7 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
         const prov = p.propProbabilityProvenance ?? score?.propProbabilityProvenance;
         const issues = stage === "selected" ? deliveryIssues(p) : [];
         let outcome = reason;
-        if (stage === "posted" || stage === "eligible") outcome = "not_simulated_in_this_request";
+        if (stage === "posted" || (stage === "eligible" && reason === "eligible")) outcome = "not_simulated_in_this_request";
         if (stage === "grading" && reason === "graded") {
           const q = qualifyCoachCandidate({ ...p, qualificationStatus: undefined }, { requestStyle: "normal" });
           outcome = q.status === "qualified" ? "qualified_not_selected" : `quality_${q.reason}`;

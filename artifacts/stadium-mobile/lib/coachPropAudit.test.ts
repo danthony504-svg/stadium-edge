@@ -113,3 +113,8 @@ test("generic unscanned reason cannot replace an authenticated simulation failur
  c.audit.finish([],"completed",r=>{report=r});c.flush();
  assert.equal(report?.rows[0]?.nullReason,"insufficient_game_log");
 });
+
+test("missing opponent evidence retains its reason instead of becoming generic not simulated",()=>{
+ const c=collector();const p=pick();c.audit.observe(p,"posted","posted");c.audit.observe(p,"eligible","missing_opponent_defense");let report:PropAuditReport|undefined;
+ c.audit.finish([],"completed",r=>report=r);c.flush();assert.equal(report?.counts.missing_opponent_defense,1);assert.equal(report?.counts.not_simulated_in_this_request,undefined);
+});

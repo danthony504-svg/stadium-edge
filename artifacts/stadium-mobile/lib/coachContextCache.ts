@@ -128,6 +128,12 @@ export function peekCoachContextCache<T>(path: string): T | undefined {
 }
 
 export function rememberCoachContextCache(path: string, value: unknown, ttlMs: number): void {
+  // Cold collectors may return no exact-market evidence while warming. Keep
+  // backpressure for the current wave, but do not pin that absence for an hour.
+  if (classifyCoachContextPath(path) === "teamDefense") {
+    const rows = (value as { opponentMarkets?: Array<{ sampleSize?: number }> } | null)?.opponentMarkets;
+    if (!rows?.some(row => Number.isSafeInteger(row.sampleSize) && (row.sampleSize ?? 0) >= 3)) ttlMs = Math.min(ttlMs, 5_000);
+  }
   store.set(coachContextCacheKey(path), {
     value,
     expiresAt: Date.now() + Math.max(0, ttlMs),

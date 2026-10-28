@@ -1465,9 +1465,9 @@ export function getFantasyNflPlayerHistory(
 // `avgPointsAgainst` is the only true "opponent allows" rate ESPN exposes per
 // team without box-score aggregation — it is TEAM-WIDE, not position-specific.
 export type TeamDefense = {
-  opponentMarkets?: Array<{market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
+  opponentMarkets?: Array<{games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
   shotAllowance?: {shotsAllowedPerGame:number;sampleSize:number;firstGame:string;lastGame:string;source:string} | null;
-  positionAllowances?: { source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
+  positionAllowances?: { thresholds?:Array<{position:string;market:string;games:Array<{eventId:string;date:string;values:number[]}>}>; source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
   sport: string;
   teamId: string;
   teamName: string | null;
@@ -2572,6 +2572,7 @@ async function fetchGameOutcomeSimulationUnlim(
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
   const path = "/sports/simulate/game-outcome";
+  if (propRequestCooldown.isBlocked(path)) return null;
   const body: Record<string, unknown> = {
     sport: opts.sport,
     homeTeam: opts.homeTeam,
@@ -2595,6 +2596,7 @@ async function fetchGameOutcomeSimulationUnlim(
     REQUEST_TIMEOUT_MS * 2,
     path,
   );
+  if (res.status === 429) propRequestCooldown.block(path, res.headers.get("retry-after"));
   if (!res.ok) return null;
   return (await res.json()) as GameSimulationResult;
 }
@@ -2704,6 +2706,7 @@ async function fetchPropSimulationsBatchUnlim(
   historyCoalesced?: number;
 }> {
   const path = "/sports/simulate/props";
+  propRequestCooldown.assertAllowed(path);
   const tier = opts?.tier ?? "quick";
   const homeId = String(opts?.homeTeamId ?? "").trim();
   const awayId = String(opts?.awayTeamId ?? "").trim();
@@ -2740,6 +2743,10 @@ async function fetchPropSimulationsBatchUnlim(
     tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
+  if (res.status === 429) {
+    propRequestCooldown.block(path, res.headers.get("retry-after"));
+    throw new Error("HTTP 429 simulation route cooldown");
+  }
   if (!res.ok) return { props: [], playerHistories: {} };
   const json = (await res.json()) as {
     props?: PropSimulationResult[];

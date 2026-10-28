@@ -47,11 +47,12 @@ function sportPriority(sport: string): number {
 
 /**
  * Load opponent defense for unique home/away team ids on the Coach board.
- * Caps at MAX_TEAMS (football first). Failures omit entries.
+ * Caps at MAX_TEAMS, prioritizing posted-prop games across leagues. Failures omit entries.
  */
 export async function loadFootballOppRushDefense(opts: {
   espnGames: EspnGame[];
   signal?: AbortSignal;
+  priorityGames?: readonly { sport?: string | null; game: string }[];
 }): Promise<FootballOppDefenseMap> {
   const out: FootballOppDefenseMap = {};
   const wanted: Array<{ sport: string; teamId: string; teamName: string | null; pri: number }> =
@@ -86,8 +87,27 @@ export async function loadFootballOppRushDefense(opts: {
       });
     }
   }
-  candidates.sort((a, b) => a.pri - b.pri);
-  for (const c of candidates) {
+  // Prioritize actual posted-prop games, then interleave leagues so a full
+  // NFL slate cannot consume every opponent-evidence slot.
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9@]+/g, " ").trim();
+  const priority = new Set((opts.priorityGames ?? []).map(g => `${g.sport}:${norm(g.game)}`));
+  const priorityTeams = new Set<string>();
+  for (const g of opts.espnGames) {
+    if (!priority.has(`${g.sport}:${norm(`${g.awayTeam} @ ${g.homeTeam}`)}`)) continue;
+    for (const id of [g.homeTeamId, g.awayTeamId]) if (id) priorityTeams.add(teamKey(g.sport, String(id)));
+  }
+  const ordered: typeof candidates = [];
+  for (const preferred of [true, false]) {
+    const leagues = new Map<string, typeof candidates>();
+    for (const c of candidates) {
+      if (priorityTeams.has(teamKey(c.sport,c.teamId)) !== preferred) continue;
+      const rows=leagues.get(c.sport) ?? []; rows.push(c); leagues.set(c.sport,rows);
+    }
+    while ([...leagues.values()].some(rows=>rows.length)) {
+      for (const rows of leagues.values()) { const c=rows.shift(); if(c) ordered.push(c); }
+    }
+  }
+  for (const c of ordered) {
     wanted.push(c);
     if (wanted.length >= MAX_TEAMS) break;
   }

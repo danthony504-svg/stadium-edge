@@ -483,7 +483,7 @@ export function footballRushDefenseTilt(opts: {
         if (ypc <= 3.7) tilt += isOver ? -0.15 : 0.1;
         else if (ypc >= 4.8) tilt += isOver ? 0.1 : -0.08;
       }
-      bits.push(`n=${rush.sampleSize}`);
+      bits.push(`based on ${rush.sampleSize} games`);
     }
     // Run-blocking proxy: own offensive YPC (not yards-before-contact — unavailable).
     if (own?.ownRushYpc != null) {
@@ -554,7 +554,7 @@ export function footballRushDefenseTilt(opts: {
         if (ypa <= 5.8) tilt += isOver ? -0.12 : 0.08;
         else if (ypa >= 7.4) tilt += isOver ? 0.1 : -0.08;
       }
-      bits.push(`n=${pass.sampleSize}`);
+      bits.push(`based on ${pass.sampleSize} games`);
     }
 
     // Pressure effects — market-aware (not blanket Under):
@@ -814,7 +814,7 @@ export function multiSportOppDefenseTilt(opts: {
       }
     }
     if (isShots && pack.shotsAgainst != null && (pack.shotsAgainstSample ?? 0) >= 3) {
-      bits.push(`${pack.shotsAgainst.toFixed(1)} shots allowed/game (n=${pack.shotsAgainstSample})`);
+      bits.push(`${pack.shotsAgainst.toFixed(1)} shots allowed/game (based on ${pack.shotsAgainstSample} games)`);
       // High shots against → more SOG opportunities for skaters.
       if (pack.shotsAgainst >= 32) tilt += isOver ? 0.25 : -0.15;
       else if (pack.shotsAgainst <= 26) tilt += isOver ? -0.22 : 0.15;
