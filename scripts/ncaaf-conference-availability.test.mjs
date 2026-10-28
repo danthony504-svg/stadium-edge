@@ -8,6 +8,7 @@ import {
   bindConferenceReports,
   decodeCapture,
   shouldRetryConferenceCapture,
+  conferenceFailureDiagnostic,
 } from "./ncaaf-conference-availability.mjs";
 const now = "2026-10-24T03:00:00Z";
 const receipt = (body) => ({
@@ -194,9 +195,10 @@ test("future publication, future receipts, changed raw bytes, started games and 
   const { p, h, archive, live } = fixture();
   const future = structuredClone(p);
   future["3300"].postedTime = "23:00:00";
-  assert.throws(() =>
-    buildConferenceArchive("B10", receipt(future), receipt(h)),
-  );
+  const deferred = buildConferenceArchive("B10", receipt(future), receipt(h));
+  assert.equal(deferred.reportCount, 0);
+  assert.equal(deferred.deferredFutureReports, 1);
+  assert.deepEqual(bindConferenceReports(deferred, live, now), []);
   assert.throws(() =>
     bindConferenceReports(archive, live, "2026-10-24T02:00:00Z"),
   );
@@ -270,4 +272,23 @@ test("empty or failed conference captures stay retryable; verified captures do n
     true,
     "stale running attempt after collector kill is reclaimable",
   );
+});
+
+test("future reports do not poison already published reports or become eligible as archived time passes", () => {
+ const {p,h,live}=fixture();
+ p['3301']={...structuredClone(p['3300']),postedTime:'23:00:00'};
+ const a=buildConferenceArchive('B10',receipt(p),receipt(h));
+ assert.equal(a.reportCount,1);assert.equal(a.deferredFutureReports,1);
+ assert.equal(bindConferenceReports(a,live,now).length,1);
+ assert.equal(bindConferenceReports(a,live,'2026-10-24T05:00:00Z').length,1);
+ assert.equal(shouldRetryConferenceCapture({state:'processed',verifiedEvents:0,finishedAt:now},Date.parse(now)+30*60000),true);
+});
+test("empty official publication list is an authenticated empty capture, not made-up availability",()=>{
+ const {h,live}=fixture();const a=buildConferenceArchive('B10',receipt({}),receipt(h));
+ assert.equal(a.reportCount,0);assert.equal(a.statusRows,0);assert.deepEqual(bindConferenceReports(a,live,now),[]);
+});
+test("failure diagnostics never persist arbitrary errors or provider data",()=>{
+ assert.deepEqual(conferenceFailureDiagnostic(Error('conference_invalid_publication'),'archive_validation'),{failureCode:'conference_invalid_publication',failurePhase:'archive_validation'});
+ assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failureCode,'conference_internal_failure');
+ assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failurePhase,'unknown');
 });
