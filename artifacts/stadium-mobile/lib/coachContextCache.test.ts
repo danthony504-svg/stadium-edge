@@ -141,3 +141,15 @@ test("game-sim cache reuses identical fingerprint", async () => {
   assert.equal(stats!.cacheHit, 1);
   assert.equal(stats!.cacheMiss, 1);
 });
+
+test("warming empty defense evidence expires quickly but completed evidence keeps its normal TTL",async()=>{
+ clearCoachContextCache();const realNow=Date.now;let now=1000;Date.now=()=>now;
+ const path="/sports/team-defense?sport=wnba&teamId=warm-fixture";let calls=0;
+ const fetcher=async()=>{calls++;return {opponentMarkets:calls===1?[]:[{market:"player_points",sampleSize:5}]};};
+ try {
+  await withCoachContextCache(path,"teamDefense",fetcher);
+  now+=4000;await withCoachContextCache(path,"teamDefense",fetcher);assert.equal(calls,1);
+  now+=1001;const warmed=await withCoachContextCache(path,"teamDefense",fetcher);assert.equal(calls,2);assert.equal(warmed.opponentMarkets.length,1);
+  now+=6000;await withCoachContextCache(path,"teamDefense",fetcher);assert.equal(calls,2);
+ }finally{Date.now=realNow;clearCoachContextCache();}
+});

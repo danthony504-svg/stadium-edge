@@ -1,3 +1,4 @@
+import { propRequestCooldown } from "./propRequestCooldown.ts";
 import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
@@ -483,6 +484,7 @@ export async function simPropBatch(
     }
     sharedHistories = simResult.playerHistories ?? {};
   } catch {
+    if (propRequestCooldown.isBlocked("/sports/simulate/props")) return { hits: out, timedOut: false, playerHistory: {} };
     timedOut = true;
   }
   // Bound local history enrich — unbounded ESPN lookups were the hang that left
@@ -914,7 +916,7 @@ export async function simPropPoolUntilQualified(
   const enrichTimeoutMs = footballSkill ? 22_000 : 12_000;
 
   while (simIndex < rankedProps.length) {
-    if (signal?.aborted) {
+    if (signal?.aborted || propRequestCooldown.isBlocked("/sports/simulate/props")) {
       stoppedEarly = true;
       break;
     }
@@ -982,7 +984,7 @@ export async function simPropPoolUntilQualified(
     if (key && propHits.has(key)) continue;
     const distribution = propDistributionIdentity(pick);
     const reason = !selectedDistributions.has(distribution) ? "scan_distribution_budget" :
-      !attemptedDistributions.has(distribution) ? (signal?.aborted ? "scan_cancelled" : stoppedEarly ? "scan_deadline" : "scan_ticket_target_reached") :
+      !attemptedDistributions.has(distribution) ? (propRequestCooldown.isBlocked("/sports/simulate/props") ? "simulation_rate_limited" : signal?.aborted ? "scan_cancelled" : stoppedEarly ? "scan_deadline" : "scan_ticket_target_reached") :
       "shared_draw_exact_line_response_missing";
     opts.propAudit?.observe(pick, "not_evaluated", reason);
   }

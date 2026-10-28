@@ -322,6 +322,10 @@ export function propsOnlyTerminalEmptyNote(
     (opts?.sportLabel ?? PROPS_ONLY_NEUTRAL_SPORT_LABEL).trim() ||
     PROPS_ONLY_NEUTRAL_SPORT_LABEL;
 
+  if (diag.graded === 0 && (diag.nullReasons?.missing_opponent_defense ?? 0) > 0) {
+    return propsOnlyFailNote("Player props were posted, but required opponent evidence was unavailable. Those props were not simulated; this was not an odds or confidence rejection.", diag);
+  }
+
   if (isPropsOnlyConfidenceTerminal(diag)) {
     return propsOnlyFailNote(
       `I found ${diag.oddsCleared} ${sport} player props within the allowed odds range, but none met the ${floor}% confidence floor. I kept the quality bar intact and did not use another sport to fill the ticket.`,

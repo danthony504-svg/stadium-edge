@@ -1,3 +1,4 @@
+import { pendingPropPreview } from "../coachPendingPropPreview.ts";
 import { CoachWorkTimeout, runCoachBounded } from "../coachAbortable.ts";
 import { satisfiesExplicitGamePropMix } from "../slate.ts";
 import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
@@ -664,6 +665,7 @@ async function buildCoachParlayImpl(opts: {
             ].includes(s),
           )
             ? loadFootballOppRushDefense({
+                priorityGames: inputs.propPool,
                 espnGames: inputs.espnGames,
                 signal: signal,
               }).catch(() => ({}))
@@ -1158,7 +1160,9 @@ async function buildCoachParlayImpl(opts: {
           })
         : "";
     const body =
-      failDiagTerminalBody ||
+      picks.length < built.picks.length
+        ? `Returned ${picks.length} of ${target} requested player props after final player, event and exposure checks. Some qualified candidates could not be seated together; no filler was added.`
+        : failDiagTerminalBody ||
       recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({
@@ -1306,11 +1310,11 @@ async function buildCoachParlayImpl(opts: {
       if (deliveryTerminalized) return;
       latest = partial;
       // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
-      const scopedPartialPicks = filterPicksForCoachAskTeams(
+      const scopedPartialPicks = pendingPropPreview(filterPicksForCoachAskTeams(
         partial.picks ?? [],
         inputs.teamScope,
         inputs.excludedTeams,
-      );
+      ), target, !!partial.awaitingPropSlots, !propsOnly && !gameLinesOnly);
       const propLike = countPropLike(scopedPartialPicks);
       if (partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
