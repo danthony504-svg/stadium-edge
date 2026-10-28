@@ -1,3 +1,4 @@
+import {hasOpponentMarketEvidence,isTeamPropEvidenceRequired,type OpponentMarketEvidence} from "./opponentMarketGate.ts";
 /**
  * Team Props matchup analysis helpers — both-team context + "Players to Consider".
  *
@@ -684,9 +685,11 @@ export function buildConsiderPick(opts: {
   sport: string;
   usageNote?: string | null;
   defenseNote?: string | null;
+  opponentMarkets?: readonly OpponentMarketEvidence[];
   nowMs?: number;
 }): ConsiderPick | null {
   if (opts.sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(opts.cand.prop.market) && !opts.defenseNote) return null;
+  if (isTeamPropEvidenceRequired(opts.sport, opts.cand.prop.market) && !hasOpponentMarketEvidence(opts.sport, opts.cand.prop.market, opts.opponentMarkets, opts.nowMs)) return null;
   const q = qualifyConsiderSim(opts.sim);
   if (q.status !== "qualified") return null;
   const p = opts.cand.prop;
@@ -968,7 +971,7 @@ export function emptyConsiderMessage(opts: {
     return "No posted player props are available to evaluate for this matchup.";
   }
   if (opts.qualifiedCount === 0) {
-    return `Reviewed ${opts.candidateCount} posted prop${opts.candidateCount === 1 ? "" : "s"}; none cleared the ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-simulation quality floor, recent-form grade and positive model edge with sufficient samples. Nothing recommended.`;
+    return `Reviewed ${opts.candidateCount} posted prop${opts.candidateCount === 1 ? "" : "s"}; none cleared the ${MATCHUP_CONSIDER_MIN_SIMULATIONS.toLocaleString()}-simulation quality floor, recent-form grade and positive model edge with sufficient samples. Nothing recommended. Exact-market opponent evidence may also be missing or warming.`;
   }
   return "";
 }

@@ -279,6 +279,7 @@ test("buildConsiderPick: exact-market fields, O/U books, quote, edge; rejects we
     }),
     grade: { grade: "A", hits: 7, n: 10 },
     sport: "nba",
+    opponentMarkets: [{market:"player_points",perGame:110,sampleSize:5,firstGame:"2026-10-01",lastGame:"2026-10-20",scope:"team_allowed",source:"ESPN"}],
     altCount: countPostedAlts(
       [
         prop({ player: "Star", market: "player_points", playerTeamId: "H", line: 22.5 }),
@@ -517,7 +518,7 @@ test("emptyConsiderMessage is truthful for missing / thin evidence", () => {
 test("recommendations reject weak, ungraded, stale and mismatched exact selections across sports", () => {
   for (const [sport, market] of [["nba", "player_points"], ["nfl", "player_rush_yds"], ["mlb", "batter_hits"], ["nhl", "player_shots_on_goal"], ["soccer", "player_shots"]]) {
     const cand = buildConsiderCandidates({props:[prop({player:"P", market, playerTeamId:"H"})], sport, homeTeam:"Home", awayTeam:"Away", ids:{homeTeamId:"H",awayTeamId:"A"}, eventId:"ev1"}).candidates[0]!;
-    const good = {defenseNote: sport === "nhl" ? "24 shots allowed/game (n=5)" : null, cand, sim:sim({market}), grade:{grade:"A" as Grade,hits:7,n:10}, sport, altCount:0};
+    const good = {opponentMarkets:[{market,perGame:10,sampleSize:5,firstGame:"2026-10-01",lastGame:"2026-10-20",scope:"team_allowed" as const,source:"ESPN"}], defenseNote: sport === "nhl" ? "24 shots allowed/game (n=5)" : null, cand, sim:sim({market}), grade:{grade:"A" as Grade,hits:7,n:10}, sport, altCount:0};
     assert.ok(buildConsiderPick(good), sport);
     for (const patch of [{hitProbability:0.28},{hitProbability:0.519},{hitProbability:1.01},{hitProbability:NaN},{sampleGames:NaN},{simulations:NaN},{deepPending:true},{player:"Other"},{market:"wrong_market"},{line:23.5},{side:"Under" as const}]) {
       assert.equal(buildConsiderPick({...good,sim:{...good.sim,...patch}}),null,`${sport} ${JSON.stringify(patch)}`);

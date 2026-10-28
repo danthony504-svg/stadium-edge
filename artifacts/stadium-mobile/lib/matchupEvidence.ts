@@ -17,6 +17,9 @@ export function marketDefenseContext(
   cutoffMs = Date.now(),
 ): string | null {
   if (!d || d.sport !== sport) return null;
+  const canonical = market.replace(/_alternate$/, "");
+  const exact = d.opponentMarkets?.find(r => r.market === canonical && r.sampleSize >= 3 && Number.isFinite(r.perGame) && r.perGame >= 0 && Date.parse(r.lastGame) < cutoffMs && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
+  if (exact) return `${name}: ${exact.perGame.toFixed(1)} ${canonical.replace(/^(player|batter|pitcher)_/, "").replace(/_/g," ")}/game (${exact.scope === "team_allowed" ? "opposing team production allowed" : "own offensive exposure relevant to the opposing player"}; n=${exact.sampleSize}; ${exact.firstGame.slice(0,10)}–${exact.lastGame.slice(0,10)}; ${exact.source}). Team-wide context, not an individual projection, positional allowance or league ranking.`;
   if (sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market)) {
     const a = d.shotAllowance;
     if (a && a.sampleSize >= 3 && Number.isFinite(a.shotsAllowedPerGame) && a.shotsAllowedPerGame >= 0 && Number.isFinite(Date.parse(a.firstGame)) && Date.parse(a.firstGame) <= Date.parse(a.lastGame) && Date.parse(a.lastGame) < cutoffMs)
