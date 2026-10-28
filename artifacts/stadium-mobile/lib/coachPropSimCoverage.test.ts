@@ -69,9 +69,12 @@ test("shared-draw coverage qualifies every posted rung before ladder seating wit
     assert.equal(result.propSimEvaluated, 48);
     assert.equal(calls, 2); // old 40-side sample required five 8-side batches
     assert.equal(result.picks.length, 5);
+    const callsBeforeMissingEvidence = calls;
     const missingEvidence = await buildFootballPropsOnlyTicket({ target: 5, pool, realOdds: [], teamIdMap: new Map(),
       playerHistory: playerHistory as never, allowedSports: ["nfl"], askText: "5 leg receiving yards", signal: AbortSignal.timeout(5000) });
     assert.equal(missingEvidence.picks.length, 0, "shared draws must not bypass missing opponent evidence");
+    assert.equal(calls, callsBeforeMissingEvidence, "missing evidence must skip history and simulation requests");
+    assert.match(missingEvidence.note, /required opponent evidence is unavailable/);
     for (const p of result.picks) {
       assert.equal(p.propLine, 20.5); // higher-EV 80.5 fails genuine confidence
       assert.ok((p.finalAiScore?.confidencePct ?? 0) >= 52);
