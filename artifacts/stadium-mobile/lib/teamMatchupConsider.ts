@@ -28,6 +28,7 @@ import {
 } from "./propGrade.ts";
 import { propMarketLabel } from "./propMarketLabel.ts";
 import { meetsCoachSimQualityFloor } from "./gameSimQualityGates.ts";
+import { marketDefenseContext } from "./matchupEvidence.ts";
 import { simulatorModelEdge } from "./simulatorPropMetrics.ts";
 
 /** Deep Monte Carlo floor — same as Coach exact-market seating bar. */
@@ -317,30 +318,7 @@ export function oppDefenseNoteForMarket(opts: {
   oppName: string;
   oppDefense: TeamDefense | null | undefined;
 }): string | null {
-  const def = opts.oppDefense;
-  if (!def) return null;
-  const s = String(opts.sport ?? "").toLowerCase();
-  const m = String(opts.market ?? "").toLowerCase();
-  const teamTag = "team-wide · ESPN team-defense";
-
-  if (s === "nfl" || s === "ncaaf" || s === "cfb") {
-    if (/rush/.test(m) && def.rushDefense && def.rushDefense.sampleSize > 0) {
-      const v = def.rushDefense.rushingYardsAllowedPerGame;
-      if (v != null) {
-        return `${opts.oppName} allows ${v.toFixed(1)} rush ypg (n=${def.rushDefense.sampleSize} boxes · ${teamTag}). Position-specific rush defense unavailable.`;
-      }
-    }
-    if ((/pass/.test(m) || /reception|anytime_td/.test(m)) && def.passDefense && def.passDefense.sampleSize > 0) {
-      const v = def.passDefense.passingYardsAllowedPerGame;
-      if (v != null) {
-        return `${opts.oppName} allows ${v.toFixed(1)} pass ypg (n=${def.passDefense.sampleSize} boxes · ${teamTag}). Position-specific pass/WR defense unavailable.`;
-      }
-    }
-  }
-  if (def.avgPointsAgainst != null) {
-    return `${opts.oppName} allows ${def.avgPointsAgainst.toFixed(1)} PPG (season · ${teamTag}). Position-specific allowances unavailable.`;
-  }
-  return null;
+  return marketDefenseContext(opts.sport, opts.market, opts.oppName, opts.oppDefense);
 }
 
 /**
