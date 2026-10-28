@@ -3,7 +3,8 @@ import { Pressable, Text, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useColors } from "@/hooks/useColors";
 import { getPlayerHistory, getTeamDefense, searchTeam } from "@/lib/api";
-import { explainMatchup } from "@/lib/matchupEvidence";
+import { matchupHighlights } from "@/lib/matchupHighlights";
+import { explainMatchup, marketDefenseContext } from "@/lib/matchupEvidence";
 import { resolveEvidenceSides } from "@/lib/playerMatchupContext";
 
 /** Read-only, shared by Player Props and Coach. Show evidence on delivered cards; requests do not block ticket construction. */
@@ -41,10 +42,19 @@ export function PlayerMatchupEvidence(p: {
     isHome: context.data?.isHome, opponentId: context.data?.opponent.teamId,
     opponentName: context.data?.opponent.name ?? "Opponent", opponentDefense: context.data?.defense,
   });
+  const defense = context.data?.defense;
+  const cutoff = Math.min(Date.now(), Date.parse(p.startsAt ?? ""));
+  const passingYards = ["nfl", "ncaaf"].includes(p.sport) && /^player_pass_yds(?:_alternate)?$/.test(p.market);
+  const runRow = defense?.opponentMarkets?.find(r => r.market === "player_rush_yds");
+  const runContext = passingYards && runRow && runRow.scope === "team_allowed" && runRow.sampleSize >= 3 && Number.isFinite(runRow.perGame) && runRow.perGame >= 0 && Date.parse(runRow.lastGame) < cutoff && Date.parse(runRow.firstGame) <= Date.parse(runRow.lastGame) && defense?.teamId === context.data?.opponent.teamId
+    ? marketDefenseContext(p.sport, "player_rush_yds", context.data!.opponent.name, defense, cutoff)
+    : null;
+  const highlights = matchupHighlights(evidence.observations, runContext);
   const style = { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 };
   return <View style={{ padding: 14, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 16 }}>
     <Text style={{ color: colors.foreground, fontWeight: "600" }}>Why this matchup</Text>
-    {evidence.observations.filter(t => t.startsWith("Exact-market history:") || t.startsWith("Playing time:") || t.includes("allowed at least one opposing")).slice(0, 3).map((t, i) => <Text key={`key${i}`} style={style}>{t.startsWith("Exact-market history:") ? t.replace("Exact-market history:", "Recent form:").replace(/ \(last .*$/, ".") : t.startsWith("Playing time:") ? t.replace(/; logged MIN\)/, ")").replace(/ Future minutes.*$/, "") : t.replace(/ with complete verified.*$/, ". Each game counts once; not a player hit rate.")}</Text>)}
+    {highlights.map((t, i) => <Text key={`key${i}`} style={style}>{t}</Text>)}
+    {passingYards && <Text style={style}>Passing volume depends on attempts, game score and play-calling. Defensive averages alone do not confirm a run/pass plan.</Text>}
     {(history.isFetching || context.isFetching) && <Text style={style}>Loading matchup highlights…</Text>}
     {(history.isError || context.isError) && <Text style={style}>Some evidence could not load.</Text>}
     <Text style={style}>Historical results; calibration unverified. {evidence.missing.length > 0 ? `${evidence.missing.length} evidence gaps — see details.` : ""}</Text>
@@ -54,6 +64,7 @@ export function PlayerMatchupEvidence(p: {
     {expanded && <>
       {(history.isFetching || context.isFetching) && <Text style={style}>Loading verified matchup evidence…</Text>}
       {(history.isError || context.isError) && <Text style={style}>Some evidence could not load. No missing data is inferred.</Text>}
+      {runContext && <Text style={style}>{runContext}</Text>}
       {evidence.observations.map((t, i) => <Text key={`o${i}`} style={style}>{t}</Text>)}
       <Text style={style}>CAUTIONS</Text>
       {evidence.cautions.map((t, i) => <Text key={`c${i}`} style={style}>{t}</Text>)}
