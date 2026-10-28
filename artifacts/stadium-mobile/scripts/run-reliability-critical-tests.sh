@@ -30,6 +30,7 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/coachRequestIntegrity.test.ts \
     lib/coachUefaScope.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
+    lib/coachPendingPropPreview.test.ts \
     lib/coach/boardLoadConcurrency.test.ts \
     lib/propRequestCooldown.test.ts \
     lib/coachReliabilityReporter.test.ts

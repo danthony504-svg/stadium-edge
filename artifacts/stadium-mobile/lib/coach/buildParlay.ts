@@ -1,3 +1,4 @@
+import { pendingPropPreview } from "../coachPendingPropPreview.ts";
 import { CoachWorkTimeout, runCoachBounded } from "../coachAbortable.ts";
 import { satisfiesExplicitGamePropMix } from "../slate.ts";
 import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
@@ -1306,11 +1307,11 @@ async function buildCoachParlayImpl(opts: {
       if (deliveryTerminalized) return;
       latest = partial;
       // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
-      const scopedPartialPicks = filterPicksForCoachAskTeams(
+      const scopedPartialPicks = pendingPropPreview(filterPicksForCoachAskTeams(
         partial.picks ?? [],
         inputs.teamScope,
         inputs.excludedTeams,
-      );
+      ), target, !!partial.awaitingPropSlots, !propsOnly && !gameLinesOnly);
       const propLike = countPropLike(scopedPartialPicks);
       if (partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
