@@ -1,3 +1,4 @@
+import { opponentThresholdHistory } from "./opponentThresholdHistory.ts";
 /** Descriptive evidence only. Never changes model probabilities or Coach. */
 import type { PropSimPlayerHistoryPayload, TeamDefense } from "./api.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
@@ -191,13 +192,20 @@ export function explainMatchup(o: {
   observations.push(...opportunity.filter(t => !observations.includes(t)));
   if (!opportunity.length) missing.push("Logged opportunity sample unavailable or fewer than 3 verified games.");
   const boundDefense =
-    o.opponentId && o.opponentDefense?.teamId === o.opponentId
+    o.opponentId && o.opponentDefense?.teamId === o.opponentId && o.opponentDefense?.sport === o.sport
       ? o.opponentDefense
       : null;
   const positionRows = boundDefense?.positionAllowances;
   const position = o.position?.toUpperCase();
   const positional = positionRows?.rows.find(r => r.position === position && r.market === o.market && r.games >= 3 && r.minutes > 0 && Number.isFinite(r.per36) && r.per36 >= 0 && Date.parse(r.lastGame) < cutoff && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
   const positionContext = positional ? `${o.opponentName}: opposing ${position} players produced ${positional.per36.toFixed(1)} ${o.market.replace(/^player_/, "").replace(/_/g," ")} per 36 pooled minutes (n=${positional.games} games; ${positional.appearances} player appearances; ${positional.minutes} minutes; ${positional.firstGame.slice(0,10)}–${positional.lastGame.slice(0,10)}). Observed primary-position production, not a league rank or individual-player forecast. Source: ${positionRows!.source}.` : null;
+  const positionGroup = ["PG","SG","G"].includes(position??"") ? "G" : ["SF","PF","F"].includes(position??"") ? "F" : position;
+  const positionHistory = positionRows?.thresholds?.find(r=>r.position===positionGroup&&r.market===o.market.replace(/_alternate$/, ""));
+  const positionGames = positionHistory?.games;
+  if (positionGames && positionGames.length>=3 && new Set(positionGames.map(g=>g.eventId)).size===positionGames.length && positionGames.every(g=>g.eventId&&Number.isFinite(Date.parse(g.date))&&Date.parse(g.date)<cutoff&&g.values.every(v=>Number.isFinite(v)&&v>=0))) {
+    const cleared=positionGames.filter(g=>g.values.some(v=>v>o.line)).length;
+    observations.push(`${o.opponentName} allowed at least one opposing ${positionGroup==="G"?"guard":positionGroup==="F"?"forward":positionGroup} to exceed ${o.line} ${o.market.replace(/^player_/, "").replace(/_/g," ")} in ${cleared}/${positionGames.length} completed games with complete verified position/stat records. Each game counts once; this is not the selected player's hit probability.`);
+  }
   if (positionContext) observations.push(positionContext);
   else missing.push("Verified primary-position opponent allowance unavailable or fewer than 3 completed games.");
   const defense = marketDefenseContext(
@@ -207,6 +215,8 @@ export function explainMatchup(o: {
     boundDefense,
     cutoff,
   );
+  const threshold = opponentThresholdHistory(boundDefense?.opponentMarkets, o.market, o.line, cutoff);
+  if (threshold) observations.push(`${o.opponentName}: ${threshold.scope === "team_allowed" ? "opponent team totals" : "own offensive team totals"} were Over ${o.line} in ${threshold.over}/${threshold.total} completed games, Under in ${threshold.under}/${threshold.total}, with ${threshold.pushes} pushes. Team-wide results, not individual-player or position hit rates.`);
   if (defense && !positional) observations.push(defense);
   else if (!positional && !defense)
     missing.push(

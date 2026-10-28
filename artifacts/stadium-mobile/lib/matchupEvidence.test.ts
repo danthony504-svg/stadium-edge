@@ -181,3 +181,12 @@ test("positional opponent observations require exact defending team, verified po
  assert.ok(explainMatchup(opts).observations.some(t=>t.includes("opposing C players produced 24.0")));
  for(const patch of [{position:null},{position:"F/C"},{market:"player_assists"},{opponentId:"wrong"},{startsAt:"2026-10-25T00:00Z"}])assert.ok(!explainMatchup({...opts,...patch}).observations.some(t=>t.includes("opposing C players")));
 });
+
+test("opponent threshold evidence counts games, never players, and requires matching sport/team",()=>{
+ const games=[1,2,3].map(i=>({eventId:String(i),date:`2026-10-0${i}`,values:i===1?[5,6]:[1,2]}));
+ const defense={...def,positionAllowances:{source:"verified boxes",receivedAt:"2026-10-04",rows:[],thresholds:[{position:"G",market:"player_threes",games}]}};
+ const opts={...base,market:"player_threes",line:4.5,position:"PG",opponentDefense:defense};
+ const evidence=explainMatchup(opts);
+ assert.ok(evidence.observations.some(s=>s.includes("guard to exceed 4.5")&&s.includes("1/3 completed games")));
+ for(const d of [{...defense,sport:"wnba"},{...defense,teamId:"wrong"}])assert.ok(!explainMatchup({...opts,opponentDefense:d}).observations.some(s=>s.includes("guard to exceed")));
+});

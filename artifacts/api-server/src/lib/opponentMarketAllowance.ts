@@ -1,5 +1,5 @@
 /** Verified team-level context. A team total is never an individual projection. */
-export type MarketAllowanceRow={market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:'team_allowed'|'team_offensive_exposure';source:string};
+export type MarketAllowanceRow={games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:'team_allowed'|'team_offensive_exposure';source:string};
 export type MarketAllowanceBox={header?:{id?:string;competitions?:Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string};score?:string|number}>}>};boxscore?:{players?:Array<{team?:{id?:string};statistics?:Array<{labels?:string[];totals?:string[]}>}>;teams?:Array<{team?:{id?:string};statistics?:Array<{name?:string;value?:number|string;displayValue?:string}>}>}};
 type Rule={market:string;fields:string[][];scope:'team_allowed'|'team_offensive_exposure'};
 const rule=(market:string,fields:string[][],scope:Rule['scope']='team_allowed'):Rule=>({market,fields,scope});
@@ -12,7 +12,7 @@ export function opponentMarketRules(sport:string):Rule[]{
  return [];
 }
 export function aggregateOpponentMarkets(sport:string,teamId:string,boxes:MarketAllowanceBox[],cutoff=Date.now()):MarketAllowanceRow[]{
- const bins=new Map<string,Array<{date:string;value:number}>>(),seen=new Set<string>();
+ const bins=new Map<string,Array<{eventId:string;date:string;value:number}>>(),seen=new Set<string>();
  for(const b of boxes){const c=b.header?.competitions?.[0],id=b.header?.id,date=c?.date;
   if(!id||seen.has(id)||!date||!c?.status?.type?.completed||!Number.isFinite(Date.parse(date))||Date.parse(date)>=cutoff)continue;
   const ids=c.competitors?.map(t=>t.team?.id)??[];if(ids.length!==2||!ids.includes(teamId)||ids[0]===ids[1])continue;
@@ -37,8 +37,8 @@ export function aggregateOpponentMarkets(sport:string,teamId:string,boxes:Market
     const numbers=entries.map(s=>s.value??s.displayValue).filter(v=>v!=null&&/^-?\d+(?:\.\d+)?$/.test(String(v))).map(Number);
     return numbers.length===entries.length&&numbers.length&&new Set(numbers).size===1?numbers[0]!:null;});
    if(values.some(v=>v==null||!Number.isFinite(v)||v<0))continue;
-   const rows=bins.get(r.market)??[];rows.push({date,value:values.reduce<number>((n,v)=>n+v!,0)});bins.set(r.market,rows);
+   const rows=bins.get(r.market)??[];rows.push({eventId:id,date,value:values.reduce<number>((n,v)=>n+v!,0)});bins.set(r.market,rows);
   }
  }
- return opponentMarketRules(sport).flatMap(r=>{const b=bins.get(r.market);if(!b||b.length<3)return [];b.sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));return [{market:r.market,perGame:b.reduce((a,b)=>a+b.value,0)/b.length,sampleSize:b.length,firstGame:b[0]!.date,lastGame:b.at(-1)!.date,scope:r.scope,source:'ESPN completed team box scores; full game'}];});
+ return opponentMarketRules(sport).flatMap(r=>{const b=bins.get(r.market);if(!b||b.length<3)return [];b.sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));return [{games:b.map(x=>({...x})),market:r.market,perGame:b.reduce((a,b)=>a+b.value,0)/b.length,sampleSize:b.length,firstGame:b[0]!.date,lastGame:b.at(-1)!.date,scope:r.scope,source:'ESPN completed team box scores; full game'}];});
 }

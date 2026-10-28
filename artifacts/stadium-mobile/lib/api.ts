@@ -1465,9 +1465,9 @@ export function getFantasyNflPlayerHistory(
 // `avgPointsAgainst` is the only true "opponent allows" rate ESPN exposes per
 // team without box-score aggregation — it is TEAM-WIDE, not position-specific.
 export type TeamDefense = {
-  opponentMarkets?: Array<{market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
+  opponentMarkets?: Array<{games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
   shotAllowance?: {shotsAllowedPerGame:number;sampleSize:number;firstGame:string;lastGame:string;source:string} | null;
-  positionAllowances?: { source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
+  positionAllowances?: { thresholds?:Array<{position:string;market:string;games:Array<{eventId:string;date:string;values:number[]}>}>; source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
   sport: string;
   teamId: string;
   teamName: string | null;

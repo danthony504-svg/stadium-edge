@@ -2,7 +2,7 @@
  * Per-36 is pooled stat / pooled minutes, not a league ranking or matchup probability.
  */
 export type PositionAllowanceRow = { position: string; market: string; per36: number; games: number; appearances: number; minutes: number; firstGame: string; lastGame: string };
-export type PositionAllowance = { source: string; receivedAt: string; rows: PositionAllowanceRow[] };
+export type PositionAllowance = { thresholds?:import("./positionThresholdHistory.js").PositionThresholdRow[]; source: string; receivedAt: string; rows: PositionAllowanceRow[] };
 export const basketballPosition = (p: unknown): string | null =>
   typeof p === "string" && /^(PG|SG|SF|PF|C)$/.test(p.toUpperCase()) ? p.toUpperCase() : null;
 export type AllowanceBox = { header?: { id?: string; competitions?: Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string}}>}> }; boxscore?: { players?: Array<{team?:{id?:string};statistics?:Array<{labels?:string[];athletes?:Array<{didNotPlay?:boolean;athlete?:{id?:string;position?:{abbreviation?:string}};stats?:string[]}>}>}> } };
