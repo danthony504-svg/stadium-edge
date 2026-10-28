@@ -273,9 +273,10 @@ export function TeamPropsSheet({
         awayTeam,
         ids: identityIds,
         eventId,
+        filterKey: marketFilter,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [eventProps, sport, homeTeam, awayTeam, eventId, identityIds.homeTeamId, identityIds.awayTeamId],
+    [eventProps, sport, homeTeam, awayTeam, eventId, marketFilter, identityIds.homeTeamId, identityIds.awayTeamId],
   );
 
   const considerEvalQ = useQuery({

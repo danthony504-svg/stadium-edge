@@ -539,3 +539,22 @@ test("event and athlete binding plus quote-sensitive cache identity", () => {
   assert.notEqual(build([p])[0]!.key,build([{...p,overPrice:110}])[0]!.key);
   assert.notEqual(build([p])[0]!.key,build([{...p,overSourceUpdatedAt:"2026-10-27T12:00Z"}])[0]!.key);
 });
+
+
+test("selected markets are evaluated before the cap; All balances market groups", () => {
+  const props = [
+    ...Array.from({length:12},(_,i)=>prop({player:`Point ${i}`,market:"player_points",playerTeamId:"H"})),
+    prop({player:"Rebound",market:"player_rebounds",playerTeamId:"H"}),
+    prop({player:"Three",market:"player_threes",playerTeamId:"H"}),
+    prop({player:"Block",market:"player_blocks",playerTeamId:"H"}),
+  ];
+  const opts = {props,sport:"nba",homeTeam:"Home",awayTeam:"Away",ids:{homeTeamId:"H",awayTeamId:"A"},eventId:"ev1"};
+  for (const [filterKey,market] of [["reb","player_rebounds"],["threes","player_threes"],["stocks","player_blocks"]]) {
+    const result=buildConsiderCandidates({...opts,filterKey});
+    assert.equal(result.candidates.length,1);
+    assert.equal(result.candidates[0]!.prop.market,market);
+  }
+  const all=buildConsiderCandidates(opts).candidates;
+  assert.equal(all.length,8);
+  for(const market of ["player_rebounds","player_threes","player_blocks"]) assert.ok(all.some(c=>c.prop.market===market));
+});

@@ -533,6 +533,7 @@ export function buildConsiderCandidates(opts: {
   awayTeam: string;
   ids: MatchupTeamIds;
   eventId?: string | null;
+  filterKey?: string | null;
   maxPerTeam?: number;
 }): { candidates: ConsiderCandidate[]; skipReason: string | null } {
   const maxPer = opts.maxPerTeam ?? MATCHUP_CONSIDER_MAX_CANDIDATES / 2;
@@ -555,6 +556,9 @@ export function buildConsiderCandidates(opts: {
     if (!p.athleteId || !eventId || (opts.eventId && eventId !== opts.eventId)) continue;
     if (p.line == null || !Number.isFinite(p.line)) continue;
     if (!isRelevantPlayerMarket(opts.sport, p.market)) continue;
+    const filter = opts.filterKey?.toLowerCase();
+    if (filter && filter !== "all" && softRoleFromMarket(opts.sport, p.market)?.key !== filter &&
+        p.market.toLowerCase() !== filter && !p.market.toLowerCase().startsWith(`${filter}_`)) continue;
     if (!propBelongsToGameTeams(p.playerTeamId, homeId, awayId)) continue;
     const sel = recommendSide(p);
     if (!sel) continue;
@@ -574,28 +578,24 @@ export function buildConsiderCandidates(opts: {
     else away.push(row);
   }
 
-  // Prefer diverse markets; stable player order from feed.
+  // Balance market groups before the cap; selected filters narrow the input first.
   const take = (rows: ConsiderCandidate[]) => {
-    const seenPlayer = new Set<string>();
-    const out: ConsiderCandidate[] = [];
-    for (const r of rows) {
-      if (out.length >= maxPer) break;
-      const pk = r.prop.player.toLowerCase();
-      // Allow a second market for the same player only after first pass fills.
-      if (seenPlayer.has(pk) && out.length < maxPer) {
-        // skip duplicates in first pass
-        continue;
-      }
-      seenPlayer.add(pk);
-      out.push(r);
+    const groups = new Map<string, ConsiderCandidate[]>();
+    for (const row of rows) {
+      const role = softRoleFromMarket(opts.sport, row.prop.market)?.key ?? row.prop.market;
+      const group = groups.get(role) ?? [];
+      if (!group.some(r => r.key === row.key)) group.push(row);
+      groups.set(role, group);
     }
-    // Second pass: additional markets if room.
-    if (out.length < maxPer) {
-      for (const r of rows) {
+    const out: ConsiderCandidate[] = [];
+    while (out.length < maxPer) {
+      let advanced = false;
+      for (const group of groups.values()) {
+        const row = group.shift();
+        if (row) { out.push(row); advanced = true; }
         if (out.length >= maxPer) break;
-        if (out.some((x) => x.key === r.key)) continue;
-        out.push(r);
       }
+      if (!advanced) break;
     }
     return out;
   };
