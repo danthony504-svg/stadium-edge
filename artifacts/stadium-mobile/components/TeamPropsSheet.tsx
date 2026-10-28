@@ -22,7 +22,7 @@ import {
   type TeamSearchResult,
 } from "@/lib/api";
 import { explainMatchup } from "@/lib/matchupEvidence";
-import { formatAmerican, formatGameTime } from "@/lib/format";
+import { formatGameTime } from "@/lib/format";
 import { teamNameMatches } from "@/lib/injuries";
 import { GRADE_MIN_SAMPLE, gradePropCands, type GradeResult } from "@/lib/propGrade";
 import { oddsRowsFromQuery } from "@/lib/sportFeed";
@@ -850,21 +850,6 @@ function ConsiderPickCard({
         <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{evidence.source}</Text>
         </>}
       </View>
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <PriceSide
-          label="Over"
-          price={pick.overPrice}
-          book={pick.overBook}
-          active={pick.side === "Over"}
-        />
-        <PriceSide
-          label="Under"
-          price={pick.underPrice}
-          book={pick.underBook}
-          active={pick.side === "Under"}
-        />
-      </View>
-
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
         {pick.sportsbook ? pick.sportsbook : "Sportsbook unavailable"}
         {" · "}
@@ -896,43 +881,6 @@ function MetaChip({ label }: { label: string }) {
     </View>
   );
 }
-
-function PriceSide({
-  label,
-  price,
-  book,
-  active,
-}: {
-  label: string;
-  price: number | null;
-  book: string | null;
-  active: boolean;
-}) {
-  const colors = useColors();
-  return (
-    <View
-      style={{
-        flexGrow: 1,
-        minWidth: 120,
-        borderWidth: 1,
-        borderColor: active ? colors.primary : colors.border,
-        borderRadius: 10,
-        padding: 8,
-        backgroundColor: colors.surface,
-        gap: 2,
-      }}
-    >
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10 }}>{label}</Text>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>
-        {price != null ? formatAmerican(price) : "—"}
-      </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
-        {book ?? "book unavailable"}
-      </Text>
-    </View>
-  );
-}
-
 
 function TeamFormCard({
   form,
