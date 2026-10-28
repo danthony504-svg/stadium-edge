@@ -160,7 +160,7 @@ test("logged opportunity fills gaps across sports without inventing usage or amb
   const h=history(sport,stat);
   h.recent=h.recent.map(g=>({...g,stats:{[stat]:"8",[field]:"8"}}));
   const e=explainMatchup({...base,sport,market,history:h});
-  assert.ok(e.opportunity.some(t=>t.includes(`${label}: 8.0/game (n=5`)),sport);
+  assert.ok(e.opportunity.some(t=>t.includes(`${label}: 8.0/game (based on 5 games`)),sport);
   assert.ok(!e.missing.some(t=>t.startsWith("Logged opportunity sample unavailable")),sport);
  }
  const h=history("nfl","rushingYards");
