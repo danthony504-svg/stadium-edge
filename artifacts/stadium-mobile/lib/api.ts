@@ -710,6 +710,8 @@ export type PlayerProp = {
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  /** ESPN roster role when verified server-side; never invent client-side. */
+  position?: string | null;
   /** Sport key from /sports/props (stamped server-side). */
   sport?: string | null;
   /** Odds API event id (canonical for seated-prop provenance). */

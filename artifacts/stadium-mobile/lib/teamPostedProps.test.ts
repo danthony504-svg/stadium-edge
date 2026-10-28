@@ -548,6 +548,12 @@ test("source regression: Props gate + Team mode odds-only; Coach untouched; no b
   assert.ok(!sheetSrc.includes("buildRealOdds"));
   assert.ok(sheetSrc.includes("extractTeamPostedProps"));
   assert.ok(sheetSrc.includes("sampleCaption") || sheetSrc.includes("n="));
+  // Matchup Props layout: role filters, top-per-role ranking, opposing defense notes.
+  assert.ok(sheetSrc.includes("matchupFilterChips"));
+  assert.ok(sheetSrc.includes("rankConsiderPicksByRole"));
+  assert.ok(sheetSrc.includes("oppDefenseNoteForMarket"));
+  assert.ok(sheetSrc.includes("Add to Slip"));
+  assert.ok(sheetSrc.includes("Position-specific") || sheetSrc.includes("position-specific") || sheetSrc.includes("team-wide"));
   // This PR must not edit Coach selection / sim / quality floors.
   assert.equal(propsSrc.includes("buildParlay"), false);
 });
