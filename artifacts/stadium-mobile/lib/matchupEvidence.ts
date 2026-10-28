@@ -20,11 +20,11 @@ export function marketDefenseContext(
   if (!d || d.sport !== sport) return null;
   const canonical = market.replace(/_alternate$/, "");
   const exact = d.opponentMarkets?.find(r => r.market === canonical && r.sampleSize >= 3 && Number.isFinite(r.perGame) && r.perGame >= 0 && Date.parse(r.lastGame) < cutoffMs && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
-  if (exact) return `${name}: ${exact.perGame.toFixed(1)} ${canonical.replace(/^(player|batter|pitcher)_/, "").replace(/_/g," ")}/game (${exact.scope === "team_allowed" ? "opposing team production allowed" : "own offensive exposure relevant to the opposing player"}; n=${exact.sampleSize}; ${exact.firstGame.slice(0,10)}–${exact.lastGame.slice(0,10)}; ${exact.source}). Team-wide context, not an individual projection, positional allowance or league ranking.`;
+  if (exact) return `${name}: ${exact.perGame.toFixed(1)} ${canonical.replace(/^(player|batter|pitcher)_/, "").replace(/_/g," ")}/game (${exact.scope === "team_allowed" ? "opposing team production allowed" : "own offensive exposure relevant to the opposing player"}; based on ${exact.sampleSize} games; ${exact.firstGame.slice(0,10)}–${exact.lastGame.slice(0,10)}; ${exact.source}). Team-wide context, not an individual projection, positional allowance or league ranking.`;
   if (sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market)) {
     const a = d.shotAllowance;
     if (a && a.sampleSize >= 3 && Number.isFinite(a.shotsAllowedPerGame) && a.shotsAllowedPerGame >= 0 && Number.isFinite(Date.parse(a.firstGame)) && Date.parse(a.firstGame) <= Date.parse(a.lastGame) && Date.parse(a.lastGame) < cutoffMs)
-      return `${name} allows ${a.shotsAllowedPerGame.toFixed(1)} shots on goal/game (n=${a.sampleSize}; ${a.firstGame.slice(0,10)}–${a.lastGame.slice(0,10)}; ${a.source}). Team-wide, not a player or position allowance; ice time and role still matter.`;
+      return `${name} allows ${a.shotsAllowedPerGame.toFixed(1)} shots on goal/game (based on ${a.sampleSize} games; ${a.firstGame.slice(0,10)}–${a.lastGame.slice(0,10)}; ${a.source}). Team-wide, not a player or position allowance; ice time and role still matter.`;
     return null;
   }
   if (["nfl", "ncaaf", "cfb"].includes(sport)) {
@@ -34,14 +34,14 @@ export function marketDefenseContext(
       d.rushDefense.sampleSize > 0 &&
       Number.isFinite(d.rushDefense.rushingYardsAllowedPerGame)
     )
-      return `${name} allows ${d.rushDefense.rushingYardsAllowedPerGame!.toFixed(1)} rush yards/game (n=${d.rushDefense.sampleSize} completed boxes; ESPN; team-wide). Position-specific opportunity is unverified.`;
+      return `${name} allows ${d.rushDefense.rushingYardsAllowedPerGame!.toFixed(1)} rush yards/game (based on ${d.rushDefense.sampleSize} completed games; ESPN; team-wide). Position-specific opportunity is unverified.`;
     if (
       /^player_(?:pass|reception)_yds(?:_alternate)?$/.test(market) &&
       d.passDefense &&
       d.passDefense.sampleSize > 0 &&
       Number.isFinite(d.passDefense.passingYardsAllowedPerGame)
     )
-      return `${name} allows ${d.passDefense.passingYardsAllowedPerGame!.toFixed(1)} pass yards/game (n=${d.passDefense.sampleSize} completed boxes; ESPN; team-wide). Broader passing context, not receiver-specific allowance.`;
+      return `${name} allows ${d.passDefense.passingYardsAllowedPerGame!.toFixed(1)} pass yards/game (based on ${d.passDefense.sampleSize} completed games; ESPN; team-wide). Broader passing context, not receiver-specific allowance.`;
   }
   if (
     ["nba", "wnba", "ncaab", "cbb"].includes(sport) &&
@@ -124,7 +124,7 @@ export function explainMatchup(o: {
     );
     if (split.length >= 3)
       observations.push(
-        `${o.isHome ? "Home" : "Away"} average ${avg(split).toFixed(1)} (n=${split.length}; within this window).`,
+        `${o.isHome ? "Home" : "Away"} average ${avg(split).toFixed(1)} (based on ${split.length} games; within this window).`,
       );
     else missing.push("Home/away sample: fewer than 3 verified games.");
     const vs = o.opponentId
@@ -132,7 +132,7 @@ export function explainMatchup(o: {
       : [];
     if (vs.length >= 3)
       observations.push(
-        `Against this opponent: ${avg(vs).toFixed(1)} average (n=${vs.length}; within this window).`,
+        `Against this opponent: ${avg(vs).toFixed(1)} average (based on ${vs.length} games; within this window).`,
       );
     else missing.push("Opponent-specific sample: fewer than 3 verified games.");
     if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport)) {
@@ -153,7 +153,7 @@ export function explainMatchup(o: {
       });
       if (minutes.length >= 3)
         observations.push(
-          `Playing time: ${(minutes.reduce((a, b) => a + b, 0) / minutes.length).toFixed(1)} minutes/game (n=${minutes.length}; logged MIN). Future minutes unconfirmed.`,
+          `Playing time: ${(minutes.reduce((a, b) => a + b, 0) / minutes.length).toFixed(1)} minutes/game (based on ${minutes.length} games; logged MIN). Future minutes unconfirmed.`,
         );
       else missing.push("Verified playing-time sample unavailable.");
     }
@@ -185,7 +185,7 @@ export function explainMatchup(o: {
       const unique = [...new Set(vals)];
       return unique.length === 1 ? unique : [];
     });
-    if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (n=${values.length}; logged history).`);
+    if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (based on ${values.length} games; logged history).`);
   }
   // Logged playing time is genuine opportunity evidence, even without usage%.
   opportunity.push(...observations.filter(t => t.startsWith("Playing time:")));
@@ -198,7 +198,7 @@ export function explainMatchup(o: {
   const positionRows = boundDefense?.positionAllowances;
   const position = o.position?.toUpperCase();
   const positional = positionRows?.rows.find(r => r.position === position && r.market === o.market && r.games >= 3 && r.minutes > 0 && Number.isFinite(r.per36) && r.per36 >= 0 && Date.parse(r.lastGame) < cutoff && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
-  const positionContext = positional ? `${o.opponentName}: opposing ${position} players produced ${positional.per36.toFixed(1)} ${o.market.replace(/^player_/, "").replace(/_/g," ")} per 36 pooled minutes (n=${positional.games} games; ${positional.appearances} player appearances; ${positional.minutes} minutes; ${positional.firstGame.slice(0,10)}–${positional.lastGame.slice(0,10)}). Observed primary-position production, not a league rank or individual-player forecast. Source: ${positionRows!.source}.` : null;
+  const positionContext = positional ? `${o.opponentName}: opposing ${position} players produced ${positional.per36.toFixed(1)} ${o.market.replace(/^player_/, "").replace(/_/g," ")} per 36 pooled minutes (based on ${positional.games} games; ${positional.appearances} player appearances; ${positional.minutes} minutes; ${positional.firstGame.slice(0,10)}–${positional.lastGame.slice(0,10)}). Observed primary-position production, not a league rank or individual-player forecast. Source: ${positionRows!.source}.` : null;
   const positionGroup = ["PG","SG","G"].includes(position??"") ? "G" : ["SF","PF","F"].includes(position??"") ? "F" : position;
   const positionHistory = positionRows?.thresholds?.find(r=>r.position===positionGroup&&r.market===o.market.replace(/_alternate$/, ""));
   const positionGames = positionHistory?.games;
@@ -226,7 +226,7 @@ export function explainMatchup(o: {
     "Current injury impact, confirmed lineup/role changes and future opportunity are not supplied to this analysis. Logged activity does not establish future usage.",
   );
   if (o.simSample != null) cautions.push(
-    `Simulation history n=${o.simSample}; Monte Carlo draws are not independent historical games. Calibration for this matchup is unverified.`,
+    `Simulation history based on ${o.simSample} games; Monte Carlo draws are not independent historical games. Calibration for this matchup is unverified.`,
   );
   else cautions.push("Historical observations are descriptive; they do not establish a calibrated forecast or a cause.");
   if (o.simProbability != null && (o.simProbability >= 0.95 || o.simProbability <= 0.05))
