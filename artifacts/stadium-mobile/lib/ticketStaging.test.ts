@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildStagedTicketFromScan,
+  boardLegPoolRole,
   capThinStatMarketsOnTicket,
   collapseSameTeamGameLineSides,
   tagTicketRoles,
@@ -944,4 +945,13 @@ test("short ticket seats remaining qualified props/milestones before mixed game-
     "remaining 20+ points milestone must seat before FG alt crowd-out",
   );
   assert.ok(topped.filter((p) => p.isProp).length >= 5, "shortfall search seats leftover props");
+});
+
+
+test("candidate rejection callback preserves quality authority and cannot change selection", () => {
+  const pick = { sport: "nfl", game: "Away @ Home", market: "Spread", pick: "Away +4.5", odds: -110, isProp: false } as ParsedPick;
+  const reasons: string[] = [];
+  assert.equal(boardLegPoolRole(pick, null, { onRejected: reason => reasons.push(reason) }), null);
+  assert.deepEqual(reasons, ["quality_missing_score"]);
+  assert.equal(boardLegPoolRole(pick, null, { onRejected: () => { throw new Error("diagnostic failure"); } }), null);
 });
