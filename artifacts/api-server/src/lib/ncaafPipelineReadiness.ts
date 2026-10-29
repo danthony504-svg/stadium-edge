@@ -1,6 +1,20 @@
 /** Operator progress. Archive counts never stand in for independent validation. */
 import { MIN_ADJUSTED_DEVELOPMENT_GAMES } from "./ncaafAdjustedModel.js";
 import type { ResearchDb } from "./ncaafValidationPipeline.js";
+/** Public diagnostics use fixed labels, never arbitrary exception/provider text. */
+export function safeCollectorDiagnostic(value: any) {
+  const codes = new Set([
+    "usage_history_missing", "usage_invalid_plan", "usage_overlap", "context_overlap",
+    "context_target_budget", "usage_unexpected_database", "context_unexpected_database",
+    "collector_database_timeout", "collector_database_resource_exhausted", "collector_internal_failure",
+  ]);
+  const phases = new Set(["database_check", "archive_lookup", "event_binding", "history_lookup",
+    "usage_plan", "usage_capture", "usage_save", "context_assembly", "labels", "status_save"]);
+  return {
+    failureCode: codes.has(value?.failureCode) ? value.failureCode as string : null,
+    failurePhase: phases.has(value?.failurePhase) ? value.failurePhase as string : null,
+  };
+}
 export async function ncaafPipelineReadiness(db: ResearchDb) {
   const rows = (
     await db.query(
@@ -111,6 +125,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       contextDataset: contextDataset
         ? {
             state: contextDataset.state ?? null,
+            ...safeCollectorDiagnostic(contextDataset),
             inputsRecorded: contextDataset.inputsRecorded ?? 0,
             inputsAlreadyPresent: contextDataset.inputsAlreadyPresent ?? 0,
             withheld: contextDataset.withheld ?? 0,
@@ -177,6 +192,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       usageCapture: usageCapture
         ? {
             state: usageCapture.state ?? null,
+            ...safeCollectorDiagnostic(usageCapture),
             matchedTargets: usageCapture.matchedTargets ?? 0,
             saved: usageCapture.saved ?? 0,
             failed: usageCapture.failed ?? 0,
