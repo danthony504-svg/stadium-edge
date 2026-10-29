@@ -48,7 +48,7 @@ export function createCandidateTracking(requestId: string, requested: number, ma
     }
     if (stage === "selected") row.disposition = "selected";
     else if (stage === "delivery_blocked" || stage === "scope_excluded") row.disposition = "excluded";
-    else if (stage === "grading") row.disposition = (reason === "graded" || reason === "qualified_for_staging") ? "evaluated_not_selected" : "excluded";
+    else if (stage === "grading") row.disposition = reason === "simulation_or_grade_unavailable" ? "evaluation_incomplete" : (reason === "graded" || reason === "qualified_for_staging") ? "evaluated_not_selected" : "excluded";
     else if (stage === "simulation") row.disposition = reason === "simulation_completed" ? "evaluated_not_selected" : "evaluation_incomplete";
   }
   function finish(picks: readonly ParsedPick[], terminal: CandidateReport["terminal"]): CandidateReport {
