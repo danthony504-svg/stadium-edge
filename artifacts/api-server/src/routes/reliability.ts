@@ -1,3 +1,5 @@
+import { parseCoachCandidateChunk } from "../lib/coachCandidateTracking.js";
+import { coachBuildBreakdown } from "../lib/coachBuildBreakdown.js";
 /**
  * Reliability Center — crash ingest, Coach events, daily digest, 90m health.
  * No owner dashboard in this phase. No secrets required from the mobile client.
@@ -165,6 +167,7 @@ router.post(
           correlationId: event.correlationId ?? null,
           requestId: event.requestId ?? null,
           eventType: event.eventType,
+          buildBreakdown: coachBuildBreakdown({ ...event }),
           failureReason: event.failureReason ?? null,
           failureCategory: event.failureCategory ?? null,
           affectedGame: event.affectedGame ?? null,
@@ -186,6 +189,20 @@ router.post(
     }
   },
 );
+
+/** Bounded per-candidate diagnostics. Logs only; never triggers Telegram/push. */
+const candidateTrackingLimiter = crashIngestRateLimit({
+  windowMs: 10 * 60 * 1000, max: 120, name: "reliability-coach-candidates",
+});
+router.post("/reliability/coach-candidates", candidateTrackingLimiter, (req, res) => {
+  if (rawBodyTooLarge(req, 100_000)) {
+    res.status(413).json({ error: "payload too large" }); return;
+  }
+  const chunk = parseCoachCandidateChunk(req.body);
+  if (!chunk) { res.status(400).json({ error: "invalid candidate diagnostics" }); return; }
+  logger.info({ candidateTracking: chunk }, "[coach-candidates] build breakdown chunk");
+  res.status(202).json({ accepted: true, requestId: chunk.requestId, chunkIndex: chunk.chunkIndex });
+});
 
 /**
  * POST /api/reliability/cron/digest
