@@ -735,6 +735,9 @@ export default function CoachScreen() {
             signal: abort.signal,
             requestStartedAtMs: sessionRef.current.startedAtMs,
             reliabilityRequestId,
+            onResolvedAsk: ask => {
+              if (sendGenRef.current === sendGen && !coachSessionIsTerminal(sessionRef.current)) sessionAskTextRef.current = ask;
+            },
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;
               patchAssistant(assistantId, { buildStatus: status });
