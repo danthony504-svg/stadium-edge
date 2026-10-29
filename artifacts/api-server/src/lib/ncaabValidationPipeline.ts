@@ -1,0 +1,254 @@
+/**
+ * NCAAB research validation pipeline — separate from NCAAF.
+ * Captures prospective live inputs and settles saved research forecasts only.
+ * Never enables Coach or marks releaseEligible.
+ */
+import type { ResearchDb } from "./ncaafValidationPipeline.js";
+
+export const NCAAB_MIN_INDEPENDENT_GAMES = 500;
+export const NCAAB_MIN_SEASONS = 2;
+export const NCAAB_RESEARCH_PREFIX = "research:ncaab:";
+
+export type NcaabPipelineDeps = {
+  db: ResearchDb;
+  settlementOnly?: boolean;
+  collectionEnabled?: boolean;
+  runCollector: (name: string, args: string[]) => Promise<void>;
+};
+
+export function ncaabResearchSlot(now: Date): string {
+  if (!Number.isFinite(now.getTime())) throw Error("ncaab_pipeline_invalid_clock");
+  const day = new Date(now);
+  let hour = [22, 18, 14, 2].find((h) => h <= now.getUTCHours());
+  if (hour === undefined) {
+    day.setUTCDate(day.getUTCDate() - 1);
+    hour = 22;
+  }
+  day.setUTCHours(hour, 0, 0, 0);
+  return day.toISOString();
+}
+
+export async function runNcaabValidationPipeline({
+  db,
+  runCollector,
+  settlementOnly = false,
+  collectionEnabled = true,
+}: NcaabPipelineDeps) {
+  const clock = async () =>
+    new Date(
+      (await db.query("SELECT clock_timestamp() AS now")).rows[0].now,
+    ).toISOString();
+  const get = async (key: string) =>
+    (await db.query("SELECT value FROM public.app_kv WHERE key=$1", [key]))
+      .rows[0]?.value;
+  const put = async (key: string, value: unknown) => {
+    await db.query(
+      "INSERT INTO public.app_kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
+      [key, JSON.stringify(value)],
+    );
+  };
+
+  const check = await db.query("SELECT current_database() AS name");
+  if (check.rows[0].name !== "stadium_edge_production")
+    throw Error("ncaab_pipeline_unexpected_database");
+
+  const acquired = (
+    await db.query("SELECT pg_try_advisory_lock(64234,20261026) AS acquired")
+  ).rows[0].acquired;
+  if (!acquired) return { state: "skipped_overlap", releaseEligible: false };
+
+  let slot = "";
+  let slotKey = "";
+  let state: Record<string, unknown> = {};
+  try {
+    const blockers: Record<string, number> = {};
+    const fail = (reason: string) => {
+      blockers[reason] = (blockers[reason] ?? 0) + 1;
+    };
+
+    // Settlement maintenance — independent of collection slot completion.
+    let settlementsRecorded = 0;
+    let unsettledInBatch = 0;
+    const settlementNow = await clock();
+    const previousSettlement = await get("research:ncaab:settlement-check:latest");
+    const previousAttempt = Date.parse(previousSettlement?.startedAt ?? "");
+    if (
+      !Number.isFinite(previousAttempt) ||
+      Date.parse(settlementNow) - previousAttempt >= 30 * 60000
+    ) {
+      await put("research:ncaab:settlement-check:latest", {
+        startedAt: settlementNow,
+        state: "running",
+        researchOnly: true,
+        releaseEligible: false,
+      });
+      try {
+        const pending = (
+          await db.query(
+            `SELECT f.key,f.value FROM public.app_kv f
+             LEFT JOIN public.app_kv s ON s.key=replace(f.key,'research:ncaab:forecast:','research:ncaab:settlement:')
+             WHERE f.key LIKE 'research:ncaab:forecast:%' AND s.key IS NULL
+               AND (f.value->'target'->>'kickoff')::timestamptz <= clock_timestamp()-interval '4 hours'
+             ORDER BY f.value->'target'->>'kickoff',f.key LIMIT 64`,
+          )
+        ).rows;
+        unsettledInBatch = pending.length;
+        // Settlement scoring lands in a later PR once outcome binding is proven.
+        // Counts stay explicit zeros rather than inventing finals.
+        await put("research:ncaab:settlement-check:latest", {
+          startedAt: settlementNow,
+          finishedAt: await clock(),
+          state: "processed",
+          pendingInBatch: pending.length,
+          settlementsRecorded: 0,
+          researchOnly: true,
+          releaseEligible: false,
+          note: "outcome_binding_not_yet_implemented",
+        });
+      } catch {
+        fail("settlement_check_or_storage_failed");
+        await put("research:ncaab:settlement-check:latest", {
+          startedAt: settlementNow,
+          finishedAt: await clock(),
+          state: "failed",
+          researchOnly: true,
+          releaseEligible: false,
+        });
+      }
+    }
+
+    if (settlementOnly) {
+      return {
+        state: "settlement_check_completed",
+        settlementsRecorded,
+        unsettledInBatch,
+        releaseEligible: false,
+        coachEnabled: false,
+      };
+    }
+
+    if (!collectionEnabled) {
+      return {
+        state: "skipped_missing_odds_credentials",
+        settlementsRecorded,
+        unsettledInBatch,
+        releaseEligible: false,
+        coachEnabled: false,
+      };
+    }
+
+    slot = ncaabResearchSlot(new Date(await clock()));
+    slotKey = `research:ncaab:pipeline:slot:${slot}`;
+    const prior = await get(slotKey);
+    if (prior?.finishedAt && prior.state === "processed") {
+      return {
+        state: "skipped_completed_slot",
+        slot,
+        freeEvidenceRefresh: false,
+        blockers,
+        settlementsRecorded,
+        unsettledInBatch,
+        releaseEligible: false,
+        coachEnabled: false,
+        note: "ncaab_v1_no_mid_slot_paid_odds_refresh",
+      };
+    }
+    if (prior && (prior.attempts ?? 1) >= 3) {
+      return {
+        state: "skipped_exhausted_slot",
+        slot,
+        releaseEligible: false,
+        coachEnabled: false,
+      };
+    }
+    if (
+      prior &&
+      Date.parse(await clock()) -
+        Date.parse(prior.finishedAt ?? prior.startedAt) <
+        5 * 60000
+    ) {
+      return {
+        state: "skipped_retry_backoff",
+        slot,
+        releaseEligible: false,
+        coachEnabled: false,
+      };
+    }
+
+    state = {
+      version: 1,
+      sport: "ncaab",
+      researchOnly: true,
+      slot,
+      startedAt: await clock(),
+      oddsAttempted: prior?.oddsAttempted === true,
+      state: "running",
+      attempts: (prior?.attempts ?? 0) + 1,
+      releaseEligible: false,
+      coachEnabled: false,
+    };
+    await put(slotKey, state);
+    await put("research:ncaab:pipeline:latest", state);
+
+    if (!state.oddsAttempted) {
+      state.oddsAttempted = true;
+      state.phase = "quotes";
+      await put(slotKey, state);
+      await put("research:ncaab:pipeline:latest", state);
+      try {
+        await runCollector("ncaab-capture-live-inputs.mjs", [
+          "--capture-slot",
+          slot,
+        ]);
+      } catch {
+        fail("live_input_capture_failed");
+      }
+    }
+
+    state.phase = "journal";
+    await put("research:ncaab:pipeline:latest", state);
+    const frozen = await get("research:ncaab:adjusted-model:latest");
+    if (!frozen?.modelSha256) {
+      fail("waiting_for_frozen_ncaab_candidate");
+    } else {
+      fail("ncaab_forecast_journal_not_wired");
+    }
+
+    const finishedAt = await clock();
+    state = {
+      ...state,
+      state: "processed",
+      finishedAt,
+      phase: "done",
+      blockers,
+      releaseEligible: false,
+      coachEnabled: false,
+    };
+    await put(slotKey, state);
+    await put("research:ncaab:pipeline:latest", state);
+    return {
+      state: "processed",
+      slot,
+      blockers,
+      settlementsRecorded,
+      unsettledInBatch,
+      releaseEligible: false,
+      coachEnabled: false,
+    };
+  } catch (err) {
+    const finishedAt = await clock();
+    const failed = {
+      ...state,
+      state: "failed",
+      finishedAt,
+      reason: err instanceof Error ? err.message : "ncaab_pipeline_failed",
+      releaseEligible: false,
+      coachEnabled: false,
+    };
+    if (slotKey) await put(slotKey, failed);
+    await put("research:ncaab:pipeline:latest", failed);
+    throw err;
+  } finally {
+    await db.query("SELECT pg_advisory_unlock(64234,20261026)");
+  }
+}

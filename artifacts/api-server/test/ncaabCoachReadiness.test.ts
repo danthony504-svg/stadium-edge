@@ -10,6 +10,15 @@ test("NCAAB enablement is BLOCKED and does not inherit NCAAF validation", () => 
   });
   assert.equal(d.decision, "BLOCKED");
   assert.equal(d.researchPipelineExists, false);
+  assert.equal(
+    ncaabCoachEnablementDecision({ researchPipelineExists: true })
+      .researchPipelineExists,
+    true,
+  );
+  assert.equal(
+    ncaabCoachEnablementDecision({ researchPipelineExists: true }).decision,
+    "BLOCKED",
+  );
   assert.equal(d.validatedApprovedModelExists, false);
   assert.equal(d.coachReleaseEligible, false);
   assert.equal(d.mobileP0GameLineGate, "none_armed_today");
