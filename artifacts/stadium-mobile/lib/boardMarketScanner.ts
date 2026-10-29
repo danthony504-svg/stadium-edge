@@ -624,7 +624,7 @@ function appendPropScoredLegs(
     }
     const simHit = pick.finalAiScore?.simHit ?? null;
     let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
-    if (!leg) continue;
+    if (!leg) { opts.propAudit?.observe(pick, "grading", "simulation_or_grade_unavailable"); continue; }
     // Option C — unauthorized / missing provenance never enters the scored pool.
     const scoredProv =
       (pick as { propProbabilityProvenance?: PropProbabilityProvenance | null })
@@ -1000,6 +1000,7 @@ export async function simPropPoolUntilQualified(
 export function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
+    propAudit?: CoachPropAudit;
     target: number;
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
@@ -1308,8 +1309,27 @@ export function buildScanResult(
     hrRankDiagnostics = hrSelectionDiagnostics(scored, picks, componentsByFp);
   }
 
+  if (opts.propAudit) {
+    const fingerprints = (legs: BoardScoredLeg[]) => new Set(legs.map(leg => pickLegFingerprint(leg.pick)));
+    const excludedSafeKeys = fingerprints(exclusionSafe), scopeSafeKeys = fingerprints(scopeSafe);
+    const ladderKeys = fingerprints(ladderCollapsed), stageKeys = fingerprints(stagePool);
+    for (const leg of scored) {
+      const key = pickLegFingerprint(leg.pick);
+      const reason = !excludedSafeKeys.has(key) ? "excluded_team"
+        : !scopeSafeKeys.has(key) ? "request_team_scope"
+        : !ladderKeys.has(key) ? "duplicate_market_ladder"
+        : !stageKeys.has(key) ? "request_market_type" : null;
+      if (reason) opts.propAudit.observe(leg.pick, "scope_excluded", reason);
+    }
+  }
   const qualifiedCandidates = stagePool
-    .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
+    .filter((leg) => {
+      const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore, {
+        onRejected: reason => opts.propAudit?.observe(leg.pick, "grading", reason),
+      });
+      if (role != null) opts.propAudit?.observe(leg.pick, "grading", "graded");
+      return role != null;
+    })
     .map((leg) => leg.pick);
 
   return {
@@ -1435,6 +1455,13 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
   for (const [label, lines] of evalLinesByGame) {
     const eligible = filterGameLinesForCoachSimulation(lines, simulationConstraint);
+    if (opts.propAudit) {
+      const allowed = new Set(eligible);
+      for (const line of lines) {
+        opts.propAudit.observe(line as ParsedPick, "posted", "posted");
+        opts.propAudit.observe(line as ParsedPick, allowed.has(line) ? "eligible" : "scope_excluded", allowed.has(line) ? "eligible" : "request_market_or_period_exclusion");
+      }
+    }
     if (eligible.length) evalLinesByGame.set(label, eligible);
     else evalLinesByGame.delete(label);
   }
@@ -1505,6 +1532,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   const emitBoardScanPartial = (legs: BoardScoredLeg[] = scored) => {
     manifestRecorder.recomputeQualificationFromScored(legs);
     const partial = buildScanResult(legs, {
+      propAudit: opts.propAudit,
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
@@ -1561,14 +1589,18 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       });
       totalScanned += evaluated.length;
       for (const row of evaluated) {
+        opts.propAudit?.observe(row.pick, "posted", "posted");
+        opts.propAudit?.observe(row.pick, "simulation", sim ? "simulation_completed" : "simulation_unavailable");
         manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
+          opts.propAudit?.observe(leg.pick, "grading", "graded");
           scored.push(leg);
           if (!leg.pick.isProp) gameLegsScored += 1;
         } else {
+          opts.propAudit?.observe(row.pick, "grading", "simulation_or_grade_unavailable");
           // Always record — missing sims used to drop silently and look like a quality-bar miss.
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
@@ -1880,6 +1912,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     ...(gameSimMs != null ? { gameSimMs } : {}),
   };
   const result = buildScanResult(collapsed, {
+    propAudit: opts.propAudit,
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
