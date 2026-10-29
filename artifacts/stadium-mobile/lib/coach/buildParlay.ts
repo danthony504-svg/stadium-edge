@@ -1,3 +1,4 @@
+import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
 import { createCandidateTracking, trackCandidateAudit } from "../coachCandidateTracking.ts";
 import { reportCoachCandidates } from "../coachCandidateReporter.ts";
 import { pendingPropPreview } from "../coachPendingPropPreview.ts";
@@ -323,6 +324,7 @@ async function buildCoachParlayImpl(opts: {
    * Fires after prop/alt board + context load. UI must NOT reset the absolute
    * clock here — the monotonic deadline already includes load time.
    */
+  onResolvedAsk?: (askText: string) => void;
   onReadyToScan?: (info: { propPoolSize: number }) => void;
   /** Shared request start (UI beginCoachSession). Defaults to now. */
   requestStartedAtMs?: number;
@@ -479,6 +481,16 @@ async function buildCoachParlayImpl(opts: {
       timing,
       perf,
     };
+  }
+
+  const resolvedAsk = (target < 3 || shouldActivateSingleEventSeating(opts.askText)) ? opts.askText ?? "" : confirmedSingleGameAsk({
+    askText: opts.askText ?? "", sports: inputs.sports,
+    maxGames: parseCoachAskMarketConstraint(opts.askText).maxGames,
+    oddsGames: inputs.oddsGames, scheduleGames: inputs.espnGames,
+  });
+  if (resolvedAsk !== opts.askText) {
+    opts = { ...opts, askText: resolvedAsk };
+    opts.onResolvedAsk?.(resolvedAsk);
   }
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
@@ -1271,7 +1283,7 @@ async function buildCoachParlayImpl(opts: {
     prioritySports: inputs.prioritySports,
     propsOnly,
     exhaustPropBoard: hrBoardAsk,
-    legsPerGameCap: legsPerGameCap ?? undefined,
+    legsPerGameCap: terminalSeatCaps?.maxGameEventLines ?? legsPerGameCap ?? undefined,
     gameLinesOnly,
     collegeTeamMarketStacks: collegeTeamMarketStacks || undefined,
     requirePropMix,
@@ -1296,9 +1308,9 @@ async function buildCoachParlayImpl(opts: {
       // Carry include-scope so single-event seating activates and staging
       // cannot fall back to a multi-game / multi-sport board.
       askText: opts.askText ?? null,
-      singleEventSport: inputs.teamScope?.sport ?? null,
+      singleEventSport: inputs.teamScope?.sport ?? (terminalSeatCaps ? inputs.oddsGames[0]?.sport : null),
       singleEventKey:
-        inputs.teamScope && inputs.oddsGames[0]
+        terminalSeatCaps && inputs.oddsGames[0]
           ? `${inputs.oddsGames[0].awayTeam ?? ""} @ ${inputs.oddsGames[0].homeTeam ?? ""}`
           : null,
       // Rare multi-count lottery / 2+ / longshot path (#713).
@@ -1712,7 +1724,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     maxGames: terminalConstraint.maxGames,
     collegeTeamMarketStacks: askAllowsCollegeTeamMarketStacks(opts.askText),
   });
-  const terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
+  let terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
   const safePicks = (picks: ParsedPick[]) => applyDeliveryGroundingGate({
     target: terminalTarget, legsPerGameCap: terminalCaps?.maxGameEventLines ?? terminalGameCap,
     maxPropsPerGameCap: terminalCaps?.maxProps,
@@ -1739,6 +1751,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   try {
     const result = await runCoachBounded(signal => buildCoachParlayImpl({
       ...opts, signal, requestStartedAtMs, propAudit: audit,
+      onResolvedAsk: ask => {
+        if (closed || signal.aborted) return;
+        terminalCaps = shouldActivateSingleEventSeating(ask) ? singleEventCapsForTarget(terminalTarget) : null;
+        opts = { ...opts, askText: ask };
+        opts.onResolvedAsk?.(ask);
+      },
       onStatus: status => { if (!closed) opts.onStatus?.(status); },
       onReadyToScan: info => { if (!closed) { propPoolSize = info.propPoolSize; opts.onReadyToScan?.(info); } },
       onPartialPicks: picks => {
