@@ -1,9 +1,10 @@
+import { collectorFailureDiagnostic } from "./ncaaf-collector-diagnostic.mjs";
 /** Bounded prior-game boxscore capture for authenticated prospective development. */
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { summaryHistory } from "./ncaaf-repair-team-history.mjs";
-import { bindConferenceReports } from "./ncaaf-conference-availability.mjs";
+import { bindConferenceReports, latestConferenceArchiveKeys } from "./ncaaf-conference-availability.mjs";
 export function usageCapturePlan(games, targets, existingIds, cutoff) {
   const now = Date.parse(cutoff);
   if (!Number.isFinite(now) || targets.length > 128)
@@ -155,6 +156,7 @@ async function main() {
     chain = next.catch(() => {});
     return next;
   };
+  let phase = "database_check";
   try {
     if (
       (await query("SELECT current_database() AS name")).rows[0].name !==
@@ -174,15 +176,16 @@ async function main() {
         "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
       )
     ).rows[0]?.value;
-    const archives = (
-      await query(
-        "SELECT DISTINCT ON (value->>'conference') value FROM public.app_kv WHERE key LIKE 'research:ncaaf:conference-availability-v2:%' ORDER BY value->>'conference',key DESC",
-      )
-    ).rows;
+    phase = "archive_lookup";
+    const archives = await latestConferenceArchiveKeys(query);
+    phase = "event_binding";
     const targets = new Map();
-    for (const a of archives) {
+    for (const { key } of archives) {
+      const archive = (await query(
+        "SELECT value FROM public.app_kv WHERE key=$1", [key],
+      )).rows[0]?.value;
       try {
-        for (const b of bindConferenceReports(a.value, live, now))
+        for (const b of bindConferenceReports(archive, live, now))
           if (b.eventBindingVerified) targets.set(b.target.eventId, b.target);
       } catch {}
     }
@@ -195,6 +198,7 @@ async function main() {
       console.log(JSON.stringify(waiting));
       return;
     }
+    phase = "history_lookup";
     const history = (
       await query(
         "SELECT value FROM public.app_kv WHERE key LIKE 'research:ncaaf:history-summary:2026:%' ORDER BY key DESC LIMIT 1",
@@ -206,6 +210,7 @@ async function main() {
         "SELECT value->'games'->0->>'eventId' AS event_id FROM public.app_kv WHERE key LIKE 'research:ncaaf:game-summary:2026:%'",
       )
     ).rows;
+    phase = "usage_plan";
     const plan = usageCapturePlan(
       history.games,
       [...targets.values()],
@@ -303,6 +308,7 @@ async function main() {
         }
       }
     }
+    phase = "usage_capture";
     await Promise.all([work(), work()]);
     const result = {
       state: "processed",
@@ -317,12 +323,21 @@ async function main() {
       releaseEligible: false,
       finishedAt: new Date().toISOString(),
     };
+    phase = "status_save";
     await query(
       "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
       ["research:ncaaf:usage-capture:latest", JSON.stringify(result)],
     );
     console.log(JSON.stringify(result));
     if (failed) process.exitCode = 1;
+  } catch (error) {
+    const result = collectorFailureDiagnostic(error, phase);
+    await query(
+      "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
+      ["research:ncaaf:usage-capture:latest", JSON.stringify(result)],
+    ).catch(() => {});
+    console.error(JSON.stringify(result));
+    throw error;
   } finally {
     await chain;
     await db.end();
