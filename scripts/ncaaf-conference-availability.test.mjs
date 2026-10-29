@@ -299,3 +299,18 @@ test("mixed captures stay retryable after backoff without rewriting earlier evid
  assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+30*60000),true);
  assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+30*60000),false);
 });
+
+test("latest archive lookup reads only indexed keys, never historical JSON", async () => {
+  const { latestConferenceArchiveKeys } = await import('./ncaaf-conference-availability.mjs');
+  const calls = [];
+  const rows = [{ key: 'research:ncaaf:conference-availability-v2:B10:2026-10-29T00:00:00Z' }];
+  assert.deepEqual(await latestConferenceArchiveKeys(async (sql, params) => {
+    calls.push({ sql, params });
+    return { rows };
+  }), rows);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].params[0].length, 4);
+  assert.match(calls[0].sql, /SELECT key FROM public.app_kv/);
+  assert.match(calls[0].sql, /ORDER BY key DESC LIMIT 1/);
+  assert.doesNotMatch(calls[0].sql, /value|DISTINCT/);
+});

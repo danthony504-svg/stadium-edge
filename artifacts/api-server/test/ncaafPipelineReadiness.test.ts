@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ncaafPipelineReadiness } from "../src/lib/ncaafPipelineReadiness.js";
+import { ncaafPipelineReadiness, safeCollectorDiagnostic } from "../src/lib/ncaafPipelineReadiness.js";
 test("research and development counts cannot masquerade as qualified independent holdout or release", async () => {
   const db = {
     query: async (sql: string) => {
@@ -171,4 +171,12 @@ test("holdout funnel surfaces upcoming matches and unverified binding reasons wi
     ),
   );
   assert.equal(report.collectionEvidence.verifiedAvailabilityBindings, 1);
+});
+
+test("collector diagnostics expose only fixed failure codes and phases", () => {
+  assert.deepEqual(safeCollectorDiagnostic({failureCode:"collector_database_timeout",failurePhase:"archive_lookup"}),
+    {failureCode:"collector_database_timeout",failurePhase:"archive_lookup"});
+  const result=safeCollectorDiagnostic({failureCode:"SQL secret athlete record",failurePhase:"provider body"});
+  assert.deepEqual(result,{failureCode:null,failurePhase:null});
+  assert.deepEqual(safeCollectorDiagnostic(null),{failureCode:null,failurePhase:null});
 });

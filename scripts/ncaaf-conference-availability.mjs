@@ -15,6 +15,22 @@ const zones = {
   MT: "America/Denver",
   PT: "America/Los_Angeles",
 };
+/** Select archive keys without decompressing every historical JSON payload. */
+export async function latestConferenceArchiveKeys(query) {
+  const prefixes = CONFERENCES.map((conference) =>
+    `research:ncaaf:conference-availability-v2:${conference}:`);
+  const result = await query(
+    `SELECT a.key FROM unnest($1::text[]) AS p(prefix)
+     CROSS JOIN LATERAL (
+       SELECT key FROM public.app_kv
+       WHERE key LIKE p.prefix || '%'
+       ORDER BY key DESC LIMIT 1
+     ) a ORDER BY p.prefix`,
+    [prefixes],
+  );
+  return result.rows;
+}
+
 export function availabilityStatus(s) {
   const statuses = new Map([
     ["Available", "available"],
