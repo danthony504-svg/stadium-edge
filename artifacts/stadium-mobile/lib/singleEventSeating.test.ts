@@ -411,3 +411,22 @@ test("an eight-leg explicit request still underfills with only six distinct qual
   assert.equal(picks.length, 6);
   assert.equal(new Set(picks.map(p => p.player)).size, 6);
 });
+
+for (const sport of ['nfl', 'nba', 'wnba', 'mlb', 'nhl', 'soccer']) {
+ test(`${sport} confirmed single-game generic ask survives staging and terminal flush at eight legs`, async () => {
+  const { confirmedSingleGameAsk } = await import('./coachConfirmedSingleGame.ts');
+  const { resolveCoachTerminalPicks } = await import('./coachTicketHold.ts');
+  const game = 'Away Team @ Home Team', now = Date.parse('2026-10-29T18:00Z');
+  const askText = confirmedSingleGameAsk({askText:`8 leg ${sport}`, sports:[sport], now,
+   oddsGames:[{sport,awayTeam:'Away Team',homeTeam:'Home Team',commenceTime:'2026-10-30T00:00Z'}],
+   scheduleGames:[{sport,awayTeam:'Away Team',homeTeam:'Home Team',startsAt:'2026-10-30T00:00Z'}]});
+  const market = sport === 'mlb' ? 'Hits' : sport === 'nhl' ? 'Shots on Goal' : sport === 'soccer' ? 'Shots' : sport === 'nfl' ? 'Receptions' : 'Points';
+  const pool = Array.from({length:8},(_,i)=>prop(game,`Participant ${i}`,market,2.5,sport,100-i));
+  for (const row of pool) row.pick.teamAbbr='HOME';
+  const staged = buildStagedTicketFromScan(pool,8,undefined,{askText,singleEventKey:game,singleEventSport:sport});
+  assert.equal(staged.picks.length,8);
+  const delivered = resolveCoachTerminalPicks({bufferedPicks:staged.picks,messagePicks:[],requestedLegs:8,askText});
+  assert.equal(delivered.length,8);
+  assert.equal(new Set(delivered.map(p=>p.player)).size,8);
+ });
+}
