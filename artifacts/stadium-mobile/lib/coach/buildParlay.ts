@@ -1,3 +1,5 @@
+import { createCandidateTracking, trackCandidateAudit } from "../coachCandidateTracking.ts";
+import { reportCoachCandidates } from "../coachCandidateReporter.ts";
 import { pendingPropPreview } from "../coachPendingPropPreview.ts";
 import { CoachWorkTimeout, runCoachBounded } from "../coachAbortable.ts";
 import { satisfiesExplicitGamePropMix } from "../slate.ts";
@@ -1697,7 +1699,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   opts = { ...opts, askText: resolveCoachFollowupAsk(opts.askText, opts.priorUserTexts) };
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
-  const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `candidate-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+  const tracking = createCandidateTracking(opts.reliabilityRequestId!, Math.max(1, Math.min(opts.requestedLegs || 6, 15)));
+  const audit = trackCandidateAudit(createCoachPropAudit(opts.reliabilityRequestId!), tracking);
+  const reportCandidateTerminal = (picks: readonly ParsedPick[], terminal: "completed" | "timed_out" | "cancelled" | "error") => {
+    try { reportCoachCandidates(tracking.finish(picks, terminal)); } catch { /* Observability cannot break delivery. */ }
+  };
   const terminalTarget = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
   const terminalConstraint = parseCoachAskMarketConstraint(opts.askText);
   const terminalGameCap = legsPerGameCapForAsk(terminalTarget, {
@@ -1744,6 +1751,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const scopedPicks = safePicks(result.picks);
     const mixUnavailable = scopedPicks.length > 0 && !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
     const picks = mixUnavailable ? [] : scopedPicks;
+    reportCandidateTerminal(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed");
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
     return { ...result, picks, note: result.timedOut && picks.length < terminalTarget
       ? `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`
@@ -1756,6 +1764,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       timing.timedOut = true;
       timing.timeoutReason = "absolute_budget";
       finalizeCoachRequestTiming(timing);
+      reportCandidateTerminal(picks, "timed_out");
       audit.finish(picks, "timed_out", report => { void persistCoachPropAudit(report); });
       reportCoachScanReliability({
         requestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}`,
@@ -1767,6 +1776,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       });
       return { picks, note: `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`, scan: null, timedOut: true, propPoolSize, timing, reliabilityRequestId: opts.reliabilityRequestId };
     }
+    reportCandidateTerminal([], opts.signal.aborted ? "cancelled" : "error");
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
   } finally { closed = true; releaseAudit(); release(); }
