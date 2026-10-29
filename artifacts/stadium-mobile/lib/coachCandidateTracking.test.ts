@@ -50,3 +50,20 @@ test('final selections survive audit cap and preserve a unique identity', () => 
   assert.equal(new Set(report.rows.map(r => r.candidateId)).size, 2);
   assert.equal(report.omittedObservations, 1);
 });
+
+test('missing simulations remain incomplete after the scanner grading observation', () => {
+ const t = createCandidateTracking('request', 7);
+ const p = pick({isProp: false, market: 'Spread'});
+ t.observe(p, 'simulation', 'simulation_unavailable');
+ t.observe(p, 'grading', 'simulation_or_grade_unavailable');
+ const report = t.finish([], 'completed');
+ assert.equal(report.rows[0].disposition, 'evaluation_incomplete');
+ assert.equal(report.rows[0].observations.length, 2);
+});
+test('a real quality rejection remains excluded after an incomplete attempt', () => {
+ const t = createCandidateTracking('request', 7);
+ const p = pick();
+ t.observe(p, 'simulation', 'simulation_unavailable');
+ t.observe(p, 'grading', 'quality_grade_floor');
+ assert.equal(t.finish([], 'completed').rows[0].disposition, 'excluded');
+});
