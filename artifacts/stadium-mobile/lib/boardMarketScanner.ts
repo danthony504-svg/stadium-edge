@@ -68,6 +68,7 @@ import {
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import {
+  missingRequiredOpponentEvidence,
   shouldBlockRushOverVsDefense,
   shouldDropPropMissingOppDefense,
 } from "./footballRushDefense.ts";
@@ -609,7 +610,12 @@ function appendPropScoredLegs(
         line: pick.propLine,
         pack,
         vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
-      }) ||
+      })
+    ) {
+      opts.propAudit?.observe(pick, "grading", "opponent_evidence_missing");
+      continue;
+    }
+    if (
       shouldBlockRushOverVsDefense({
         sport: sportKey,
         market: pick.propMarketKey ?? pick.market,
@@ -619,7 +625,7 @@ function appendPropScoredLegs(
         ownPack,
       })
     ) {
-      opts.propAudit?.observe(pick, "grading", "opponent_defense_gate");
+      opts.propAudit?.observe(pick, "grading", "rush_over_defense_block");
       continue;
     }
     const simHit = pick.finalAiScore?.simHit ?? null;
@@ -867,14 +873,30 @@ export async function simPropPoolUntilQualified(
         prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
       );
     });
+  // Spend the existing simulation budget on candidates whose required opponent
+  // evidence is present first. Missing evidence remains blocked by the same gate.
+  const evidenceReady = (pick: ParsedPick) => {
+    const pack = oppDefensePackForOpponent({
+      sport: pick.sport,
+      opponentTeamId: opponentTeamIdForProp({ sport: pick.sport, game: pick.game,
+        teamAbbr: pick.teamAbbr, espnGames: opts.espnGames, teamIdMap: opts.teamIdsByGame }),
+      map: opts.oppRushDefense,
+    });
+    return !missingRequiredOpponentEvidence({ sport: pick.sport,
+      market: pick.propMarketKey ?? pick.market, pack });
+  };
+  const simReady = rankedAll.filter(evidenceReady);
+  for (const pick of rankedAll) {
+    if (!evidenceReady(pick)) opts.propAudit?.observe(pick, "grading", "opponent_evidence_missing");
+  }
   const maxToSim = footballSkill
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
   // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
   // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
   const { selected: rankedProps } = footballSkill
-    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(rankedAll), maxToSim)
-    : selectBoardPropSimCandidates(distinctPropSimSeeds(rankedAll), maxToSim);
+    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim)
+    : selectBoardPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim);
 
   const scoreOpts = {
     pool,

@@ -1,6 +1,6 @@
 /** Verified team-level context. A team total is never an individual projection. */
 export type MarketAllowanceRow={games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:'team_allowed'|'team_offensive_exposure';source:string};
-export type MarketAllowanceBox={header?:{id?:string;competitions?:Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string};score?:string|number}>}>};boxscore?:{players?:Array<{team?:{id?:string};statistics?:Array<{labels?:string[];totals?:string[]}>}>;teams?:Array<{team?:{id?:string};statistics?:Array<{name?:string;value?:number|string;displayValue?:string}>}>}};
+export type MarketAllowanceBox={header?:{id?:string;competitions?:Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string};score?:string|number}>}>};boxscore?:{players?:Array<{team?:{id?:string};statistics?:Array<{name?:string;labels?:string[];totals?:string[]}>}>;teams?:Array<{team?:{id?:string};statistics?:Array<{name?:string;value?:number|string;displayValue?:string}>}>}};
 type Rule={market:string;fields:string[][];scope:'team_allowed'|'team_offensive_exposure'};
 const rule=(market:string,fields:string[][],scope:Rule['scope']='team_allowed'):Rule=>({market,fields,scope});
 export function opponentMarketRules(sport:string):Rule[]{
@@ -27,6 +27,23 @@ export function aggregateOpponentMarkets(sport:string,teamId:string,boxes:Market
     const labels=batting[0]!.labels!,totals=batting[0]!.totals??[];
     const fields:Record<string,string>={H:'hits',R:'runs',RBI:'RBIs',HR:'homeRuns',SB:'stolenBases',K:'strikeouts',BB:'walks'};
     statRows=Object.entries(fields).flatMap(([label,name])=>{const i=labels.indexOf(label);return i>=0&&labels.lastIndexOf(label)===i&&totals[i]!=null?[{name,displayValue:totals[i]}]:[];});
+   }
+   // Football receiving totals are published in the named player-box group,
+   // not necessarily in team statistics. Use only explicit team totals: never
+   // sum incomplete athlete rows or substitute net passing yards for receiving.
+   if (['nfl','ncaaf'].includes(sport)) {
+    const groups=(b.boxscore?.players??[]).filter(p=>p.team?.id===target).flatMap(p=>p.statistics??[]);
+    const add=(group:string,label:string,name:string)=>{
+     if(statRows.some(s=>s.name===name))return;
+     const matches=groups.filter(g=>g.name===group);if(matches.length!==1)return;
+     const g=matches[0]!,labels=g.labels??[],i=labels.indexOf(label);
+     if(i<0||labels.lastIndexOf(label)!==i)return;
+     const raw=g.totals?.[i];if(raw==null||!/^\d+(?:\.\d+)?$/.test(raw))return;
+     statRows=[...statRows,{name,value:Number(raw)}];
+    };
+    add('receiving','REC','receptions');
+    add('receiving','YDS','receivingYards');
+    add('rushing','CAR','rushingAttempts');
    }
    // Explicit ESPN made/attempted pair fields, never inferred from percentages.
    const pair=(name:string,pattern:RegExp,names:string[])=>{const cells=statRows.filter(s=>s.name===name);if(cells.length!==1)return;const match=String(cells[0]!.displayValue??cells[0]!.value??'').match(pattern);if(!match)return;names.forEach((name,i)=>{if(!statRows.some(s=>s.name===name))statRows=[...statRows,{name,value:Number(match[i+1])}];});};

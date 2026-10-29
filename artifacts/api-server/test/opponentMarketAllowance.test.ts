@@ -8,3 +8,12 @@ test('thin, missing, duplicate, future, wrong-team and ambiguous fields withhold
 test('provider made/attempted pairs retain exact units',()=>{const b=['1','2','3'].map(box);for(const x of b)x.boxscore!.teams![1]!.statistics!.push({name:'threePointFieldGoalsMade-threePointFieldGoalsAttempted',displayValue:'10-30'},{name:'completionAttempts',displayValue:'20/30'});assert.equal(aggregateOpponentMarkets('nba','D',b).find(r=>r.market==='player_threes')?.perGame,10);assert.equal(aggregateOpponentMarkets('nfl','D',b).find(r=>r.market==='player_pass_completions')?.perGame,20);for(const x of b)x.boxscore!.teams![1]!.statistics!.find(s=>s.name==='threePointFieldGoalsMade-threePointFieldGoalsAttempted')!.displayValue='10-invalid';assert.ok(!aggregateOpponentMarkets('nba','D',b).some(r=>r.market==='player_threes'));});
 
 test('threshold histories retain exactly one dated value per observed event',()=>{const r=aggregateOpponentMarkets('nfl','D',['1','2','3','3'].map(box)).find(x=>x.market==='player_pass_yds')!;assert.equal(r.games?.length,3);assert.deepEqual(r.games?.map(g=>g.eventId),['1','2','3']);assert.ok(r.games?.every(g=>g.value===250&&Number.isFinite(Date.parse(g.date))));});
+
+test('football receiving evidence uses unique named group team totals, never passing-yard proxies',()=>{
+ const boxes=[1,2,3].map(i=>({header:{id:String(i),competitions:[{date:`2026-10-0${i}T12:00:00Z`,status:{type:{completed:true}},competitors:[{team:{id:'a'}},{team:{id:'b'}}]}]},boxscore:{teams:[{team:{id:'b'},statistics:[{name:'netPassingYards',value:180}]}],players:[{team:{id:'b'},statistics:[{name:'receiving',labels:['REC','YDS'],totals:['20','240']}]}]}}));
+ const rows=aggregateOpponentMarkets('nfl','a',boxes,Date.parse('2026-10-20'));
+ assert.equal(rows.find(r=>r.market==='player_receptions')?.perGame,20);
+ assert.equal(rows.find(r=>r.market==='player_reception_yds')?.perGame,240);
+ const ambiguous=boxes.map(b=>({...b,boxscore:{...b.boxscore,players:[...b.boxscore.players,...b.boxscore.players]}}));
+ assert.equal(aggregateOpponentMarkets('nfl','a',ambiguous,Date.parse('2026-10-20')).some(r=>r.market==='player_receptions'),false);
+});

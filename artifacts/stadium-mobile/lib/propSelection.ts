@@ -12,6 +12,8 @@ import {
 } from "@/lib/pickScoreContext";
 import { varietyRankKey } from "@/lib/varietySeed";
 
+import { isBinaryNullLineMarket } from "./binaryPropMarket.ts";
+
 const SIM_SELECTION_TIMEOUT_MS = 2800;
 
 export type PropSelectionOpts = PropSimAttachOpts & {
@@ -77,9 +79,14 @@ export function lookupPropSimHit(
 }
 
 export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
+  // Yes/No binary markets have a settlement threshold, not a provider point.
+  const line = e.line ?? (isBinaryNullLineMarket(e.marketKey) ? 0.5 : null);
+  const side = isBinaryNullLineMarket(e.marketKey)
+    ? String(e.side) === "No" ? "Under" : String(e.side) === "Yes" ? "Over" : e.side
+    : e.side;
   const pick =
-    e.line != null
-      ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
+    line != null
+      ? `${e.player} ${side} ${line} ${e.marketLabel}`
       : `${e.player} ${e.marketLabel}`;
   return {
     game: e.game,
@@ -96,8 +103,8 @@ export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     athleteId: e.athleteId,
     playerTeamId: e.playerTeamId,
     propMarketKey: e.marketKey,
-    propLine: e.line,
-    propSide: e.side,
+    propLine: line,
+    propSide: side,
     eventId: e.eventId ?? null,
     sportsbook: e.sportsbook ?? null,
     sourceUpdatedAt: e.sourceUpdatedAt ?? null,
