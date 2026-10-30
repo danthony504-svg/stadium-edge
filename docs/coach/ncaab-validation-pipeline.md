@@ -1,48 +1,38 @@
 # NCAAB research validation pipeline
 
-Separate from NCAAF. Captures prospective NCAAB live inputs and settles saved research forecasts against authenticated ESPN finals. **Does not unlock Coach.**
+Separate from NCAAF. Captures prospective NCAAB live inputs, prepares development examples, fits/freezes an odds-ridge research candidate when evidence passes, journals prospective holdouts, and settles saved forecasts against authenticated ESPN finals. **Does not unlock Coach.**
 
 ## Principles
 
 - Keys live under `research:ncaab:*` only — never read or rewrite `research:ncaaf:*`.
 - `coachEnabled` / `releaseEligible` remain false until an independent multi-season holdout and human signoff exist.
-- `ncaab-score-v2` is product-sim infrastructure, not a release-approved model.
+- `ncaab-score-v2` is product-sim infrastructure, not a release-approved model and not a freeze source.
 - Development examples and independent holdouts must stay distinct; old predictions are never relabelled.
 
 ## Activation
 
-Set `NCAAB_RESEARCH_PIPELINE_ENABLED=true` on the API service (default off). Uses existing `DATABASE_URL` and `ODDS_API_KEY`. API boot and the notification cron enqueue `ncaabResearchWorker` as a separate process.
+Set `NCAAB_RESEARCH_PIPELINE_ENABLED=true` on the API service. Uses existing `DATABASE_URL` and `ODDS_API_KEY`. API boot and the notification cron enqueue `ncaabResearchWorker`.
 
-## Stages (v1)
+## Stages
 
-1. Settlement check — lists unsettled `research:ncaab:forecast:*` rows whose kickoff is at least four hours earlier. ESPN `mens-college-basketball` summary binding (`scripts/ncaab-bind-final-summary.mjs`) authenticates the final; `scoreNcaabRecordedForecast` scores saved ml/spread/total probabilities without re-simulating. First write wins (`ON CONFLICT DO NOTHING`). Missing finals stay unsettled for a later slot. Cadence is at most once per 30 minutes, batch ≤64, no paid odds.
-2. Live-input capture (`scripts/ncaab-capture-live-inputs.mjs`) — The Odds API `basketball_ncaab` h2h/spreads/totals with exact `sourceUpdatedAt`, matched to ESPN mens-college-basketball scoreboard by team aliases + kickoff.
-3. Freeze attempt — `attemptNcaabResearchFreeze` records honest waiting states on `research:ncaab:adjusted-model:latest`. It never freezes product sim `ncaab-score-v2` and does not write a new `modelSha256` until a basketball research trainer exists. See `ncaab-adjusted-research-model.md`.
-4. Journal — waits for a frozen NCAAB candidate (`research:ncaab:adjusted-model:latest.modelSha256`); does not invent forecasts.
+1. Settlement — unsettled forecasts with kickoff ≥4h earlier; ESPN summary bind + `scoreNcaabRecordedForecast`; first-write-wins; batch ≤64; ≤1 run / 30 min.
+2. Live-input capture — Odds API `basketball_ncaab` + ESPN scoreboard identity.
+3. Development prepare — `ncaab-prepare-development.mjs` authenticates completed examples from live archives + finals.
+4. Freeze — `attemptNcaabResearchFreeze` fits only when ≥9 feature-complete games pass signal guards; waiting states never invent `modelSha256`.
+5. Journal — prospective forecasts for future excluded games only; blocked until freeze exists.
 
-Release requirements mirror the research bar: **500** independent games across **≥2** seasons, calibration review, human approval.
-
-## Status
-
-- Public inventory: `GET /api/research/ncaab/status`
-- Internal: `GET /api/notifications/ncaab-research/status` (cron key)
-
-Settlement status includes `settlementsRecorded`, `unsettledInBatch`, and allowlisted blockers. A processed settlement check with zero forecasts is healthy plumbing, not validation evidence.
+Release floors: **500** independent games × **≥2** seasons, quality reviews, human approval.
 
 ## Verification
 
-1. Deploy a commit that includes this scaffold.
-2. Confirm `/api/healthz` SHA.
-3. With the env flag off, status still returns `coachEnabled:false` and `decision:BLOCKED`.
-4. With the flag on and odds credentials present, a slot should write `research:ncaab:live-inputs:*` and leave forecast counts at 0 until a frozen candidate exists.
-5. After a saved research forecast exists and ESPN posts a final, settlement should write `research:ncaab:settlement:*` with `releaseEligible:false`.
-6. After a worker run, `adjusted-model:latest` should show an explicit waiting state (not a fabricated `modelSha256`).
+1. Confirm `/api/healthz` SHA.
+2. Status stays `coachEnabled:false` / `decision:BLOCKED`.
+3. Settlement `processed` with allowlisted blockers only.
+4. `adjusted-model:latest` is either an explicit waiting state with `modelSha256:null` or a preserved/frozen research candidate with `releaseEligible:false`.
 
-## Out of scope for this revision
+## Out of scope
 
-- Basketball adjusted-model coefficient trainer (development prepare + ridge fit)
-- Forecast journal wiring (still blocked on a frozen `modelSha256`)
 - Coach mobile unlock / OTA
-- Reusing NCAAF conference or availability collectors
-- Importing NCAAF journal/scorer modules (frozen football implementation surface)
-- Treating `ncaab-score-v2` as a research freeze source
+- Reusing NCAAF conference collectors or importing NCAAF journal/scorer modules
+- Treating `ncaab-score-v2` as a research freeze
+- Waiving the 500×2-season independent holdout bar

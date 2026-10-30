@@ -4,10 +4,14 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { attemptNcaabResearchFreeze } from "./lib/ncaabAdjustedModelStore.js";
+import { recordNcaabAdjustedForecasts } from "./lib/ncaabForecastJournal.js";
 import { runNcaabValidationPipeline } from "./lib/ncaabValidationPipeline.js";
 
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
-const allowed = new Set(["ncaab-capture-live-inputs.mjs"]);
+const allowed = new Set([
+  "ncaab-capture-live-inputs.mjs",
+  "ncaab-prepare-development.mjs",
+]);
 
 async function runCollector(name: string, args: string[]) {
   if (!allowed.has(name)) throw Error("ncaab_pipeline_unknown_collector");
@@ -15,12 +19,15 @@ async function runCollector(name: string, args: string[]) {
     const child = spawn(
       process.execPath,
       [
-        "--max-old-space-size=192",
+        "--max-old-space-size=256",
         resolve(repoRoot, "scripts", name),
         ...args,
         "--execute",
       ],
-      { stdio: ["ignore", "ignore", "pipe"], env: process.env },
+      {
+        stdio: ["ignore", "ignore", "pipe"],
+        env: { ...process.env, NCAAB_REPO_ROOT: repoRoot },
+      },
     );
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
@@ -46,7 +53,7 @@ async function main() {
   const db = new Client({
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10000,
-    query_timeout: 15000,
+    query_timeout: 60000,
   });
   await db.connect();
   try {
@@ -86,7 +93,8 @@ async function main() {
       collectionEnabled: Boolean(process.env.ODDS_API_KEY?.trim()),
       runCollector,
       fetchOutcome,
-      attemptFreeze: () => attemptNcaabResearchFreeze(db),
+      attemptFreeze: () => attemptNcaabResearchFreeze(db, repoRoot),
+      recordJournal: () => recordNcaabAdjustedForecasts(db),
     });
   } finally {
     await db.end();

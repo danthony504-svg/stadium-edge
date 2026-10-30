@@ -154,7 +154,10 @@ test("NCAAB collection records waiting_for_frozen_candidate without inventing fo
   assert.equal(r.state, "processed");
   assert.equal(r.releaseEligible, false);
   assert.equal(r.coachEnabled, false);
-  assert.deepEqual(calls, ["ncaab-capture-live-inputs.mjs"]);
+  assert.deepEqual(calls, [
+    "ncaab-capture-live-inputs.mjs",
+    "ncaab-prepare-development.mjs",
+  ]);
   const latest = db.values.get("research:ncaab:pipeline:latest");
   assert.equal(latest.freezeState, "waiting_for_verified_development_finals");
   assert.equal(latest.freezeModelSha256, null);

@@ -28,6 +28,11 @@ export type NcaabPipelineDeps = {
     season: number,
   ) => Promise<{ outcome: NcaabSettledOutcome; source: unknown } | null>;
   attemptFreeze?: () => Promise<{ state: string; modelSha256?: string | null }>;
+  recordJournal?: () => Promise<{
+    state: string;
+    recorded?: number;
+    withheld?: number;
+  }>;
 };
 
 export function ncaabResearchSlot(now: Date): string {
@@ -47,6 +52,7 @@ export async function runNcaabValidationPipeline({
   runCollector,
   fetchOutcome,
   attemptFreeze,
+  recordJournal,
   settlementOnly = false,
   collectionEnabled = true,
 }: NcaabPipelineDeps) {
@@ -278,6 +284,14 @@ export async function runNcaabValidationPipeline({
       }
     }
 
+    state.phase = "development";
+    await put("research:ncaab:pipeline:latest", state);
+    try {
+      await runCollector("ncaab-prepare-development.mjs", []);
+    } catch {
+      fail("ncaab_development_prepare_failed");
+    }
+
     state.phase = "freeze";
     await put("research:ncaab:pipeline:latest", state);
     if (attemptFreeze) {
@@ -287,7 +301,8 @@ export async function runNcaabValidationPipeline({
         state.freezeModelSha256 = freeze.modelSha256 ?? null;
         await put(slotKey, state);
         await put("research:ncaab:pipeline:latest", state);
-        if (!freeze.modelSha256) fail(freeze.state || "waiting_for_frozen_ncaab_candidate");
+        if (!freeze.modelSha256)
+          fail(freeze.state || "waiting_for_frozen_ncaab_candidate");
       } catch {
         fail("ncaab_freeze_attempt_failed");
       }
@@ -298,6 +313,18 @@ export async function runNcaabValidationPipeline({
     const frozen = await get("research:ncaab:adjusted-model:latest");
     if (!frozen?.modelSha256) {
       fail("waiting_for_frozen_ncaab_candidate");
+    } else if (recordJournal) {
+      try {
+        const journal = await recordJournal();
+        state.journalState = journal.state;
+        state.journalRecorded = journal.recorded ?? 0;
+        state.journalWithheld = journal.withheld ?? 0;
+        await put(slotKey, state);
+        await put("research:ncaab:pipeline:latest", state);
+        if (journal.state !== "processed") fail(journal.state);
+      } catch {
+        fail("ncaab_forecast_journal_failed");
+      }
     } else {
       fail("ncaab_forecast_journal_not_wired");
     }
