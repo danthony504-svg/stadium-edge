@@ -70,6 +70,11 @@ type SubscriptionContextValue = {
    * by EXPO_PUBLIC_APP_REVIEW_MODE.
    */
   coachPremiumUnlocked: boolean;
+  /**
+   * Server-verified RESEARCH_TESTER_EMAILS match. Research-only Coach unlock
+   * for NCAAF/NCAAB — never subscriber release approval.
+   */
+  researchTesterAccess: boolean;
   /** True when this native build can open Apple StoreKit billing. */
   storeKitReady: boolean;
   /** Why StoreKit is unavailable (null when ready). */
@@ -129,6 +134,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   /** Server-verified App Review / owner access — never from EXPO_PUBLIC emails. */
   const [serverAppReviewAccess, setServerAppReviewAccess] = useState(false);
   const [serverOwnerAccess, setServerOwnerAccess] = useState(false);
+  const [serverResearchTesterAccess, setServerResearchTesterAccess] =
+    useState(false);
   const loaded = useRef(false);
 
   const email =
@@ -255,6 +262,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!isSignedIn || !userId) {
       setServerAppReviewAccess(false);
       setServerOwnerAccess(false);
+      setServerResearchTesterAccess(false);
       return;
     }
     let cancelled = false;
@@ -262,16 +270,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const flags = await fetchServerAccessFlags();
       if (cancelled) return;
       const appliedOwner = flags?.ownerAccess === true;
+      const appliedResearch = flags?.researchTesterAccess === true;
       setServerAppReviewAccess(flags?.appReviewAccess === true);
       setServerOwnerAccess(appliedOwner);
+      setServerResearchTesterAccess(appliedResearch);
       // Temporary sanitized Context probe — no email / userId / tokens.
       try {
         console.info(
           "[entitlement-diag]",
           JSON.stringify({
             contextAppliedOwnerAccess: appliedOwner,
+            contextAppliedResearchTesterAccess: appliedResearch,
             flagsReceived: flags != null,
             ownerAccessReceived: flags?.ownerAccess === true,
+            researchTesterAccessReceived: flags?.researchTesterAccess === true,
           }),
         );
       } catch {
@@ -295,16 +307,25 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         email: isSignedIn ? email : null,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
         serverOwnerAccess: isSignedIn && serverOwnerAccess,
+        serverResearchTesterAccess: isSignedIn && serverResearchTesterAccess,
         // Legacy flag ignored inside hasProAccess — proves old OTAs stay locked.
         appReviewMode:
           (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
+    [
+      state,
+      tick,
+      isSignedIn,
+      email,
+      serverAppReviewAccess,
+      serverOwnerAccess,
+      serverResearchTesterAccess,
+    ],
   );
 
-  /** Coach premium: StoreKit / server-verified owner or App Review only. */
+  /** Coach premium: StoreKit / server-verified owner, App Review, or research tester. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
@@ -312,10 +333,22 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         email: isSignedIn ? email : null,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
         serverOwnerAccess: isSignedIn && serverOwnerAccess,
+        serverResearchTesterAccess: isSignedIn && serverResearchTesterAccess,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
+    [
+      state,
+      tick,
+      isSignedIn,
+      email,
+      serverAppReviewAccess,
+      serverOwnerAccess,
+      serverResearchTesterAccess,
+    ],
   );
+
+  const researchTesterAccess =
+    !!isSignedIn && serverResearchTesterAccess === true;
 
   const selectPlan = useCallback(
     async (planId: PlanId): Promise<PurchaseActionResult> => {
@@ -500,6 +533,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       hydrated,
       entitlement,
       coachPremiumUnlocked,
+      researchTesterAccess,
       storeKitReady,
       storeKitBlockedReason,
       storeKitManagementUrl: state.storeKitManagementUrl,
@@ -515,6 +549,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       hydrated,
       entitlement,
       coachPremiumUnlocked,
+      researchTesterAccess,
       storeKitReady,
       storeKitBlockedReason,
       state.storeKitManagementUrl,

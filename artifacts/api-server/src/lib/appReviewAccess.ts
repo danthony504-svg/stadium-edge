@@ -13,16 +13,19 @@ import {
 } from "./appReviewAuth.js";
 import { logger } from "./logger.js";
 
-/** Pure combine of RevenueCat paid access + designated review / owner test. */
+/** Pure combine of RevenueCat paid access + designated review / owner / research tester. */
 export function resolvePremiumApiAccess(opts: {
   paidEntitlement: boolean;
   designatedAppReview: boolean;
   designatedOwnerTest?: boolean;
+  /** Internal research-only Coach unlock — does not authorize subscriber release. */
+  designatedResearchTester?: boolean;
 }): boolean {
   return (
     opts.paidEntitlement === true ||
     opts.designatedAppReview === true ||
-    opts.designatedOwnerTest === true
+    opts.designatedOwnerTest === true ||
+    opts.designatedResearchTester === true
   );
 }
 

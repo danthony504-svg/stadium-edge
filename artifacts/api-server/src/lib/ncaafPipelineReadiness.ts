@@ -315,6 +315,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
       "model_fit_validation_and_release_are_not_automatically_claimed_by_collection_success",
       "conference_availability_reports_are_partial_and_may_lag_upcoming_slates",
       "frozen_research_candidate_does_not_authorize_coach_unlock",
+      "internal_research_tester_access_does_not_satisfy_release_gates",
     ],
   };
 }

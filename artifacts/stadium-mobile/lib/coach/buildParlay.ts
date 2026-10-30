@@ -93,6 +93,10 @@ import {
   P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
 } from "@/lib/coachP0UnvalidatedTotals";
 import {
+  RESEARCH_NOT_VALIDATED_LABEL,
+  runWithResearchTesterUnlockAsync,
+} from "@/lib/researchTesterSession";
+import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
 } from "@/lib/coachPrioritySports";
@@ -330,6 +334,11 @@ async function buildCoachParlayImpl(opts: {
   requestStartedAtMs?: number;
   /** Shared greenfield id for delivery-commit correlation. */
   reliabilityRequestId?: string;
+  /**
+   * Server-verified researchTesterAccess only. Opens NCAAF research sims
+   * while NCAAF_GAME_LINE_SIM_VALIDATED stays false for subscribers.
+   */
+  researchTesterUnlocked?: boolean;
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
   const budgetMs = coachTotalRequestBudgetMs(target);
@@ -1706,9 +1715,19 @@ async function buildCoachParlayImpl(opts: {
   };
 }
 
+function appendResearchDisclaimer(note: string | null | undefined): string {
+  const base = String(note ?? "").trim();
+  if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) return base;
+  return base
+    ? `${base}\n\n${RESEARCH_NOT_VALIDATED_LABEL}`
+    : RESEARCH_NOT_VALIDATED_LABEL;
+}
+
 /** Preparation never extends the foreground deadline or competes with its queue. */
 export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
   opts = { ...opts, askText: resolveCoachFollowupAsk(opts.askText, opts.priorUserTexts) };
+  const researchUnlocked = opts.researchTesterUnlocked === true;
+  return runWithResearchTesterUnlockAsync(researchUnlocked, async () => {
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
   opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `candidate-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
@@ -1771,9 +1790,14 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const picks = mixUnavailable ? [] : scopedPicks;
     reportCandidateTerminal(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed");
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: result.timedOut && picks.length < terminalTarget
+    const note = result.timedOut && picks.length < terminalTarget
       ? `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`
-      : mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
+      : mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note;
+    return {
+      ...result,
+      picks,
+      note: researchUnlocked ? appendResearchDisclaimer(note) : note,
+    };
   } catch (e) {
     closed = true;
     if (e instanceof CoachWorkTimeout) {
@@ -1792,11 +1816,21 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
         durationMs: timing.totalMs, timeoutReason: "absolute_budget",
         rootCause: "absolute_budget", realOddsAvailable: picks.length ? true : null,
       });
-      return { picks, note: `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`, scan: null, timedOut: true, propPoolSize, timing, reliabilityRequestId: opts.reliabilityRequestId };
+      const timeoutNote = `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`;
+      return {
+        picks,
+        note: researchUnlocked ? appendResearchDisclaimer(timeoutNote) : timeoutNote,
+        scan: null,
+        timedOut: true,
+        propPoolSize,
+        timing,
+        reliabilityRequestId: opts.reliabilityRequestId,
+      };
     }
     reportCandidateTerminal([], opts.signal.aborted ? "cancelled" : "error");
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
   } finally { closed = true; releaseAudit(); release(); }
+  });
 }
 
