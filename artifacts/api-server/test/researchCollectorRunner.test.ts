@@ -23,6 +23,38 @@ test("sanitizeCollectorDetail prefers allowlisted trailing codes", () => {
   );
 });
 
+test("sanitizeCollectorDetail extracts failureCode from compact JSON stderr", () => {
+  assert.equal(
+    sanitizeCollectorDetail(
+      JSON.stringify({
+        state: "failed",
+        failureCode: "collector_database_timeout",
+        failurePhase: "archive_lookup",
+      }) + "\nUsage evidence capture failed; no forecast or release changed.\n",
+    ),
+    "collector_database_timeout",
+  );
+  assert.equal(
+    sanitizeCollectorDetail(
+      '{"state":"failed","failureCode":"usage_history_missing"}',
+    ),
+    "usage_history_missing",
+  );
+  assert.equal(
+    sanitizeCollectorDetail('{"failureCode":"secret arbitrary payload"}'),
+    null,
+  );
+  assert.equal(
+    collectorExitFailure(
+      "ncaaf-capture-usage.mjs",
+      1,
+      null,
+      '{"failureCode":"collector_database_timeout"}\n',
+    ),
+    "pipeline_collector_ncaaf_capture_usage_collector_database_timeout",
+  );
+});
+
 test("collectorFailureCode names the script and failure class", () => {
   assert.equal(
     collectorFailureCode("ncaaf-context-dataset.mjs", {}),

@@ -15,12 +15,31 @@ export function sanitizeCollectorDetail(text: string): string | null {
     .filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
+    // Usage/conference diagnostics often emit one compact JSON object on stderr.
+    if (line.startsWith("{") && line.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(line) as {
+          failureCode?: unknown;
+          reason?: unknown;
+        };
+        for (const candidate of [parsed.failureCode, parsed.reason]) {
+          if (typeof candidate === "string" && ALLOWED_DETAIL.test(candidate))
+            return candidate;
+        }
+      } catch {
+        // Ignore non-JSON noise; fall through to token scan.
+      }
+    }
     // Prefer exact allowlisted codes; ignore narrative console.error text.
     const token = line.split(/\s+/).find((t) => ALLOWED_DETAIL.test(t));
     if (token) return token;
     if (ALLOWED_DETAIL.test(line)) return line;
   }
-  return null;
+  // Truncated or pretty-printed JSON: pull only the allowlisted failureCode field.
+  const embedded = String(text ?? "").match(
+    /"failureCode"\s*:\s*"((?:context|conference|usage|repair|history|injury|ncaab|pipeline|collector)_[a-z0-9_]+)"/,
+  );
+  return embedded?.[1] ?? null;
 }
 
 export function collectorFailureCode(
