@@ -126,6 +126,9 @@ export default function CoachScreen() {
   const { isSignedIn } = useAuth();
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
+  /** Server-verified research tester only — never a client email / EXPO_PUBLIC flag. */
+  const researchTesterUnlocked =
+    !!sub?.hydrated && !!sub.researchTesterAccess;
   const showComposer = !!isSignedIn && coachPremiumUnlocked;
   const showBuildDuration = String(Updates.channel ?? "").trim().toLowerCase() === "preview";
   const [messages, setMessages] = useState<CoachMessage[]>([
@@ -735,6 +738,7 @@ export default function CoachScreen() {
             signal: abort.signal,
             requestStartedAtMs: sessionRef.current.startedAtMs,
             reliabilityRequestId,
+            researchTesterUnlocked,
             onResolvedAsk: ask => {
               if (sendGenRef.current === sendGen && !coachSessionIsTerminal(sessionRef.current)) sessionAskTextRef.current = ask;
             },
@@ -1046,7 +1050,15 @@ export default function CoachScreen() {
         });
       }
     },
-    [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
+    [
+      attachedImages,
+      busy,
+      finishSession,
+      patchAssistant,
+      unlockComposer,
+      coachPremiumUnlocked,
+      researchTesterUnlocked,
+    ],
   );
 
   const autoPreviewOnFocusRef = useRef(false);

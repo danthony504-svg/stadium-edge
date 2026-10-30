@@ -239,6 +239,7 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
       "development_and_holdout_must_use_distinct_games",
       "ncaab_score_v2_is_not_a_release_approved_model",
       "frozen_research_candidate_does_not_authorize_coach_unlock",
+      "internal_research_tester_access_does_not_satisfy_release_gates",
     ],
   };
 }
