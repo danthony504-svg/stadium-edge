@@ -190,3 +190,10 @@ test("opponent threshold evidence counts games, never players, and requires matc
  assert.ok(evidence.observations.some(s=>s.includes("guard to exceed 4.5")&&s.includes("1/3 completed games")));
  for(const d of [{...defense,sport:"wnba"},{...defense,teamId:"wrong"}])assert.ok(!explainMatchup({...opts,opponentDefense:d}).observations.some(s=>s.includes("guard to exceed")));
 });
+test('shooting evidence uses only athlete-bound pregame history',()=>{
+ const h=history();h.recent=h.recent.map(g=>({...g,stats:{...g.stats,FG:'4-10'}}));
+ assert.ok(explainMatchup({...base,history:h}).observations.some(s=>s.includes('20/50 (40.0%); 30 misses')));
+ assert.ok(!explainMatchup({...base,history:{...h,athleteId:'wrong'}}).observations.some(s=>s.startsWith('Shooting')));
+ const future={...h,recent:h.recent.map(g=>({...g,date:'2027-01-01T12:00Z'}))};
+ assert.ok(!explainMatchup({...base,history:future}).observations.some(s=>s.startsWith('Shooting')));
+});
