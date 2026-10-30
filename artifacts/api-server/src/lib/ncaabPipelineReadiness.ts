@@ -85,6 +85,9 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
       ? {
           state: settlement.state,
           finishedAt: settlement.finishedAt ?? null,
+          settlementsRecorded: settlement.settlementsRecorded ?? 0,
+          unsettledInBatch: settlement.unsettledInBatch ?? null,
+          blockers: settlement.blockers ?? {},
           note: settlement.note ?? null,
         }
       : null,

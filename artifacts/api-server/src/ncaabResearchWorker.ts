@@ -49,10 +49,42 @@ async function main() {
   });
   await db.connect();
   try {
+    const fetchOutcome = async (eventId: string, season: number) => {
+      const requestStartedAt = new Date().toISOString();
+      const response = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/summary?event=${eventId}`,
+        { signal: AbortSignal.timeout(15000), redirect: "error" },
+      );
+      if (!response.ok) return null;
+      const rawResponse = await response.text();
+      const receivedAt = new Date().toISOString();
+      if (Buffer.byteLength(rawResponse) > 8_000_000) return null;
+      const { ncaabSummaryFinal } = await import(
+        new URL(
+          "../../../scripts/ncaab-bind-final-summary.mjs",
+          import.meta.url,
+        ).href
+      );
+      try {
+        const archive = ncaabSummaryFinal(
+          rawResponse,
+          eventId,
+          season,
+          requestStartedAt,
+          receivedAt,
+        );
+        return archive.games.length === 1
+          ? { outcome: archive.games[0], source: archive }
+          : null;
+      } catch {
+        return null;
+      }
+    };
     await runNcaabValidationPipeline({
       db,
       collectionEnabled: Boolean(process.env.ODDS_API_KEY?.trim()),
       runCollector,
+      fetchOutcome,
     });
   } finally {
     await db.end();

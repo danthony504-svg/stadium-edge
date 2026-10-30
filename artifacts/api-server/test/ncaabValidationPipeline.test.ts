@@ -8,11 +8,44 @@ import {
 } from "../src/lib/ncaabValidationPipeline.js";
 import { ncaabPipelineReadiness } from "../src/lib/ncaabPipelineReadiness.js";
 
+const kickoff = "2026-10-20T00:00:00.000Z";
+
+function sampleForecast() {
+  return {
+    researchOnly: true,
+    modelVersion: "ncaab-research-fixture-v1",
+    recordedAt: "2026-10-19T18:00:00.000Z",
+    forecastAt: "2026-10-19T17:00:00.000Z",
+    inputCutoffAt: "2026-10-19T17:00:00.000Z",
+    datasetRole: "independent_holdout",
+    target: {
+      eventId: "401900001",
+      season: 2027,
+      homeId: "150",
+      awayId: "151",
+      kickoff,
+      ruleset: "full_game_including_overtime",
+    },
+    markets: [
+      {
+        bookmaker: "draftkings",
+        market: "ml",
+        line: null,
+        firstPrice: -120,
+        secondPrice: 100,
+        conditionalWinProbability: 0.6,
+      },
+    ],
+  };
+}
+
 function fixture(nowIso = "2026-10-26T17:30:00.000Z") {
   const values = new Map<string, any>();
+  const pendingRows: any[] = [];
   const db = {
     now: nowIso,
     values,
+    pendingRows,
     unlocks: 0,
     query: async (sql: string, params?: unknown[]) => {
       if (sql.includes("current_database()"))
@@ -27,8 +60,12 @@ function fixture(nowIso = "2026-10-26T17:30:00.000Z") {
         return {
           rows: [
             {
-              forecasts: 0,
-              settlements: 0,
+              forecasts: [...values.keys()].filter((k) =>
+                k.startsWith("research:ncaab:forecast:"),
+              ).length,
+              settlements: [...values.keys()].filter((k) =>
+                k.startsWith("research:ncaab:settlement:"),
+              ).length,
               live_archives: 0,
               independent_holdout_forecasts: 0,
               future_holdout_contexts: 0,
@@ -43,6 +80,12 @@ function fixture(nowIso = "2026-10-26T17:30:00.000Z") {
         const key = String(params?.[0]);
         return { rows: values.has(key) ? [{ value: values.get(key) }] : [] };
       }
+      if (sql.includes("ON CONFLICT(key) DO NOTHING RETURNING key")) {
+        const key = String(params?.[0]);
+        if (values.has(key)) return { rows: [], rowCount: 0 };
+        values.set(key, JSON.parse(String(params?.[1])));
+        return { rows: [{ key }], rowCount: 1 };
+      }
       if (sql.includes("INSERT INTO public.app_kv")) {
         const key = String(params?.[0]);
         const value = JSON.parse(String(params?.[1]));
@@ -50,14 +93,23 @@ function fixture(nowIso = "2026-10-26T17:30:00.000Z") {
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes("research:ncaab:forecast:%"))
-        return { rows: [] };
-      if (sql.includes("key=ANY")) return { rows: [] };
+        return { rows: pendingRows.slice() };
+      if (sql.includes("key=ANY")) {
+        const keys = (params?.[0] as string[]) ?? [];
+        return {
+          rows: keys
+            .filter((k) => values.has(k))
+            .map((k) => ({ key: k, value: values.get(k) })),
+        };
+      }
       if (sql.includes("live-inputs:")) return { rows: [] };
       return { rows: [] };
     },
   };
   return { db };
 }
+
+const noOutcome = async () => null;
 
 test("ncaab research slots align to UTC research hours", () => {
   assert.equal(
@@ -73,6 +125,7 @@ test("NCAAB pipeline never enables Coach and skips without odds credentials", as
   const r = await runNcaabValidationPipeline({
     db,
     collectionEnabled: false,
+    fetchOutcome: noOutcome,
     runCollector: async () => {
       throw Error("must not collect");
     },
@@ -89,6 +142,7 @@ test("NCAAB collection records waiting_for_frozen_candidate without inventing fo
   const r = await runNcaabValidationPipeline({
     db,
     collectionEnabled: true,
+    fetchOutcome: noOutcome,
     runCollector: async (name) => {
       calls.push(name);
     },
@@ -112,16 +166,88 @@ test("completed NCAAB slot does not re-charge odds", async () => {
   const { db } = fixture();
   await runNcaabValidationPipeline({
     db,
+    fetchOutcome: noOutcome,
     runCollector: async () => {},
   });
   const again = await runNcaabValidationPipeline({
     db,
+    fetchOutcome: noOutcome,
     runCollector: async () => {
       throw Error("must not collect again");
     },
   });
   assert.equal(again.state, "skipped_completed_slot");
   assert.equal(again.releaseEligible, false);
+});
+
+test("NCAAB settlement scores authenticated finals without enabling Coach", async () => {
+  const { db } = fixture("2026-10-20T08:00:00.000Z");
+  const forecastKey = "research:ncaab:forecast:401900001:ncaab-research-fixture-v1";
+  const forecast = sampleForecast();
+  db.values.set(forecastKey, forecast);
+  db.pendingRows.push({ key: forecastKey, value: forecast });
+
+  const result = await runNcaabValidationPipeline({
+    db,
+    settlementOnly: true,
+    fetchOutcome: async () => ({
+      outcome: {
+        eventId: "401900001",
+        season: 2027,
+        homeId: "150",
+        awayId: "151",
+        kickoff,
+        homePoints: 78,
+        awayPoints: 70,
+        ruleset: "full_game_including_overtime",
+      },
+      source: { fixture: true },
+    }),
+    runCollector: async () => {
+      throw Error("must not collect during settlement-only");
+    },
+  });
+
+  assert.equal(result.state, "settlement_check_completed");
+  assert.equal(result.settlementsRecorded, 1);
+  assert.equal(result.releaseEligible, false);
+  assert.equal(result.coachEnabled, false);
+  const settlement = db.values.get(
+    "research:ncaab:settlement:401900001:ncaab-research-fixture-v1",
+  );
+  assert.equal(settlement.releaseEligible, false);
+  assert.equal(settlement.metrics[0].result, "win");
+  assert.equal(
+    db.values.get("research:ncaab:settlement-check:latest").settlementsRecorded,
+    1,
+  );
+  assert.equal(
+    db.values.get("research:ncaab:settlement-check:latest").note,
+    undefined,
+  );
+});
+
+test("NCAAB settlement leaves forecasts unsettled when final is unavailable", async () => {
+  const { db } = fixture("2026-10-20T08:00:00.000Z");
+  const forecastKey = "research:ncaab:forecast:401900001:pending";
+  const forecast = sampleForecast();
+  db.pendingRows.push({ key: forecastKey, value: forecast });
+  const result = await runNcaabValidationPipeline({
+    db,
+    settlementOnly: true,
+    fetchOutcome: async () => null,
+    runCollector: async () => {
+      throw Error("must not collect");
+    },
+  });
+  assert.equal(result.settlementsRecorded, 0);
+  assert.equal(result.unsettledInBatch, 1);
+  assert.equal(
+    [...db.values.keys()].some((k) =>
+      k.startsWith("research:ncaab:settlement:"),
+    ),
+    false,
+  );
 });
 
 test("NCAAB readiness stays BLOCKED with separate inventory", async () => {
