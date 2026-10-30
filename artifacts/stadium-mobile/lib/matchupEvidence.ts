@@ -1,3 +1,4 @@
+import { basketballShootingEvidence } from "./basketballShootingEvidence.ts";
 import { opponentThresholdHistory } from "./opponentThresholdHistory.ts";
 /** Descriptive evidence only. Never changes model probabilities or Coach. */
 import type { PropSimPlayerHistoryPayload, TeamDefense } from "./api.ts";
@@ -186,6 +187,11 @@ export function explainMatchup(o: {
       return unique.length === 1 ? unique : [];
     });
     if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (based on ${values.length} games; logged history).`);
+  }
+  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport)) {
+    const shooting = basketballShootingEvidence(games);
+    observations.push(...shooting);
+    if (!shooting.length) missing.push("Verified shooting makes/attempts unavailable or fewer than 3 dated games.");
   }
   // Logged playing time is genuine opportunity evidence, even without usage%.
   opportunity.push(...observations.filter(t => t.startsWith("Playing time:")));
