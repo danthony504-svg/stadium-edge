@@ -143,6 +143,10 @@ test("NCAAB collection records waiting_for_frozen_candidate without inventing fo
     db,
     collectionEnabled: true,
     fetchOutcome: noOutcome,
+    attemptFreeze: async () => ({
+      state: "waiting_for_verified_development_finals",
+      modelSha256: null,
+    }),
     runCollector: async (name) => {
       calls.push(name);
     },
@@ -151,11 +155,11 @@ test("NCAAB collection records waiting_for_frozen_candidate without inventing fo
   assert.equal(r.releaseEligible, false);
   assert.equal(r.coachEnabled, false);
   assert.deepEqual(calls, ["ncaab-capture-live-inputs.mjs"]);
-  assert.equal(
-    db.values.get("research:ncaab:pipeline:latest").blockers
-      .waiting_for_frozen_ncaab_candidate,
-    1,
-  );
+  const latest = db.values.get("research:ncaab:pipeline:latest");
+  assert.equal(latest.freezeState, "waiting_for_verified_development_finals");
+  assert.equal(latest.freezeModelSha256, null);
+  assert.equal(latest.blockers.waiting_for_verified_development_finals, 1);
+  assert.equal(latest.blockers.waiting_for_frozen_ncaab_candidate, 1);
   assert.equal(
     [...db.values.keys()].some((k) => k.startsWith("research:ncaab:forecast:")),
     false,

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { attemptNcaabResearchFreeze } from "./lib/ncaabAdjustedModelStore.js";
 import { runNcaabValidationPipeline } from "./lib/ncaabValidationPipeline.js";
 
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
@@ -85,6 +86,7 @@ async function main() {
       collectionEnabled: Boolean(process.env.ODDS_API_KEY?.trim()),
       runCollector,
       fetchOutcome,
+      attemptFreeze: () => attemptNcaabResearchFreeze(db),
     });
   } finally {
     await db.end();

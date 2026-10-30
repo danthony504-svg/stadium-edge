@@ -17,7 +17,8 @@ Set `NCAAB_RESEARCH_PIPELINE_ENABLED=true` on the API service (default off). Use
 
 1. Settlement check — lists unsettled `research:ncaab:forecast:*` rows whose kickoff is at least four hours earlier. ESPN `mens-college-basketball` summary binding (`scripts/ncaab-bind-final-summary.mjs`) authenticates the final; `scoreNcaabRecordedForecast` scores saved ml/spread/total probabilities without re-simulating. First write wins (`ON CONFLICT DO NOTHING`). Missing finals stay unsettled for a later slot. Cadence is at most once per 30 minutes, batch ≤64, no paid odds.
 2. Live-input capture (`scripts/ncaab-capture-live-inputs.mjs`) — The Odds API `basketball_ncaab` h2h/spreads/totals with exact `sourceUpdatedAt`, matched to ESPN mens-college-basketball scoreboard by team aliases + kickoff.
-3. Journal — waits for a frozen NCAAB candidate (`research:ncaab:adjusted-model:latest`); does not invent forecasts.
+3. Freeze attempt — `attemptNcaabResearchFreeze` records honest waiting states on `research:ncaab:adjusted-model:latest`. It never freezes product sim `ncaab-score-v2` and does not write a new `modelSha256` until a basketball research trainer exists. See `ncaab-adjusted-research-model.md`.
+4. Journal — waits for a frozen NCAAB candidate (`research:ncaab:adjusted-model:latest.modelSha256`); does not invent forecasts.
 
 Release requirements mirror the research bar: **500** independent games across **≥2** seasons, calibration review, human approval.
 
@@ -35,11 +36,13 @@ Settlement status includes `settlementsRecorded`, `unsettledInBatch`, and allowl
 3. With the env flag off, status still returns `coachEnabled:false` and `decision:BLOCKED`.
 4. With the flag on and odds credentials present, a slot should write `research:ncaab:live-inputs:*` and leave forecast counts at 0 until a frozen candidate exists.
 5. After a saved research forecast exists and ESPN posts a final, settlement should write `research:ncaab:settlement:*` with `releaseEligible:false`.
+6. After a worker run, `adjusted-model:latest` should show an explicit waiting state (not a fabricated `modelSha256`).
 
-## Out of scope for v1
+## Out of scope for this revision
 
-- Adjusted-model trainer / freeze
-- Forecast journal wiring (still blocked on a frozen candidate)
+- Basketball adjusted-model coefficient trainer (development prepare + ridge fit)
+- Forecast journal wiring (still blocked on a frozen `modelSha256`)
 - Coach mobile unlock / OTA
 - Reusing NCAAF conference or availability collectors
 - Importing NCAAF journal/scorer modules (frozen football implementation surface)
+- Treating `ncaab-score-v2` as a research freeze source
