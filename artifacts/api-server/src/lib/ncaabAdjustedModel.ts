@@ -39,7 +39,8 @@ export type NcaabScoreFeatures = {
 export type NcaabScoreFeaturePair = {
   home: NcaabScoreFeatures;
   away: NcaabScoreFeatures;
-  neutralSite: boolean;
+  /** Explicit venue evidence only — never invent false when unknown. */
+  neutralSite: boolean | null;
 };
 
 export type NcaabAdjustedTrainingGame = {
@@ -144,6 +145,40 @@ export type NcaabPrimaryQuotes = {
   } | null;
 };
 
+/** Normalize team names for exact identity matching — no mascot/substring fallback. */
+export function normalizeNcaabTeamName(name: string): string {
+  return String(name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Require exactly one home and one away quote row with unambiguous full-name
+ * identity. Rejects substring/mascot matches and shared-name collisions.
+ */
+export function pairOpposingNcaabQuotes(
+  rows: RawQuote[],
+  homeName: string,
+  awayName: string,
+): { home: RawQuote; away: RawQuote } | null {
+  const homeNorm = normalizeNcaabTeamName(homeName);
+  const awayNorm = normalizeNcaabTeamName(awayName);
+  if (!homeNorm || !awayNorm || homeNorm === awayNorm) return null;
+  const homes = rows.filter(
+    (r) => normalizeNcaabTeamName(String(r.name ?? "")) === homeNorm,
+  );
+  const aways = rows.filter(
+    (r) => normalizeNcaabTeamName(String(r.name ?? "")) === awayNorm,
+  );
+  if (homes.length !== 1 || aways.length !== 1) return null;
+  if (homes[0] === aways[0]) return null;
+  return { home: homes[0], away: aways[0] };
+}
+
 /** Select primary ml/spread/total pairs from archived Odds API quote rows. */
 export function selectPrimaryNcaabQuotes(
   quotes: RawQuote[],
@@ -176,82 +211,64 @@ export function selectPrimaryNcaabQuotes(
 
   for (const book of books) {
     if (!ml) {
-      const rows = byBookMarket.get(`${book}:h2h`) ?? [];
-      const home = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === homeName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes(homeName.toLowerCase().split(" ").pop() ?? "\0"),
+      const paired = pairOpposingNcaabQuotes(
+        byBookMarket.get(`${book}:h2h`) ?? [],
+        homeName,
+        awayName,
       );
-      const away = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === awayName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes(awayName.toLowerCase().split(" ").pop() ?? "\0"),
-      );
-      if (home && away) {
+      if (paired) {
         ml = {
           bookmaker: book,
           market: "ml",
           line: null,
-          firstPrice: home.price,
-          secondPrice: away.price,
-          observedAt: home.sourceUpdatedAt,
+          firstPrice: paired.home.price,
+          secondPrice: paired.away.price,
+          observedAt: paired.home.sourceUpdatedAt,
         };
       }
     }
     if (!spread) {
-      const rows = byBookMarket.get(`${book}:spreads`) ?? [];
-      const home = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === homeName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes(homeName.toLowerCase().split(" ").pop() ?? "\0"),
-      );
-      const away = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === awayName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes(awayName.toLowerCase().split(" ").pop() ?? "\0"),
+      const paired = pairOpposingNcaabQuotes(
+        byBookMarket.get(`${book}:spreads`) ?? [],
+        homeName,
+        awayName,
       );
       if (
-        home &&
-        away &&
-        Number.isFinite(home.point) &&
-        Number.isFinite(away.point) &&
-        Math.abs((home.point as number) + (away.point as number)) <= 1e-9
+        paired &&
+        Number.isFinite(paired.home.point) &&
+        Number.isFinite(paired.away.point) &&
+        Math.abs((paired.home.point as number) + (paired.away.point as number)) <=
+          1e-9
       ) {
         spread = {
           bookmaker: book,
           market: "spread",
-          line: home.point as number,
-          firstPrice: home.price,
-          secondPrice: away.price,
-          observedAt: home.sourceUpdatedAt,
+          line: paired.home.point as number,
+          firstPrice: paired.home.price,
+          secondPrice: paired.away.price,
+          observedAt: paired.home.sourceUpdatedAt,
         };
       }
     }
     if (!total) {
       const rows = byBookMarket.get(`${book}:totals`) ?? [];
-      const over = rows.find((r) => /over/i.test(String(r.name ?? "")));
-      const under = rows.find((r) => /under/i.test(String(r.name ?? "")));
+      const overs = rows.filter((r) => /^over$/i.test(String(r.name ?? "").trim()));
+      const unders = rows.filter((r) =>
+        /^under$/i.test(String(r.name ?? "").trim()),
+      );
       if (
-        over &&
-        under &&
-        Number.isFinite(over.point) &&
-        over.point === under.point
+        overs.length === 1 &&
+        unders.length === 1 &&
+        Number.isFinite(overs[0].point) &&
+        overs[0].point === unders[0].point
       ) {
         total = {
           bookmaker: book,
           market: "total",
-          line: over.point as number,
-          firstPrice: over.price,
-          secondPrice: under.price,
-          observedAt: over.sourceUpdatedAt,
+          line: overs[0].point as number,
+          firstPrice: overs[0].price,
+          secondPrice: unders[0].price,
+          observedAt: overs[0].sourceUpdatedAt,
         };
       }
     }
@@ -260,21 +277,26 @@ export function selectPrimaryNcaabQuotes(
   return { ml, spread, total };
 }
 
-export function contextScoreFeaturesFromPrimary(primary: {
-  ml: { firstPrice: number; secondPrice: number } | null;
-  spread: { line: number; firstPrice: number; secondPrice: number } | null;
-  total: { line: number } | null;
-}): { features: NcaabScoreFeaturePair; missing: string[] } {
+export function contextScoreFeaturesFromPrimary(
+  primary: {
+    ml: { firstPrice: number; secondPrice: number } | null;
+    spread: { line: number; firstPrice: number; secondPrice: number } | null;
+    total: { line: number } | null;
+  },
+  venue?: { neutralSite?: boolean | null },
+): { features: NcaabScoreFeaturePair; missing: string[] } {
   const missing: string[] = [];
   if (!primary.ml) missing.push("ml_pair_missing");
   if (!primary.spread) missing.push("spread_pair_missing");
   if (!primary.total) missing.push("total_pair_missing");
+  const neutralSite =
+    typeof venue?.neutralSite === "boolean" ? venue.neutralSite : null;
   if (missing.length)
     return {
       features: {
         home: { baseline: 0, values: [], historyGameIds: [] },
         away: { baseline: 0, values: [], historyGameIds: [] },
-        neutralSite: false,
+        neutralSite,
       },
       missing,
     };
@@ -307,7 +329,7 @@ export function contextScoreFeaturesFromPrimary(primary: {
     features: {
       home: { baseline: homeBaseline, values: homeValues, historyGameIds: [] },
       away: { baseline: awayBaseline, values: awayValues, historyGameIds: [] },
-      neutralSite: false,
+      neutralSite,
     },
     missing,
   };

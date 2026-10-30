@@ -39,6 +39,32 @@ function americanImplied(price) {
   return price < 0 ? -price / (-price + 100) : 100 / (price + 100);
 }
 
+export function normalizeTeamName(name) {
+  return String(name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** Exact full-name opposing rows only — no mascot/substring matching. */
+export function pairOpposingQuotes(rows, homeName, awayName) {
+  const homeNorm = normalizeTeamName(homeName);
+  const awayNorm = normalizeTeamName(awayName);
+  if (!homeNorm || !awayNorm || homeNorm === awayNorm) return null;
+  const homes = (rows ?? []).filter(
+    (r) => normalizeTeamName(String(r.name ?? "")) === homeNorm,
+  );
+  const aways = (rows ?? []).filter(
+    (r) => normalizeTeamName(String(r.name ?? "")) === awayNorm,
+  );
+  if (homes.length !== 1 || aways.length !== 1 || homes[0] === aways[0])
+    return null;
+  return { home: homes[0], away: aways[0] };
+}
+
 export function selectPrimaryQuotes(quotes, homeName, awayName) {
   const byBookMarket = new Map();
   for (const q of quotes ?? []) {
@@ -63,61 +89,53 @@ export function selectPrimaryQuotes(quotes, homeName, awayName) {
     for (const book of books) {
       const rows = byBookMarket.get(`${book}:${market}`) ?? [];
       if (market === "totals") {
-        const over = rows.find((r) => /over/i.test(String(r.name ?? "")));
-        const under = rows.find((r) => /under/i.test(String(r.name ?? "")));
+        const overs = rows.filter((r) =>
+          /^over$/i.test(String(r.name ?? "").trim()),
+        );
+        const unders = rows.filter((r) =>
+          /^under$/i.test(String(r.name ?? "").trim()),
+        );
         if (
-          over &&
-          under &&
-          Number.isFinite(over.point) &&
-          over.point === under.point
+          overs.length === 1 &&
+          unders.length === 1 &&
+          Number.isFinite(overs[0].point) &&
+          overs[0].point === unders[0].point
         )
           return {
             bookmaker: book,
             market: "total",
-            line: over.point,
-            firstPrice: over.price,
-            secondPrice: under.price,
-            observedAt: over.sourceUpdatedAt,
+            line: overs[0].point,
+            firstPrice: overs[0].price,
+            secondPrice: unders[0].price,
+            observedAt: overs[0].sourceUpdatedAt,
           };
+        continue;
       }
-      const home = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === homeName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes((homeName.toLowerCase().split(" ").pop() ?? "\0")),
-      );
-      const away = rows.find(
-        (r) =>
-          String(r.name ?? "").toLowerCase() === awayName.toLowerCase() ||
-          String(r.name ?? "")
-            .toLowerCase()
-            .includes((awayName.toLowerCase().split(" ").pop() ?? "\0")),
-      );
-      if (!home || !away) continue;
+      const paired = pairOpposingQuotes(rows, homeName, awayName);
+      if (!paired) continue;
       if (market === "spreads") {
         if (
-          !Number.isFinite(home.point) ||
-          !Number.isFinite(away.point) ||
-          Math.abs(home.point + away.point) > 1e-9
+          !Number.isFinite(paired.home.point) ||
+          !Number.isFinite(paired.away.point) ||
+          Math.abs(paired.home.point + paired.away.point) > 1e-9
         )
           continue;
         return {
           bookmaker: book,
           market: "spread",
-          line: home.point,
-          firstPrice: home.price,
-          secondPrice: away.price,
-          observedAt: home.sourceUpdatedAt,
+          line: paired.home.point,
+          firstPrice: paired.home.price,
+          secondPrice: paired.away.price,
+          observedAt: paired.home.sourceUpdatedAt,
         };
       }
       return {
         bookmaker: book,
         market: "ml",
         line: null,
-        firstPrice: home.price,
-        secondPrice: away.price,
-        observedAt: home.sourceUpdatedAt,
+        firstPrice: paired.home.price,
+        secondPrice: paired.away.price,
+        observedAt: paired.home.sourceUpdatedAt,
       };
     }
     return null;
@@ -125,12 +143,14 @@ export function selectPrimaryQuotes(quotes, homeName, awayName) {
   return { ml: pick("h2h"), spread: pick("spreads"), total: pick("totals") };
 }
 
-export function buildOddsFeatures(primary) {
+export function buildOddsFeatures(primary, venue) {
   const missing = [];
   if (!primary.ml) missing.push("ml_pair_missing");
   if (!primary.spread) missing.push("spread_pair_missing");
   if (!primary.total) missing.push("total_pair_missing");
-  if (missing.length) return { missing, features: null };
+  const neutralSite =
+    typeof venue?.neutralSite === "boolean" ? venue.neutralSite : null;
+  if (missing.length) return { missing, features: null, neutralSite };
   const L = primary.spread.line;
   const T = primary.total.line;
   const homeBaseline = (T - L) / 2;
@@ -166,7 +186,8 @@ export function buildOddsFeatures(primary) {
         ],
         historyGameIds: [],
       },
-      neutralSite: false,
+      // Preserve explicit venue evidence; never invent false when unknown.
+      neutralSite,
     },
   };
 }
@@ -191,7 +212,13 @@ export function buildContextInput({
     matched.homeTeam,
     matched.awayTeam,
   );
-  const { missing, features } = buildOddsFeatures(primary);
+  const venueEvidence =
+    typeof matched.target?.neutralSite === "boolean"
+      ? { neutralSite: matched.target.neutralSite }
+      : typeof matched.neutralSite === "boolean"
+        ? { neutralSite: matched.neutralSite }
+        : { neutralSite: null };
+  const { missing, features } = buildOddsFeatures(primary, venueEvidence);
   const input = {
     version: 1,
     sport: "ncaab",
@@ -210,6 +237,8 @@ export function buildContextInput({
       homeName: matched.homeTeam,
       awayName: matched.awayTeam,
       oddsEventId: t.oddsEventId ?? null,
+      // Explicit venue only — null means unknown, never coerced to false.
+      neutralSite: venueEvidence.neutralSite,
     },
     capturedAt,
     liveArchiveKey,
@@ -223,7 +252,13 @@ export function buildContextInput({
   return input;
 }
 
-export function authenticateDevelopmentExample(inputKey, input, label, finalArchive) {
+export function authenticateDevelopmentExample(
+  inputKey,
+  input,
+  label,
+  finalArchive,
+  labelKey = `research:ncaab:context-outcome:v1:${input?.target?.season}:${input?.target?.eventId}`,
+) {
   const t = input?.target;
   if (
     !/^research:ncaab:context-input:v1:\d{4}:\d+$/.test(inputKey) ||
@@ -233,7 +268,9 @@ export function authenticateDevelopmentExample(inputKey, input, label, finalArch
     inputKey !== `research:ncaab:context-input:v1:${t.season}:${t.eventId}` ||
     label?.inputKey !== inputKey ||
     label.inputSha256 !== hash(input) ||
-    label.datasetRole !== "development_only"
+    label.datasetRole !== "development_only" ||
+    !/^research:ncaab:context-outcome:v1:\d{4}:\d+$/.test(labelKey) ||
+    labelKey !== `research:ncaab:context-outcome:v1:${t.season}:${t.eventId}`
   )
     throw Error("ncaab_dev_input_or_label_mismatch");
   const game = finalArchive?.games?.[0];
@@ -255,12 +292,13 @@ export function authenticateDevelopmentExample(inputKey, input, label, finalArch
     label.sourceSha256 !== finalArchive.sha256
   )
     throw Error("ncaab_dev_final_mismatch");
+  // Hash the stored label object only — never inject key into the digest.
   return {
     season: t.season,
     eventId: t.eventId,
     inputKey,
     inputSha256: label.inputSha256,
-    labelKey: label.key ?? `research:ncaab:context-outcome:v1:${t.season}:${t.eventId}`,
+    labelKey,
     labelSha256: hash(label),
     featureComplete: input.featureComplete === true,
     kickoff: t.kickoff,
@@ -328,18 +366,29 @@ async function main() {
     const now = new Date(
       (await db.query("SELECT clock_timestamp() AS now")).rows[0].now,
     ).toISOString();
+    // Oldest-first scan so first-write-wins stores the earliest complete capture.
     const archives = (
       await db.query(
-        "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaab:live-inputs:%' ORDER BY key DESC LIMIT 64",
+        "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaab:live-inputs:%' ORDER BY key ASC LIMIT 64",
       )
     ).rows;
 
-    const examples = [];
-    const seen = new Set();
+    // Permanently separate holdout forecasts from development examples.
+    const holdoutIds = new Set(
+      (
+        await db.query(
+          "SELECT (value->'target'->>'season')||':'||(value->'target'->>'eventId') AS id FROM public.app_kv WHERE key LIKE 'research:ncaab:forecast:%' AND value->>'datasetRole'='independent_holdout'",
+        )
+      ).rows.map((r) => r.id),
+    );
+
+    const earliestComplete = new Map();
     for (const archive of archives) {
       for (const matched of archive.value?.matched ?? []) {
         const t = matched.target;
-        if (!t?.eventId || seen.has(`${t.season}:${t.eventId}`)) continue;
+        if (!t?.eventId || !Number.isSafeInteger(t.season)) continue;
+        const id = `${t.season}:${t.eventId}`;
+        if (holdoutIds.has(id) || earliestComplete.has(id)) continue;
         if (
           !Number.isFinite(Date.parse(t.kickoff)) ||
           Date.parse(t.kickoff) > Date.parse(now) - 4 * 3600000
@@ -363,70 +412,85 @@ async function main() {
         } catch {
           continue;
         }
-        const inputKey = `research:ncaab:context-input:v1:${t.season}:${t.eventId}`;
-        await db.query(
-          "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
-          [inputKey, JSON.stringify(input)],
-        );
-        const storedInput = (
-          await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
-            inputKey,
-          ])
-        ).rows[0]?.value;
-        if (!storedInput) continue;
+        // Never burn the immutable input key with incomplete odds.
+        if (!input.featureComplete) continue;
+        earliestComplete.set(id, {
+          matched,
+          archive,
+          capturedAt,
+          input,
+        });
+        if (earliestComplete.size >= 1024) break;
+      }
+      if (earliestComplete.size >= 1024) break;
+    }
 
-        const finalArchive = await fetchFinal(String(t.eventId), t.season);
-        if (!finalArchive) continue;
-        const game = finalArchive.games[0];
-        const finalKey = `research:ncaab:settlement-final:${t.season}:${t.eventId}`;
-        await db.query(
-          "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
-          [finalKey, JSON.stringify(finalArchive)],
-        );
-        const label = {
-          version: 1,
-          sport: "ncaab",
-          datasetRole: "development_only",
-          researchOnly: true,
-          releaseEligible: false,
+    const examples = [];
+    for (const { input, matched, archive } of earliestComplete.values()) {
+      const t = matched.target;
+      const inputKey = `research:ncaab:context-input:v1:${t.season}:${t.eventId}`;
+      await db.query(
+        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
+        [inputKey, JSON.stringify(input)],
+      );
+      const storedInput = (
+        await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
           inputKey,
-          inputSha256: hash(storedInput),
-          settlementFinalKey: finalKey,
-          sourceSha256: finalArchive.sha256,
-          sourceReceivedAt: finalArchive.receivedAt,
-          observedAt: now,
-          outcome: {
-            homePoints: game.homePoints,
-            awayPoints: game.awayPoints,
-            regulationHomePoints: game.regulationHomePoints,
-            regulationAwayPoints: game.regulationAwayPoints,
-            overtime: game.overtime,
-          },
-        };
-        const labelKey = `research:ncaab:context-outcome:v1:${t.season}:${t.eventId}`;
-        await db.query(
-          "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
-          [labelKey, JSON.stringify(label)],
-        );
-        const storedLabel = (
-          await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
-            labelKey,
-          ])
-        ).rows[0]?.value;
-        if (!storedLabel) continue;
-        try {
-          const example = authenticateDevelopmentExample(
+        ])
+      ).rows[0]?.value;
+      if (!storedInput) continue;
+
+      const finalArchive = await fetchFinal(String(t.eventId), t.season);
+      if (!finalArchive) continue;
+      const game = finalArchive.games[0];
+      const finalKey = `research:ncaab:settlement-final:${t.season}:${t.eventId}`;
+      await db.query(
+        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
+        [finalKey, JSON.stringify(finalArchive)],
+      );
+      const label = {
+        version: 1,
+        sport: "ncaab",
+        datasetRole: "development_only",
+        researchOnly: true,
+        releaseEligible: false,
+        inputKey,
+        inputSha256: hash(storedInput),
+        settlementFinalKey: finalKey,
+        sourceSha256: finalArchive.sha256,
+        sourceReceivedAt: finalArchive.receivedAt,
+        observedAt: now,
+        outcome: {
+          homePoints: game.homePoints,
+          awayPoints: game.awayPoints,
+          regulationHomePoints: game.regulationHomePoints,
+          regulationAwayPoints: game.regulationAwayPoints,
+          overtime: game.overtime,
+        },
+      };
+      const labelKey = `research:ncaab:context-outcome:v1:${t.season}:${t.eventId}`;
+      await db.query(
+        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
+        [labelKey, JSON.stringify(label)],
+      );
+      const storedLabel = (
+        await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
+          labelKey,
+        ])
+      ).rows[0]?.value;
+      if (!storedLabel) continue;
+      try {
+        examples.push(
+          authenticateDevelopmentExample(
             inputKey,
             storedInput,
-            { ...storedLabel, key: labelKey },
+            storedLabel,
             finalArchive,
-          );
-          examples.push(example);
-          seen.add(`${t.season}:${t.eventId}`);
-        } catch {
-          continue;
-        }
-        if (examples.length >= 1024) break;
+            labelKey,
+          ),
+        );
+      } catch {
+        continue;
       }
       if (examples.length >= 1024) break;
     }

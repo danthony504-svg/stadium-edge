@@ -210,11 +210,48 @@ export async function attemptNcaabResearchFreeze(
     for (const ex of completeExamples) {
       const input = (await row(ex.inputKey))?.value;
       const label = (await row(ex.labelKey))?.value;
+      const finalArchive = label?.settlementFinalKey
+        ? (await row(label.settlementFinalKey))?.value
+        : null;
       if (!input?.features?.home?.values || !label?.outcome) continue;
+      // Reauthenticate input, label, source-final and event identity before fit.
+      if (
+        input.datasetRole !== "development_only" ||
+        label.datasetRole !== "development_only" ||
+        label.inputKey !== ex.inputKey ||
+        ncaabAdjustedHash(input) !== ex.inputSha256 ||
+        ncaabAdjustedHash(label) !== ex.labelSha256 ||
+        input.featureComplete !== true ||
+        ex.featureComplete !== true
+      )
+        continue;
+      const t = input.target;
+      const game = finalArchive?.games?.[0];
+      if (
+        !t ||
+        !game ||
+        String(t.eventId) !== String(ex.eventId) ||
+        t.season !== ex.season ||
+        String(game.eventId) !== String(ex.eventId) ||
+        game.season !== ex.season ||
+        String(game.homeId) !== String(t.homeId) ||
+        String(game.awayId) !== String(t.awayId) ||
+        Date.parse(game.kickoff) !== Date.parse(t.kickoff) ||
+        label.sourceSha256 !== finalArchive.sha256 ||
+        ncaabAdjustedHash(label.outcome) !==
+          ncaabAdjustedHash({
+            homePoints: game.homePoints,
+            awayPoints: game.awayPoints,
+            regulationHomePoints: game.regulationHomePoints,
+            regulationAwayPoints: game.regulationAwayPoints,
+            overtime: game.overtime,
+          })
+      )
+        continue;
       training.push({
         id: `${ex.season}:${ex.eventId}`,
         inputSha256: ex.inputSha256,
-        labelSha256: ncaabAdjustedHash(label),
+        labelSha256: ex.labelSha256,
         observedAt: label.observedAt,
         regulationHome: label.outcome.regulationHomePoints,
         regulationAway: label.outcome.regulationAwayPoints,

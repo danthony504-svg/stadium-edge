@@ -196,13 +196,105 @@ test("authenticateDevelopmentExample binds immutable input hash to final", () =>
       },
     ],
   };
+  const labelKey = "research:ncaab:context-outcome:v1:2027:401900001";
   const example = authenticateDevelopmentExample(
     inputKey,
     input,
     label,
     finalArchive,
+    labelKey,
   );
   assert.equal(example.featureComplete, true);
   assert.equal(example.inputSha256, hash(input));
+  assert.equal(example.labelSha256, hash(label));
+  assert.notEqual(
+    example.labelSha256,
+    hash({ ...label, key: labelKey }),
+    "manifest label digest must match stored label without injected key",
+  );
   assert.equal(canonical({ a: 1, b: 2 }), canonical({ b: 2, a: 1 }));
+});
+
+test("selectPrimaryQuotes rejects shared-mascot substring matches", () => {
+  const primary = selectPrimaryQuotes(
+    [
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Michigan State",
+        price: -110,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Penn State",
+        price: -110,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+    ],
+    "State",
+    "Penn State",
+  );
+  assert.equal(primary.ml, null);
+});
+
+test("buildOddsFeatures keeps unknown neutralSite null", () => {
+  const primary = selectPrimaryQuotes(
+    [
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Duke",
+        price: -130,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Kansas",
+        price: 110,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "spreads",
+        name: "Duke",
+        price: -110,
+        point: -4.5,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "spreads",
+        name: "Kansas",
+        price: -110,
+        point: 4.5,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "totals",
+        name: "Over",
+        price: -110,
+        point: 148.5,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "totals",
+        name: "Under",
+        price: -110,
+        point: 148.5,
+        sourceUpdatedAt: "2026-10-01T12:00:00Z",
+      },
+    ],
+    "Duke",
+    "Kansas",
+  );
+  assert.equal(buildOddsFeatures(primary).features.neutralSite, null);
+  assert.equal(
+    buildOddsFeatures(primary, { neutralSite: false }).features.neutralSite,
+    false,
+  );
 });

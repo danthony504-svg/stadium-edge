@@ -71,6 +71,76 @@ test("primary quote selection prefers book priority and pairs markets", () => {
   assert.equal(primary.ml?.bookmaker, "draftkings");
 });
 
+test("quote selection rejects mascot substring and ambiguous opposing rows", () => {
+  const ambiguous = selectPrimaryNcaabQuotes(
+    [
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Mississippi State",
+        price: -120,
+        sourceUpdatedAt: "2026-10-30T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Ohio State",
+        price: 100,
+        sourceUpdatedAt: "2026-10-30T12:00:00Z",
+      },
+    ],
+    "State",
+    "Ohio State",
+  );
+  assert.equal(ambiguous.ml, null);
+  const duplicate = selectPrimaryNcaabQuotes(
+    [
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Duke",
+        price: -140,
+        sourceUpdatedAt: "2026-10-30T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Duke",
+        price: -145,
+        sourceUpdatedAt: "2026-10-30T12:00:00Z",
+      },
+      {
+        book: "draftkings",
+        market: "h2h",
+        name: "Kansas",
+        price: 120,
+        sourceUpdatedAt: "2026-10-30T12:00:00Z",
+      },
+    ],
+    "Duke",
+    "Kansas",
+  );
+  assert.equal(duplicate.ml, null);
+});
+
+test("feature builder preserves unknown venue as null", () => {
+  const { features } = contextScoreFeaturesFromPrimary({
+    ml: { firstPrice: -140, secondPrice: 120 },
+    spread: { line: -3.5, firstPrice: -110, secondPrice: -110 },
+    total: { line: 150.5 },
+  });
+  assert.equal(features.neutralSite, null);
+  const explicit = contextScoreFeaturesFromPrimary(
+    {
+      ml: { firstPrice: -140, secondPrice: 120 },
+      spread: { line: -3.5, firstPrice: -110, secondPrice: -110 },
+      total: { line: 150.5 },
+    },
+    { neutralSite: true },
+  );
+  assert.equal(explicit.features.neutralSite, true);
+});
+
 test("feature builder marks incomplete markets and builds 7-length vectors", () => {
   const incomplete = contextScoreFeaturesFromPrimary({
     ml: null,

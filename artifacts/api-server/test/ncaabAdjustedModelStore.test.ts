@@ -84,6 +84,75 @@ test("waiting states never invent modelSha256 or freeze artifacts", async () => 
   );
 });
 
+test("freeze skips training rows whose stored hashes do not reauthenticate", async () => {
+  const { ncaabAdjustedHash } = await import("../src/lib/ncaabAdjustedModel.js");
+  const examples = Array.from(
+    { length: NCAAB_MIN_ADJUSTED_DEVELOPMENT_GAMES },
+    (_, i) => ({
+      featureComplete: true,
+      season: 2026,
+      eventId: String(400000000 + i),
+      inputKey: `research:ncaab:context-input:v1:2026:${400000000 + i}`,
+      labelKey: `research:ncaab:context-outcome:v1:2026:${400000000 + i}`,
+      inputSha256: "a".repeat(64),
+      labelSha256: "b".repeat(64),
+    }),
+  );
+  const body = {
+    version: 1,
+    sport: "ncaab",
+    datasetRole: "development_only",
+    examples,
+  };
+  const manifestSha256 = ncaabAdjustedHash(body);
+  const seed: Record<string, unknown> = {
+    "research:ncaab:development-dataset:latest": {
+      manifestSha256,
+      datasetRole: "development_only",
+    },
+    [`research:ncaab:development-manifest:${manifestSha256}`]: body,
+  };
+  for (const ex of examples) {
+    seed[ex.inputKey] = {
+      datasetRole: "development_only",
+      featureComplete: true,
+      target: {
+        eventId: ex.eventId,
+        season: ex.season,
+        homeId: "1",
+        awayId: "2",
+        kickoff: "2026-10-01T00:00:00Z",
+      },
+      features: { home: { values: [1, 2, 3, 4, 5, 6, 7] } },
+    };
+    seed[ex.labelKey] = {
+      datasetRole: "development_only",
+      inputKey: ex.inputKey,
+      observedAt: "2026-10-02T00:00:00Z",
+      settlementFinalKey: `research:ncaab:settlement-final:2026:${ex.eventId}`,
+      sourceSha256: "c".repeat(64),
+      outcome: {
+        homePoints: 70,
+        awayPoints: 65,
+        regulationHomePoints: 70,
+        regulationAwayPoints: 65,
+        overtime: false,
+      },
+    };
+  }
+  const { db } = fixture(seed);
+  const result = await attemptNcaabResearchFreeze(db, "/workspace");
+  assert.equal(result.state, "waiting_for_more_development_games");
+  assert.equal((result as any).modelSha256, null);
+  assert.equal(db.values.has("research:ncaab:context-model:first:v1"), false);
+  assert.ok(
+    ((result as any).reasons ?? []).includes(
+      "reauthenticated_feature_complete_below_minimum",
+    ) ||
+      (result as any).trainingGames === 0,
+  );
+});
+
 test("incomplete development volume waits without writing a freeze pointer", async () => {
   const examples = Array.from({ length: 3 }, (_, i) => ({
     featureComplete: true,
