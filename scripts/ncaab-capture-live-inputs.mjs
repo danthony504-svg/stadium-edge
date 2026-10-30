@@ -106,13 +106,18 @@ export function pairNcaabMarkets(game, observedAt) {
   return { quotes, excluded };
 }
 
+/** Odds round hours often disagree with ESPN TBD `:59` placeholders by ≤1m–few m. */
+const KICKOFF_BIND_TOLERANCE_MS = 15 * 60_000;
+
 export function matchEspnEvent(scoreboardRaw, game) {
   const board = JSON.parse(scoreboardRaw);
   const events = Array.isArray(board.events) ? board.events : [];
   const home = norm(game.home_team);
   const away = norm(game.away_team);
   const kickoff = Date.parse(game.commence_time);
-  const hits = [];
+  if (!Number.isFinite(kickoff)) return null;
+  const exact = [];
+  const near = [];
   for (const event of events) {
     for (const competition of event.competitions ?? []) {
       const comps = competition.competitors ?? [];
@@ -128,8 +133,9 @@ export function matchEspnEvent(scoreboardRaw, game) {
       const homeOk = aliases(sides.home).includes(home);
       const awayOk = aliases(sides.away).includes(away);
       if (!homeOk || !awayOk) continue;
-      if (Date.parse(competition.date ?? event.date ?? "") !== kickoff) continue;
-      hits.push({
+      const espnKickoff = Date.parse(competition.date ?? event.date ?? "");
+      if (!Number.isFinite(espnKickoff)) continue;
+      const hit = {
         eventId: String(event.id),
         season: event.season?.year ?? null,
         kickoff: competition.date ?? event.date,
@@ -137,11 +143,17 @@ export function matchEspnEvent(scoreboardRaw, game) {
         awayId: String(sides.away.id),
         homeName: sides.home.displayName ?? null,
         awayName: sides.away.displayName ?? null,
-      });
+      };
+      if (espnKickoff === kickoff) exact.push(hit);
+      else if (Math.abs(espnKickoff - kickoff) <= KICKOFF_BIND_TOLERANCE_MS)
+        near.push(hit);
     }
   }
-  if (hits.length !== 1) return null;
-  return hits[0];
+  // Prefer exact kickoff identity; only then a unique near match (ESPN TBD skew).
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  if (near.length === 1) return near[0];
+  return null;
 }
 
 async function main() {
