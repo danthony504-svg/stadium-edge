@@ -2,9 +2,10 @@
  * Server-verified internal research-tester authorization.
  *
  * Uses server env RESEARCH_TESTER_EMAILS only (never EXPO_PUBLIC_* / client claims).
- * Identity is Clerk userId → Clerk emails. Deny by default when unset/empty.
- * Grants research-only Coach/simulation access for NCAAF/NCAAB — never flips
- * subscriber releaseEligible / coachEnabled pipeline gates.
+ * Identity is Clerk userId → verified Clerk emails only. Deny by default when
+ * unset/empty, lookup fails, or addresses are unverified. Grants research-only
+ * Coach/simulation access for NCAAF/NCAAB — never flips subscriber
+ * releaseEligible / coachEnabled pipeline gates.
  */
 
 import { clerkClient } from "@clerk/express";
@@ -30,22 +31,62 @@ export function readResearchTesterEmails(
     .filter((e) => e.includes("@"));
 }
 
-function emailsFromClerkUser(user: {
-  emailAddresses?: readonly { emailAddress?: string | null }[] | null;
-  primaryEmailAddress?: { emailAddress?: string | null } | null;
-}): string[] {
+type ClerkEmailRow = {
+  id?: string | null;
+  emailAddress?: string | null;
+  verification?: { status?: string | null } | null;
+};
+
+type ClerkUserEmails = {
+  emailAddresses?: readonly ClerkEmailRow[] | null;
+  primaryEmailAddressId?: string | null;
+  primaryEmailAddress?: ClerkEmailRow | null;
+};
+
+/**
+ * Verified Clerk emails only. Unverified / missing verification never match.
+ * Pure helper — unit-tested without Clerk network.
+ */
+export function verifiedEmailsFromClerkUser(user: ClerkUserEmails): string[] {
   const out: string[] = [];
-  const primary = user.primaryEmailAddress?.emailAddress;
-  if (primary) out.push(primary);
+  const seen = new Set<string>();
+  const consider = (row: ClerkEmailRow | null | undefined) => {
+    const email = row?.emailAddress;
+    if (!email || typeof email !== "string") return;
+    if (row.verification?.status !== "verified") return;
+    const normalized = normalizeReviewEmail(email);
+    if (!normalized.includes("@") || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(email);
+  };
+  // Prefer primary when verified, then all verified addresses.
+  if (user.primaryEmailAddress) {
+    consider(user.primaryEmailAddress);
+  }
   for (const row of user.emailAddresses ?? []) {
-    if (row?.emailAddress) out.push(row.emailAddress);
+    consider(row);
   }
   return out;
+}
+
+/**
+ * True when any verified Clerk email matches the server allowlist.
+ * Client-supplied emails are never accepted — only `verifiedEmails`.
+ */
+export function researchTesterAllowlistMatch(opts: {
+  verifiedEmails: readonly string[];
+  allowlist: readonly string[];
+}): boolean {
+  if (!opts.allowlist.length) return false;
+  if (!opts.verifiedEmails.length) return false;
+  return clerkEmailsMatchAllowlist(opts.verifiedEmails, opts.allowlist);
 }
 
 export type ResearchTesterAccessDiag = {
   clerkUserLookupSucceeded: boolean;
   emailResolved: boolean;
+  /** At least one Clerk email has verification.status === "verified". */
+  verifiedEmailResolved: boolean;
   allowlistMatched: boolean;
   researchTesterAccess: boolean;
 } & ClerkLookupFailureDiag;
@@ -61,12 +102,15 @@ export async function diagnoseResearchTesterAccess(
 ): Promise<ResearchTesterAccessDiag> {
   const fail = (
     failure: ClerkLookupFailureDiag = noFailure,
+    extra: Partial<ResearchTesterAccessDiag> = {},
   ): ResearchTesterAccessDiag => ({
     clerkUserLookupSucceeded: false,
     emailResolved: false,
+    verifiedEmailResolved: false,
     allowlistMatched: false,
     researchTesterAccess: false,
     ...failure,
+    ...extra,
   });
   if (!userId) return fail({ ...noFailure, clerkFailureCategory: "config" });
   const allowlist = readResearchTesterEmails();
@@ -75,14 +119,21 @@ export async function diagnoseResearchTesterAccess(
   }
   try {
     const user = await clerkClient.users.getUser(userId);
-    const emails = emailsFromClerkUser(user);
-    const emailResolved = emails.some((e) =>
-      normalizeReviewEmail(e).includes("@"),
-    );
-    const allowlistMatched = clerkEmailsMatchAllowlist(emails, allowlist);
+    const allEmails = [
+      user.primaryEmailAddress?.emailAddress,
+      ...(user.emailAddresses ?? []).map((e) => e?.emailAddress),
+    ].filter((e): e is string => typeof e === "string" && e.includes("@"));
+    const verifiedEmails = verifiedEmailsFromClerkUser(user);
+    const emailResolved = allEmails.length > 0;
+    const verifiedEmailResolved = verifiedEmails.length > 0;
+    const allowlistMatched = researchTesterAllowlistMatch({
+      verifiedEmails,
+      allowlist,
+    });
     return {
       clerkUserLookupSucceeded: true,
       emailResolved,
+      verifiedEmailResolved,
       allowlistMatched,
       researchTesterAccess: allowlistMatched,
       ...noFailure,
@@ -103,8 +154,9 @@ export async function diagnoseResearchTesterAccess(
 }
 
 /**
- * True when the authenticated Clerk user matches RESEARCH_TESTER_EMAILS.
- * Fail closed when unset, Clerk errors, or no match.
+ * True when the authenticated Clerk user has a verified email on
+ * RESEARCH_TESTER_EMAILS. Fail closed when unset, Clerk errors, unverified
+ * addresses, or no match. Never trusts client email claims.
  */
 export async function isDesignatedResearchTester(
   userId: string | null | undefined,
@@ -114,7 +166,10 @@ export async function isDesignatedResearchTester(
   if (allowlist.length === 0) return false;
   try {
     const user = await clerkClient.users.getUser(userId);
-    return clerkEmailsMatchAllowlist(emailsFromClerkUser(user), allowlist);
+    return researchTesterAllowlistMatch({
+      verifiedEmails: verifiedEmailsFromClerkUser(user),
+      allowlist,
+    });
   } catch (err) {
     const classified = classifyClerkLookupError(err);
     logger.warn(

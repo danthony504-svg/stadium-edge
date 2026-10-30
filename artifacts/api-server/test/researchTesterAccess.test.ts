@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolvePremiumApiAccess } from "../src/lib/appReviewAccess.ts";
-import { clerkEmailsMatchAllowlist } from "../src/lib/appReviewAuth.ts";
 import {
   readResearchTesterEmails,
   RESEARCH_NOT_VALIDATED_LABEL,
+  researchTesterAllowlistMatch,
+  verifiedEmailsFromClerkUser,
 } from "../src/lib/researchTesterAccess.ts";
 
 test("readResearchTesterEmails: server env only; deny by default", () => {
@@ -27,17 +28,117 @@ test("readResearchTesterEmails: server env only; deny by default", () => {
   );
 });
 
-test("research allowlist match rejects forged non-tester emails", () => {
-  const allow = readResearchTesterEmails({
+test("verifiedEmailsFromClerkUser: only verification.status=verified", () => {
+  const emails = verifiedEmailsFromClerkUser({
+    primaryEmailAddressId: "id_primary",
+    primaryEmailAddress: {
+      id: "id_primary",
+      emailAddress: "tester@stadiumedge.app",
+      verification: { status: "verified" },
+    },
+    emailAddresses: [
+      {
+        id: "id_primary",
+        emailAddress: "tester@stadiumedge.app",
+        verification: { status: "verified" },
+      },
+      {
+        id: "id_unverified",
+        emailAddress: "unverified@stadiumedge.app",
+        verification: { status: "unverified" },
+      },
+      {
+        id: "id_missing",
+        emailAddress: "missing-verification@stadiumedge.app",
+        verification: null,
+      },
+    ],
+  });
+  assert.deepEqual(emails, ["tester@stadiumedge.app"]);
+});
+
+test("verifiedEmailsFromClerkUser: rejects unverified primary even if on allowlist text", () => {
+  const emails = verifiedEmailsFromClerkUser({
+    primaryEmailAddress: {
+      emailAddress: "tester@stadiumedge.app",
+      verification: { status: "unverified" },
+    },
+    emailAddresses: [
+      {
+        emailAddress: "tester@stadiumedge.app",
+        verification: { status: "unverified" },
+      },
+    ],
+  });
+  assert.deepEqual(emails, []);
+});
+
+test("researchTesterAllowlistMatch: verified only; client claims ignored", () => {
+  const allowlist = readResearchTesterEmails({
     RESEARCH_TESTER_EMAILS: "tester@stadiumedge.app",
   });
-  assert.equal(clerkEmailsMatchAllowlist(["tester@stadiumedge.app"], allow), true);
   assert.equal(
-    clerkEmailsMatchAllowlist(["Tester@Stadiumedge.app"], allow),
+    researchTesterAllowlistMatch({
+      verifiedEmails: ["tester@stadiumedge.app"],
+      allowlist,
+    }),
     true,
   );
-  assert.equal(clerkEmailsMatchAllowlist(["fan@example.com"], allow), false);
-  assert.equal(clerkEmailsMatchAllowlist([], allow), false);
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: ["Tester@Stadiumedge.app"],
+      allowlist,
+    }),
+    true,
+  );
+  // Unverified address never reaches verifiedEmails — empty → deny.
+  assert.equal(
+    researchTesterAllowlistMatch({ verifiedEmails: [], allowlist }),
+    false,
+  );
+  // Wrong email.
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: ["fan@example.com"],
+      allowlist,
+    }),
+    false,
+  );
+  // Empty allowlist deny.
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: ["tester@stadiumedge.app"],
+      allowlist: [],
+    }),
+    false,
+  );
+  // Client-supplied claim string is not a verification path — only verifiedEmails arg.
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: [],
+      allowlist,
+    }),
+    false,
+  );
+});
+
+test("missing identity and empty allowlist never grant research access", () => {
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: ["tester@stadiumedge.app"],
+      allowlist: readResearchTesterEmails({}),
+    }),
+    false,
+  );
+  assert.equal(
+    researchTesterAllowlistMatch({
+      verifiedEmails: [],
+      allowlist: readResearchTesterEmails({
+        RESEARCH_TESTER_EMAILS: "tester@stadiumedge.app",
+      }),
+    }),
+    false,
+  );
 });
 
 test("resolvePremiumApiAccess: research tester unlocks Coach API without paid row", () => {

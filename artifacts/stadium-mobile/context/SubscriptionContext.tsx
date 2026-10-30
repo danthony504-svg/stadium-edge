@@ -137,6 +137,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [serverResearchTesterAccess, setServerResearchTesterAccess] =
     useState(false);
   const loaded = useRef(false);
+  /** Latest Clerk userId — entitlement fetches ignore stale responses after switch. */
+  const activeUserIdRef = useRef<string | null | undefined>(userId);
+  activeUserIdRef.current = userId;
 
   const email =
     user?.primaryEmailAddress?.emailAddress ??
@@ -257,18 +260,24 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [hydrated, storeKitReady, isSignedIn, userId, applyVerifiedSnapshot]);
 
   // Server-verified privileged flags (fail closed when unsigned / error).
+  // Clear immediately on sign-out or account switch so research access cannot
+  // carry over to another user while the next entitlement fetch is in flight.
   useEffect(() => {
     if (!hydrated) return;
+    // Always drop prior account's research/owner/review flags first.
+    setServerAppReviewAccess(false);
+    setServerOwnerAccess(false);
+    setServerResearchTesterAccess(false);
     if (!isSignedIn || !userId) {
-      setServerAppReviewAccess(false);
-      setServerOwnerAccess(false);
-      setServerResearchTesterAccess(false);
       return;
     }
+    const fetchForUserId = userId;
     let cancelled = false;
     (async () => {
       const flags = await fetchServerAccessFlags();
       if (cancelled) return;
+      // Account changed mid-flight — never apply stale flags to the new session.
+      if (fetchForUserId !== activeUserIdRef.current) return;
       const appliedOwner = flags?.ownerAccess === true;
       const appliedResearch = flags?.researchTesterAccess === true;
       setServerAppReviewAccess(flags?.appReviewAccess === true);
@@ -292,6 +301,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     })();
     return () => {
       cancelled = true;
+      // Drop flags on cleanup (sign-out / userId change) before the next effect.
+      setServerAppReviewAccess(false);
+      setServerOwnerAccess(false);
+      setServerResearchTesterAccess(false);
     };
   }, [hydrated, isSignedIn, userId]);
 
