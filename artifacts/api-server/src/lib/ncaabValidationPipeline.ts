@@ -81,6 +81,7 @@ export async function runNcaabValidationPipeline({
 
   let slot = "";
   let slotKey = "";
+  let maintenanceKey = "";
   let state: Record<string, unknown> = {};
   try {
     const blockers: Record<string, number> = {};
@@ -209,7 +210,7 @@ export async function runNcaabValidationPipeline({
     slot = ncaabResearchSlot(new Date(await clock()));
     slotKey = `research:ncaab:pipeline:slot:${slot}`;
     const prior = await get(slotKey);
-    const maintenanceKey = `research:ncaab:pipeline:maintenance:${slot}`;
+    maintenanceKey = `research:ncaab:pipeline:maintenance:${slot}`;
     const MAINTENANCE_CADENCE_MS = 30 * 60000;
 
     /** Prepare / freeze / journal against saved archives — never charges odds. */
@@ -332,8 +333,10 @@ export async function runNcaabValidationPipeline({
     // Completed paid slot: skip Odds API, still run bounded archive maintenance.
     if (prior?.finishedAt && prior.state === "processed") {
       const previousMaintenance = await get(maintenanceKey);
+      // Prefer durable maintenance ledger; fall back to slot lastMaintenanceAt
+      // so a failed attempt that never finished still throttles the next tick.
       const maintenanceStarted = Date.parse(
-        previousMaintenance?.startedAt ?? "",
+        previousMaintenance?.startedAt ?? prior?.lastMaintenanceAt ?? "",
       );
       const nowMs = Date.parse(await clock());
       if (
@@ -482,6 +485,17 @@ export async function runNcaabValidationPipeline({
           lastMaintenanceState: "failed",
           lastMaintenanceReason: reason,
         });
+        // Keep the 30m maintenance cadence even when the attempt throws.
+        if (maintenanceKey) {
+          await put(maintenanceKey, {
+            startedAt: finishedAt,
+            finishedAt,
+            state: "failed",
+            reason,
+            researchOnly: true,
+            releaseEligible: false,
+          });
+        }
       } else {
         await put(slotKey, failed);
       }
