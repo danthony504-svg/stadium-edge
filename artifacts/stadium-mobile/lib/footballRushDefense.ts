@@ -740,44 +740,13 @@ export function multiSportOppDefenseTilt(opts: {
   const who = pack.teamName ? `${pack.teamName} ` : "";
 
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
-    const isPts = /point|pts|three|3.?pt|threes|field goal/.test(key);
-    const isAst = /assist|\bast\b/.test(key);
-    const isReb = /rebound|\breb\b/.test(key);
-    let tilt = 0;
-    const bits: string[] = [];
-    const pa = pack.pointsAgainst;
-    if (pa != null && (isPts || (!isAst && !isReb))) {
-      const stingy = sport === "ncaab" ? pa <= 65 : pa <= 108;
-      const leaky = sport === "ncaab" ? pa >= 78 : pa >= 118;
-      bits.push(`${pa} pts allowed/g`);
-      if (stingy) tilt += isOver ? -0.35 : 0.25;
-      else if (leaky) tilt += isOver ? 0.3 : -0.2;
-    }
-    if (isAst && pack.steals != null) {
-      bits.push(`${pack.steals.toFixed(1)} stl/g`);
-      if (pack.steals >= 8.5) tilt += isOver ? -0.25 : 0.18;
-      else if (pack.steals <= 6.5) tilt += isOver ? 0.2 : -0.12;
-    }
-    if (isReb && pack.defRebounds != null) {
-      bits.push(`${pack.defRebounds.toFixed(1)} dreb/g`);
-      if (pack.defRebounds >= 35) tilt += isOver ? -0.25 : 0.18;
-      else if (pack.defRebounds <= 31) tilt += isOver ? 0.22 : -0.12;
-    }
-    if (isPts && pack.blocks != null && pack.blocks >= 5.5) {
-      bits.push(`${pack.blocks.toFixed(1)} blk/g`);
-      tilt += isOver ? -0.12 : 0.08;
-    }
-    if (isReb && pack.oppFgPct != null && pack.oppFgPct <= 0.44) {
-      bits.push(`opp FG% ${(pack.oppFgPct * 100).toFixed(0)}`);
-      tilt += isOver ? 0.15 : -0.1;
-    }
-    // Present Match even for mid-tier D (tilt 0) — bits prove we compared the opponent.
-    if (!bits.length) return empty;
-    return {
-      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
-      blockOver: false,
-      display: `${who}${bits.join(", ")}`,
-    };
+    // Own steals/blocks/rebounds cannot stand in for allowed player production.
+    const market = canonicalPropMarketKey(opts.market ?? "").replace(/_alternate$/, "");
+    if (!hasOpponentMarketEvidence(sport, market, pack.opponentMarkets)) return empty;
+    const row = pack.opponentMarkets?.find(r => r.market === market);
+    if (!row) return empty;
+    return { tilt: 0, blockOver: false,
+      display: `${who}${row.perGame.toFixed(1)} ${market.replace(/^player_/, "").replace(/_/g, " ")} allowed/g (${row.sampleSize} games; team-wide context)` };
   }
 
   if (sport === "nhl") {

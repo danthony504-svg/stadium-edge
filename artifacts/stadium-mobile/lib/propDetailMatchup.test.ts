@@ -9,6 +9,7 @@ const stat = (value: number) => ({ value, displayValue: String(value) });
 function defense(sport = "nfl"): TeamDefense {
   return { sport, teamId: "21", teamName: "Philadelphia Eagles", avgPointsAgainst: 125,
     avgPointsFor: 25, pointDifferential: null,
+    opponentMarkets: [{market:"player_points",perGame:125,sampleSize:6,firstGame:"2026-01-01",lastGame:"2026-01-10",scope:"team_allowed",source:"verified test boxes"}],
     rushDefense: { rushingYardsAllowedPerGame: 140, yardsPerRushAllowed: 5, sampleSize: 5 },
     passDefense: { passingYardsAllowedPerGame: 270, yardsPerPassAllowed: 8, sampleSize: 5 },
     defensive: { teamGamesPlayed: stat(6), sacks: stat(8), interceptions: stat(3),

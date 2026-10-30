@@ -169,7 +169,7 @@ test("opponentTeamIdForProp resolves CHI → PHI for Bears @ Eagles", () => {
   );
 });
 
-test("multiSportOppDefenseTilt soft-demotes NBA Over vs stingy pts allowed", async () => {
+test("basketball own defensive stats never manufacture individual prop tilt", async () => {
   const { multiSportOppDefenseTilt } = await import("./footballRushDefense.ts");
   const tilt = multiSportOppDefenseTilt({
     sport: "nba",
@@ -177,9 +177,9 @@ test("multiSportOppDefenseTilt soft-demotes NBA Over vs stingy pts allowed", asy
     side: "Over",
     pack: { pointsAgainst: 104, teamName: "Celtics", blocks: 6.2 },
   });
-  assert.ok(tilt.tilt < 0);
+  assert.equal(tilt.tilt, 0);
   assert.equal(tilt.blockOver, false);
-  assert.ok(tilt.display?.includes("104"));
+  assert.equal(tilt.display, null);
 });
 
 test("prop holistic opponentTendency uses rush defense for NFL rush Over", () => {
@@ -297,7 +297,7 @@ test("phone 5-leg touchdown: keep Anytime TD when stingy D has no Under alt", ()
   assert.equal(keepOrSwapDefenseAwareSide(td, [td]), td);
 });
 
-test("multiSport market-aware: assists use steals, rebounds use dreb", async () => {
+test("multiSport market-aware: basketball rejects unrelated proxies", async () => {
   const { multiSportOppDefenseTilt } = await import("./footballRushDefense.ts");
   const ast = multiSportOppDefenseTilt({
     sport: "nba",
@@ -305,8 +305,8 @@ test("multiSport market-aware: assists use steals, rebounds use dreb", async () 
     side: "Over",
     pack: { steals: 9.2, pointsAgainst: 112, teamName: "Thunder" },
   });
-  assert.ok(ast.tilt < 0);
-  assert.ok(ast.display?.includes("stl"));
+  assert.equal(ast.tilt, 0);
+  assert.equal(ast.display, null);
 
   const reb = multiSportOppDefenseTilt({
     sport: "nba",
@@ -314,7 +314,8 @@ test("multiSport market-aware: assists use steals, rebounds use dreb", async () 
     side: "Over",
     pack: { defRebounds: 36, pointsAgainst: 112 },
   });
-  assert.ok(reb.tilt < 0);
+  assert.equal(reb.tilt, 0);
+  assert.equal(reb.display, null);
 
   const sog = multiSportOppDefenseTilt({
     sport: "nhl",
@@ -1058,4 +1059,14 @@ test("rush volume game script uses opponent pointsFor not pointsAgainst", async 
     ownPack: { ownRushYpc: 4.2, pointsFor: 17, gamesPlayed: 12 },
   });
   assert.ok(leading.tilt > trailing.tilt);
+});
+
+test("all basketball leagues require exact-market context and retain neutral tilt", async () => {
+ const { multiSportOppDefenseTilt } = await import("./footballRushDefense.ts");
+ for (const sport of ["nba", "wnba", "ncaab"]) for (const market of ["player_assists", "player_rebounds", "player_threes", "player_points"]) {
+  const row={market,perGame:12,sampleSize:5,firstGame:"2026-01-01",lastGame:"2026-01-10",scope:"team_allowed" as const,source:"verified test box scores"};
+  const result=multiSportOppDefenseTilt({sport,market,side:"Over",pack:{opponentMarkets:[row]}});
+  assert.equal(result.tilt,0);assert.ok(result.display?.includes("12.0"));
+  assert.equal(multiSportOppDefenseTilt({sport,market,side:"Under",pack:{opponentMarkets:[{...row,sampleSize:2}]}}).display,null);
+ }
 });
