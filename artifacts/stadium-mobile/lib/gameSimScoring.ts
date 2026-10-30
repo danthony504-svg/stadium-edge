@@ -12,6 +12,7 @@ import {
   normalizeMarketKey,
 } from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
+import { fullGameTotalHitRate } from "./gameSimTotalHitReuse.ts";
 import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
@@ -411,6 +412,8 @@ export function deriveCoverHitRatesFromOutcomes(
   const rates: Record<string, number> = {};
   for (const q of queries) {
     if (!gameCoverQuerySupported(sport, q)) continue;
+    const reusedTotal = fullGameTotalHitRate(outcomes, q);
+    if (reusedTotal !== undefined) { rates[q.id] = reusedTotal; continue; }
     let hits = 0;
     for (let i = 0; i < n; i++) {
       if (
