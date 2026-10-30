@@ -360,6 +360,29 @@ test("maintenance errors never demote a completed paid slot or reopen odds", asy
   const latest = db.values.get("research:ncaab:pipeline:latest");
   assert.equal(latest.state, "failed");
   assert.equal(latest.reason, "boom_maintenance");
+  const maintenance = [...db.values.entries()].find(([k]) =>
+    k.startsWith("research:ncaab:pipeline:maintenance:"),
+  );
+  assert.ok(maintenance);
+  assert.equal(maintenance![1].state, "failed");
+  assert.equal(maintenance![1].reason, "boom_maintenance");
+
+  // Immediate retry must hit the 30m maintenance cadence, not loop.
+  armed = false;
+  const thirdCollectors: string[] = [];
+  const third = await runNcaabValidationPipeline({
+    db,
+    fetchOutcome: noOutcome,
+    attemptFreeze: async () => {
+      throw Error("must not freeze inside failed-maintenance cadence");
+    },
+    runCollector: async (name) => {
+      thirdCollectors.push(name);
+    },
+  });
+  assert.equal(third.state, "skipped_completed_slot");
+  assert.equal((third as any).maintenanceSkippedCadence, true);
+  assert.deepEqual(thirdCollectors, []);
 });
 
 test("completed-slot maintenance journals when a frozen candidate already exists", async () => {
