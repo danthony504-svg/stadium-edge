@@ -16,6 +16,7 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
           "research:ncaab:settlement-check:latest",
           "research:ncaab:adjusted-model:latest",
           "research:ncaab:adjusted-journal:latest",
+          "research:ncaab:development-dataset:latest",
         ],
       ],
     )
@@ -42,6 +43,7 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
   const settlement = reports.get("research:ncaab:settlement-check:latest");
   const adjusted = reports.get("research:ncaab:adjusted-model:latest");
   const journal = reports.get("research:ncaab:adjusted-journal:latest");
+  const development = reports.get("research:ncaab:development-dataset:latest");
   const matched = Array.isArray(live?.value?.matched) ? live.value.matched : [];
   const nowMs = Date.parse(new Date(inventory.now).toISOString());
   const upcomingMatched = matched.filter(
@@ -56,6 +58,13 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
     researchPipelineExists: true,
     now: new Date(inventory.now),
   });
+
+  const freezeState =
+    pipeline?.freezeState ??
+    adjusted?.state ??
+    "not_fitted_or_registered";
+  const freezeModelSha256 =
+    pipeline?.freezeModelSha256 ?? adjusted?.modelSha256 ?? null;
 
   return {
     checkedAt: new Date(inventory.now).toISOString(),
@@ -74,12 +83,51 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
       independentHoldoutForecasts: inventory.independent_holdout_forecasts,
       priorSeasonForecasts: inventory.prior_season_forecasts,
       upcomingMatchedTargets: upcomingMatched,
+      authenticatedDevelopmentGames:
+        development?.authenticatedDevelopmentGames ??
+        pipeline?.authenticatedDevelopmentGames ??
+        0,
+      featureCompleteDevelopmentGames:
+        development?.featureCompleteGames ??
+        pipeline?.featureCompleteDevelopmentGames ??
+        0,
     },
+    development: development
+      ? {
+          state: development.state ?? null,
+          preparedAt: development.preparedAt ?? null,
+          manifestSha256: development.manifestSha256 ?? null,
+          authenticatedDevelopmentGames:
+            development.authenticatedDevelopmentGames ?? 0,
+          featureCompleteGames: development.featureCompleteGames ?? 0,
+          holdoutEligible: false,
+          researchOnly: true,
+        }
+      : {
+          state: pipeline?.developmentState ?? "not_prepared",
+          authenticatedDevelopmentGames:
+            pipeline?.authenticatedDevelopmentGames ?? 0,
+          featureCompleteGames:
+            pipeline?.featureCompleteDevelopmentGames ?? 0,
+          holdoutEligible: false,
+          researchOnly: true,
+        },
     collectionEvidence: {
       pipelineState: pipeline?.state ?? null,
       pipelinePhase: pipeline?.phase ?? null,
       pipelineBlockers: pipeline?.blockers ?? {},
       liveArchiveKey: live?.key ?? null,
+      paidCollectionSkipped: pipeline?.paidCollectionSkipped === true,
+      freezeState,
+      freezeModelSha256,
+      authenticatedDevelopmentGames:
+        development?.authenticatedDevelopmentGames ??
+        pipeline?.authenticatedDevelopmentGames ??
+        0,
+      featureCompleteDevelopmentGames:
+        development?.featureCompleteGames ??
+        pipeline?.featureCompleteDevelopmentGames ??
+        0,
     },
     settlement: settlement
       ? {
@@ -92,15 +140,16 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
         }
       : null,
     adjustedModel: {
-      state: adjusted?.state ?? "not_fitted_or_registered",
-      modelSha256: adjusted?.modelSha256 ?? null,
+      state: freezeState,
+      modelSha256: freezeModelSha256,
       researchOnly: true,
       validationReady: false,
     },
     adjustedJournal: {
-      state: journal?.state ?? "not_run",
-      recordedThisRun: journal?.recorded ?? 0,
+      state: journal?.state ?? pipeline?.journalState ?? "not_run",
+      recordedThisRun: journal?.recorded ?? pipeline?.journalRecorded ?? 0,
       existing: journal?.existing ?? 0,
+      withheld: journal?.withheld ?? pipeline?.journalWithheld ?? 0,
       releaseEligible: false,
     },
     coachEnablementDecision: {

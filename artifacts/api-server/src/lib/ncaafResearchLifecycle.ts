@@ -168,8 +168,19 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
       true,
     );
     await stage("collection", deps.collect);
-    if (deps.catchUpDevelopment)
-      await stage("development_catchup", deps.catchUpDevelopment, true);
+    if (deps.catchUpDevelopment) {
+      // When holdout context assembly is still blocked on stale conference
+      // archives, do not let the 30m cadence skip catch-up — free evidence
+      // refresh must be allowed to re-capture within the long research slot.
+      const contextLatest = await get("research:ncaaf:context-dataset:latest");
+      const staleConference =
+        (contextLatest?.blockers?.conference_stale_or_future_capture ?? 0) > 0;
+      await stage(
+        "development_catchup",
+        deps.catchUpDevelopment,
+        !staleConference,
+      );
+    }
     if (deps.transfer) await stage("transfer_journal", deps.transfer);
     if (deps.journalAdjusted)
       await stage("adjusted_journal", deps.journalAdjusted);
