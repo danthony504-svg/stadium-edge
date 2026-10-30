@@ -293,6 +293,75 @@ test("completed NCAAB slot still prepares, freezes, and journals without paid od
   assert.deepEqual(thirdCollectors, []);
 });
 
+test("maintenance errors never demote a completed paid slot or reopen odds", async () => {
+  const { db } = fixture();
+  await runNcaabValidationPipeline({
+    db,
+    fetchOutcome: noOutcome,
+    attemptFreeze: async () => ({
+      state: "waiting_for_verified_development_finals",
+      modelSha256: null,
+    }),
+    runCollector: async () => {},
+  });
+  const slotKey = [...db.values.keys()].find((k) =>
+    k.startsWith("research:ncaab:pipeline:slot:"),
+  );
+  assert.ok(slotKey);
+  const completed = db.values.get(slotKey!);
+  assert.equal(completed.state, "processed");
+  assert.equal(completed.oddsAttempted, true);
+  assert.ok(completed.finishedAt);
+
+  db.now = "2026-10-26T17:55:00.000Z";
+  for (const key of [...db.values.keys()]) {
+    if (key.startsWith("research:ncaab:pipeline:maintenance:"))
+      db.values.delete(key);
+  }
+
+  // Uncaught storage fault during maintenance (collectors/freeze are fail-soft).
+  const innerQuery = db.query.bind(db);
+  let armed = false;
+  db.query = async (sql: string, params?: unknown[]) => {
+    if (
+      armed &&
+      sql.includes("SELECT value FROM public.app_kv WHERE key=$1") &&
+      String(params?.[0]) === "research:ncaab:development-dataset:latest"
+    )
+      throw Error("boom_maintenance");
+    return innerQuery(sql, params);
+  };
+
+  armed = true;
+  await assert.rejects(
+    () =>
+      runNcaabValidationPipeline({
+        db,
+        fetchOutcome: noOutcome,
+        attemptFreeze: async () => ({
+          state: "waiting_for_more_development_games",
+          modelSha256: null,
+        }),
+        runCollector: async (name) => {
+          if (name === "ncaab-capture-live-inputs.mjs")
+            throw Error("must not re-charge odds");
+        },
+      }),
+    /boom_maintenance/,
+  );
+
+  const after = db.values.get(slotKey!);
+  assert.equal(after.state, "processed");
+  assert.equal(after.oddsAttempted, true);
+  assert.equal(after.finishedAt, completed.finishedAt);
+  assert.equal(after.attempts, completed.attempts);
+  assert.equal(after.lastMaintenanceState, "failed");
+  assert.equal(after.lastMaintenanceReason, "boom_maintenance");
+  const latest = db.values.get("research:ncaab:pipeline:latest");
+  assert.equal(latest.state, "failed");
+  assert.equal(latest.reason, "boom_maintenance");
+});
+
 test("completed-slot maintenance journals when a frozen candidate already exists", async () => {
   const { db } = fixture();
   await runNcaabValidationPipeline({

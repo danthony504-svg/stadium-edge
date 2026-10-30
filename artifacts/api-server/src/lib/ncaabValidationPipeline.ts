@@ -233,13 +233,14 @@ export async function runNcaabValidationPipeline({
         coachEnabled: false,
         phase: "development",
       };
-      await put(slotKey, {
-        ...prior,
-        ...state,
-        // Preserve original slot completion / attempt ledger for paid odds.
-        finishedAt: prior?.finishedAt,
-        state: prior?.state === "processed" ? "processed" : "running",
-      });
+      // Do not rewrite a completed paid slot to running — latest tracks phase.
+      if (!(prior?.state === "processed" && prior?.finishedAt)) {
+        await put(slotKey, {
+          ...prior,
+          ...state,
+          state: "running",
+        });
+      }
       await put("research:ncaab:pipeline:latest", state);
 
       try {
@@ -460,15 +461,31 @@ export async function runNcaabValidationPipeline({
     };
   } catch (err) {
     const finishedAt = await clock();
+    const reason =
+      err instanceof Error ? err.message : "ncaab_pipeline_failed";
     const failed = {
       ...state,
       state: "failed",
       finishedAt,
-      reason: err instanceof Error ? err.message : "ncaab_pipeline_failed",
+      reason,
       releaseEligible: false,
       coachEnabled: false,
     };
-    if (slotKey) await put(slotKey, failed);
+    if (slotKey) {
+      const existing = await get(slotKey);
+      if (existing?.state === "processed" && existing?.finishedAt) {
+        // Never demote a completed paid-odds slot: maintenance failures must
+        // not reopen attempts or clear oddsAttempted for another Odds charge.
+        await put(slotKey, {
+          ...existing,
+          lastMaintenanceAt: finishedAt,
+          lastMaintenanceState: "failed",
+          lastMaintenanceReason: reason,
+        });
+      } else {
+        await put(slotKey, failed);
+      }
+    }
     await put("research:ncaab:pipeline:latest", failed);
     throw err;
   } finally {
