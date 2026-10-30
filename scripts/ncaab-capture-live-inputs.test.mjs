@@ -119,3 +119,56 @@ test("matchEspnEvent requires unique home/away/kickoff identity", () => {
     null,
   );
 });
+
+test("matchEspnEvent binds unique teams when ESPN TBD :59 skews from odds hour", () => {
+  const board = JSON.stringify({
+    events: [
+      {
+        id: "401920409",
+        season: { year: 2027 },
+        competitions: [
+          {
+            date: "2026-11-02T04:59:00Z",
+            competitors: [
+              {
+                homeAway: "home",
+                team: {
+                  id: "2272",
+                  displayName: "High Point Panthers",
+                  shortDisplayName: "High Point",
+                  location: "High Point",
+                  name: "Panthers",
+                },
+              },
+              {
+                homeAway: "away",
+                team: {
+                  id: "2335",
+                  displayName: "Liberty Flames",
+                  shortDisplayName: "Liberty",
+                  location: "Liberty",
+                  name: "Flames",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  const hit = matchEspnEvent(board, {
+    home_team: "High Point Panthers",
+    away_team: "Liberty Flames",
+    commence_time: "2026-11-02T05:00:00Z",
+  });
+  assert.equal(hit?.eventId, "401920409");
+  assert.equal(hit?.kickoff, "2026-11-02T04:59:00Z");
+  assert.equal(
+    matchEspnEvent(board, {
+      home_team: "High Point Panthers",
+      away_team: "Liberty Flames",
+      commence_time: "2026-11-02T06:00:00Z",
+    }),
+    null,
+  );
+});
