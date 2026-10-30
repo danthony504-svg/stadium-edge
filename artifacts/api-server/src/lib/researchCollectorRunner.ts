@@ -112,8 +112,15 @@ export async function runResearchCollector(opts: {
   } = opts;
   if (!allowed.has(scriptName)) throw Error(unknownCode);
 
-  let stderr = "";
   await new Promise<void>((resolveRun, reject) => {
+    let settled = false;
+    let stderr = "";
+    let exited = false;
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    let stderrClosed = false;
+    let stderrWait: ReturnType<typeof setTimeout> | undefined;
+
     const child = spawn(
       process.execPath,
       [
@@ -127,38 +134,102 @@ export async function runResearchCollector(opts: {
         env,
       },
     );
-    child.stderr?.setEncoding("utf8");
-    child.stderr?.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-8000);
-    });
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(
-        Error(collectorFailureCode(scriptName, { timedOut: true, codePrefix })),
-      );
-    }, timeoutMs);
-    child.once("error", () => {
+
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
-      reject(
-        Error(
-          collectorFailureCode(scriptName, { startFailed: true, codePrefix }),
-        ),
-      );
-    });
-    child.once("exit", (code, signal) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolveRun();
+      if (stderrWait) clearTimeout(stderrWait);
+      process.off("SIGTERM", onTerm);
+      action();
+    };
+
+    const finishAfterStderr = () => {
+      if (!exited || !stderrClosed || settled) return;
+      if (exitCode === 0 && !exitSignal) {
+        settle(() => resolveRun());
         return;
       }
-      reject(
-        Error(
-          collectorExitFailure(scriptName, code, signal, stderr, codePrefix),
+      settle(() =>
+        reject(
+          Error(
+            collectorExitFailure(
+              scriptName,
+              exitCode,
+              exitSignal,
+              stderr,
+              codePrefix,
+            ),
+          ),
+        ),
+      );
+    };
+
+    const markStderrClosed = () => {
+      stderrClosed = true;
+      finishAfterStderr();
+    };
+
+    if (!child.stderr) {
+      markStderrClosed();
+    } else {
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => {
+        stderr = (stderr + chunk).slice(-8000);
+      });
+      // Prefer 'close' so buffered bytes are drained before we classify failures.
+      child.stderr.once("close", markStderrClosed);
+      child.stderr.once("error", markStderrClosed);
+    }
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      settle(() =>
+        reject(
+          Error(
+            collectorFailureCode(scriptName, { timedOut: true, codePrefix }),
+          ),
+        ),
+      );
+    }, timeoutMs);
+
+    child.once("error", () => {
+      settle(() =>
+        reject(
+          Error(
+            collectorFailureCode(scriptName, {
+              startFailed: true,
+              codePrefix,
+            }),
+          ),
         ),
       );
     });
-    const stop = () => child.kill("SIGTERM");
-    process.once("SIGTERM", stop);
-    child.once("exit", () => process.off("SIGTERM", stop));
+
+    child.once("exit", (code, signal) => {
+      exited = true;
+      exitCode = code;
+      exitSignal = signal;
+      // SIGKILL / abrupt close can skip stderr 'close'; bound the wait.
+      stderrWait = setTimeout(() => {
+        if (!stderrClosed) markStderrClosed();
+      }, 100);
+      finishAfterStderr();
+    });
+
+    const onTerm = () => {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      // A process SIGTERM listener disables Node's default exit. Forward to the
+      // child, then exit so freeze/journal cannot continue past scheduler shutdown.
+      settle(() => {
+        process.exitCode = 143;
+        process.exit(143);
+      });
+    };
+    process.once("SIGTERM", onTerm);
   });
 }
