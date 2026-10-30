@@ -107,7 +107,7 @@ export async function runNcaafResearchLifecycle(deps: LifecycleDependencies) {
     } catch (e) {
       const reason =
         e instanceof Error &&
-        /^(adjusted|context|development|transfer|journal|pipeline)_[a-z_]+$/.test(
+        /^(adjusted|context|development|transfer|journal|pipeline|conference|usage|repair|history|injury|collector)_[a-z0-9_]+$/.test(
           e.message,
         )
           ? e.message

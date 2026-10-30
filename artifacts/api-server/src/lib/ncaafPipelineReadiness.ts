@@ -31,6 +31,7 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
           "research:ncaaf:adjusted-journal:latest",
           "research:ncaaf:pipeline:latest",
           "research:ncaaf:usage-capture:latest",
+          "research:ncaaf:development-catchup:latest",
         ],
       ],
     )
@@ -82,7 +83,10 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
     journal = reports.get("research:ncaaf:adjusted-journal:latest"),
     contextDataset = reports.get("research:ncaaf:context-dataset:latest"),
     pipelineLatest = reports.get("research:ncaaf:pipeline:latest"),
-    usageCapture = reports.get("research:ncaaf:usage-capture:latest");
+    usageCapture = reports.get("research:ncaaf:usage-capture:latest"),
+    developmentCatchup = reports.get(
+      "research:ncaaf:development-catchup:latest",
+    );
   // Derived waiting label when the frozen journal processed zero future
   // holdout contexts — sealed store files must not change implementationSha256.
   const waitingForHoldoutContexts =
@@ -198,6 +202,38 @@ export async function ncaafPipelineReadiness(db: ResearchDb) {
             failed: usageCapture.failed ?? 0,
             reason: usageCapture.reason ?? null,
             finishedAt: usageCapture.finishedAt ?? null,
+          }
+        : null,
+      developmentCatchup: developmentCatchup
+        ? {
+            state: developmentCatchup.state ?? null,
+            finishedAt: developmentCatchup.finishedAt ?? null,
+            startedAt: developmentCatchup.startedAt ?? null,
+            slot: developmentCatchup.slot ?? null,
+            upcomingTargets: developmentCatchup.upcomingTargets ?? 0,
+            contextAssemblyFailed:
+              developmentCatchup.contextAssemblyFailed === true,
+            injuryRefreshFailed:
+              developmentCatchup.injuryRefreshFailed === true,
+            failedCollectors: Array.isArray(
+              developmentCatchup.failedCollectors,
+            )
+              ? developmentCatchup.failedCollectors.filter(
+                  (c: unknown) => typeof c === "string",
+                )
+              : [],
+            failedReasons:
+              developmentCatchup.failedReasons &&
+              typeof developmentCatchup.failedReasons === "object"
+                ? developmentCatchup.failedReasons
+                : {},
+            primaryFailureReason:
+              typeof developmentCatchup.primaryFailureReason === "string" &&
+              /^(pipeline|context|conference|usage|repair|history|injury|development|collector)_[a-z0-9_]+$/.test(
+                developmentCatchup.primaryFailureReason,
+              )
+                ? developmentCatchup.primaryFailureReason
+                : null,
           }
         : null,
       verifiedAvailabilityBindings: verifiedBindings,

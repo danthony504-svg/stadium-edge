@@ -478,6 +478,7 @@ async function main() {
     )
       throw Error("conference_capture_overlap");
     let captureFailed = false;
+    let processedThisRun = 0;
     for (const conference of CONFERENCES) {
       const phase = process.argv.includes("--development-catchup")
         ? ":development-catchup"
@@ -572,6 +573,7 @@ async function main() {
             }),
           ],
         );
+        processedThisRun += 1;
         console.log(
           JSON.stringify({
             conference,
@@ -607,7 +609,13 @@ async function main() {
         );
       }
     }
-    if (captureFailed) process.exitCode = 1;
+    // Partial conference success must not abort catch-up/free-refresh: later
+    // usage/context retries still need to run. Exit non-zero only when this
+    // invocation attempted work and recorded zero processed conferences.
+    if (captureFailed && processedThisRun === 0) {
+      console.error("conference_all_captures_failed");
+      process.exitCode = 1;
+    }
   } finally {
     await db.end();
   }
@@ -616,9 +624,12 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 )
-  main().catch(() => {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : "";
     console.error(
-      "Conference research collector failed; no forecast or release changed.",
+      /^(conference|pipeline)_[a-z0-9_]+$/.test(message)
+        ? message
+        : "conference_collector_failed",
     );
     process.exitCode = 1;
   });

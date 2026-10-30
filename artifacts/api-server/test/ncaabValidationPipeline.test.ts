@@ -522,4 +522,84 @@ test("NCAAB readiness stays BLOCKED with separate inventory", async () => {
       u.includes("independent_holdout_forecasts=0"),
     ),
   );
+  assert.equal(report.collectionEvidence.liveArchive, null);
+});
+
+test("NCAAB readiness diagnoses empty live archive vs identity mismatch", async () => {
+  const { db } = fixture("2026-10-30T12:00:00.000Z");
+  db.values.set("research:ncaab:live-inputs:2026-10-30T07:21:19.853Z", {
+    version: 1,
+    sport: "ncaab",
+    researchOnly: true,
+    observedAt: "2026-10-30T07:21:19.853Z",
+    odds: { receivedAt: "2026-10-30T07:21:19.853Z" },
+    scoreboards: [{ day: "2026-10-30" }],
+    matched: [],
+    unmatched: [],
+  });
+  db.query = async (sql: string, params?: unknown[]) => {
+    if (sql.includes("AS forecasts"))
+      return {
+        rows: [
+          {
+            forecasts: 0,
+            settlements: 0,
+            live_archives: 1,
+            independent_holdout_forecasts: 0,
+            future_holdout_contexts: 0,
+            prior_season_forecasts: 0,
+            now: db.now,
+          },
+        ],
+      };
+    if (sql.includes("live-inputs:%") && sql.includes("ORDER BY key DESC"))
+      return {
+        rows: [
+          {
+            key: "research:ncaab:live-inputs:2026-10-30T07:21:19.853Z",
+            value: db.values.get(
+              "research:ncaab:live-inputs:2026-10-30T07:21:19.853Z",
+            ),
+          },
+        ],
+      };
+    if (sql.includes("key=ANY"))
+      return { rows: [] };
+    if (sql.includes("current_database()"))
+      return { rows: [{ name: "stadium_edge_production" }] };
+    if (sql.includes("clock_timestamp"))
+      return { rows: [{ now: db.now }] };
+    throw Error(`unexpected readiness query: ${sql.slice(0, 80)}`);
+  };
+  const empty = await ncaabPipelineReadiness(db);
+  assert.equal(
+    empty.collectionEvidence.liveArchive?.diagnosis,
+    "archive_empty_no_upcoming_odds_events",
+  );
+  assert.equal(empty.collectionEvidence.liveArchive?.matchedCount, 0);
+  assert.equal(empty.collectionEvidence.liveArchive?.unmatchedCount, 0);
+
+  db.values.set("research:ncaab:live-inputs:2026-10-30T07:21:19.853Z", {
+    version: 1,
+    sport: "ncaab",
+    researchOnly: true,
+    observedAt: "2026-10-30T07:21:19.853Z",
+    odds: { receivedAt: "2026-10-30T07:21:19.853Z" },
+    scoreboards: [{ day: "2026-11-01" }],
+    matched: [],
+    unmatched: [
+      { oddsEventId: "x", reason: "missing_or_ambiguous_espn_event" },
+      { oddsEventId: "y", reason: "missing_or_ambiguous_espn_event" },
+    ],
+  });
+  const unmatched = await ncaabPipelineReadiness(db);
+  assert.equal(
+    unmatched.collectionEvidence.liveArchive?.diagnosis,
+    "odds_present_but_espn_identity_unmatched",
+  );
+  assert.equal(
+    unmatched.collectionEvidence.liveArchive?.unmatchedReasons
+      .missing_or_ambiguous_espn_event,
+    2,
+  );
 });
