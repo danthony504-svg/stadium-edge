@@ -248,6 +248,15 @@ export function shouldRetryConferenceCapture(
   if (attempt.state === "failed") return true;
   if (attempt.state === "processed" && ((attempt.verifiedEvents ?? 0) === 0 || (attempt.deferredFutureReports ?? 0) > 0))
     return true;
+  // Research slots span up to 8h; bindConferenceReports rejects archives older
+  // than 6h. Re-capture processed attempts once they would fail that freshness
+  // window so catch-up can recover holdout/development contexts.
+  if (
+    attempt.state === "processed" &&
+    Number.isFinite(finished) &&
+    nowMs - finished > 6 * 3600000
+  )
+    return true;
   return false;
 }
 

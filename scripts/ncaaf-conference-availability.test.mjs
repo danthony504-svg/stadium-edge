@@ -298,6 +298,8 @@ test("mixed captures stay retryable after backoff without rewriting earlier evid
  assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+29*60000),false);
  assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+30*60000),true);
  assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+30*60000),false);
+ // Slot spans up to 8h; refresh once the 6h bind freshness window would reject the archive.
+ assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+6*3600000+1),true);
 });
 
 test("latest archive lookup reads only indexed keys, never historical JSON", async () => {
