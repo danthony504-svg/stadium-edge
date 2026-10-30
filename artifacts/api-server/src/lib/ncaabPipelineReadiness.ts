@@ -45,12 +45,34 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
   const journal = reports.get("research:ncaab:adjusted-journal:latest");
   const development = reports.get("research:ncaab:development-dataset:latest");
   const matched = Array.isArray(live?.value?.matched) ? live.value.matched : [];
+  const unmatched = Array.isArray(live?.value?.unmatched)
+    ? live.value.unmatched
+    : [];
   const nowMs = Date.parse(new Date(inventory.now).toISOString());
   const upcomingMatched = matched.filter(
     (m: { target?: { kickoff?: string } }) =>
       Number.isFinite(Date.parse(m?.target?.kickoff ?? "")) &&
       Date.parse(m.target!.kickoff!) > nowMs,
   ).length;
+  const unmatchedReasons: Record<string, number> = {};
+  for (const row of unmatched) {
+    const reason =
+      typeof row?.reason === "string" && /^[a-z0-9_]+$/.test(row.reason)
+        ? row.reason
+        : "unmatched_unspecified";
+    unmatchedReasons[reason] = (unmatchedReasons[reason] ?? 0) + 1;
+  }
+  const oddsReceivedAt =
+    typeof live?.value?.odds?.receivedAt === "string"
+      ? live.value.odds.receivedAt
+      : null;
+  const archiveObservedAt =
+    typeof live?.value?.observedAt === "string" ? live.value.observedAt : null;
+  const scoreboardDays = Array.isArray(live?.value?.scoreboards)
+    ? live.value.scoreboards
+        .map((s: { day?: string }) => s?.day)
+        .filter((d: unknown): d is string => typeof d === "string")
+    : [];
 
   const enablement = ncaabCoachEnablementDecision({
     oddsEvents: upcomingMatched || null,
@@ -117,6 +139,29 @@ export async function ncaabPipelineReadiness(db: ResearchDb) {
       pipelinePhase: pipeline?.phase ?? null,
       pipelineBlockers: pipeline?.blockers ?? {},
       liveArchiveKey: live?.key ?? null,
+      liveArchive: live
+        ? {
+            key: live.key,
+            observedAt: archiveObservedAt,
+            oddsReceivedAt,
+            matchedCount: matched.length,
+            unmatchedCount: unmatched.length,
+            upcomingMatchedTargets: upcomingMatched,
+            unmatchedReasons,
+            scoreboardDays,
+            // Zero matched with zero unmatched and a fresh archive usually means
+            // the paid odds response had no upcoming NCAAB events in-window —
+            // early-season evidence absence, not a binder/parser crash.
+            diagnosis:
+              matched.length === 0 && unmatched.length === 0
+                ? "archive_empty_no_upcoming_odds_events"
+                : matched.length === 0 && unmatched.length > 0
+                  ? "odds_present_but_espn_identity_unmatched"
+                  : upcomingMatched === 0 && matched.length > 0
+                    ? "matched_targets_all_kickoffs_passed"
+                    : "matched_targets_present",
+          }
+        : null,
       paidCollectionSkipped: pipeline?.paidCollectionSkipped === true,
       freezeState,
       freezeModelSha256,
