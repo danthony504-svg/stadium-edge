@@ -183,6 +183,8 @@ export async function runResearchCollector(opts: {
     }
 
     const timeout = setTimeout(() => {
+      // Child may have already exited while we drain stderr; never override that.
+      if (exited || settled) return;
       child.kill("SIGKILL");
       settle(() =>
         reject(
@@ -207,6 +209,9 @@ export async function runResearchCollector(opts: {
     });
 
     child.once("exit", (code, signal) => {
+      // Disarm the wall-clock timer immediately so a near-deadline exit (including
+      // success) cannot be SIGKILL'd / rejected as *_timeout during stderr drain.
+      clearTimeout(timeout);
       exited = true;
       exitCode = code;
       exitSignal = signal;
