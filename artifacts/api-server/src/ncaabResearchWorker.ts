@@ -2,10 +2,10 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { spawn } from "node:child_process";
 import { attemptNcaabResearchFreeze } from "./lib/ncaabAdjustedModelStore.js";
 import { recordNcaabAdjustedForecasts } from "./lib/ncaabForecastJournal.js";
 import { runNcaabValidationPipeline } from "./lib/ncaabValidationPipeline.js";
+import { runResearchCollector } from "./lib/researchCollectorRunner.js";
 
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const allowed = new Set([
@@ -14,34 +14,15 @@ const allowed = new Set([
 ]);
 
 async function runCollector(name: string, args: string[]) {
-  if (!allowed.has(name)) throw Error("ncaab_pipeline_unknown_collector");
-  await new Promise<void>((resolveRun, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        "--max-old-space-size=256",
-        resolve(repoRoot, "scripts", name),
-        ...args,
-        "--execute",
-      ],
-      {
-        stdio: ["ignore", "ignore", "pipe"],
-        env: { ...process.env, NCAAB_REPO_ROOT: repoRoot },
-      },
-    );
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(Error("ncaab_pipeline_collector_timeout"));
-    }, 8 * 60_000);
-    child.once("error", () => {
-      clearTimeout(timeout);
-      reject(Error("ncaab_pipeline_collector_start_failed"));
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) resolveRun();
-      else reject(Error("ncaab_pipeline_collector_failed"));
-    });
+  await runResearchCollector({
+    repoRoot,
+    scriptName: name,
+    args,
+    allowed,
+    heapMb: 384,
+    unknownCode: "ncaab_pipeline_unknown_collector",
+    codePrefix: "ncaab_pipeline_collector",
+    env: { ...process.env, NCAAB_REPO_ROOT: repoRoot },
   });
 }
 
