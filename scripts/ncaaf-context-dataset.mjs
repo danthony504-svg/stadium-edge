@@ -495,13 +495,13 @@ async function main() {
       }
       for (const b of bindings.filter((x) => x.eventBindingVerified)) {
         if (seen.has(b.target.eventId)) continue;
-        if (seen.size >= 128) throw Error("context_target_budget");
+        seen.add(b.target.eventId);
+        if (seen.size > 128) throw Error("context_target_budget");
         const key = `research:ncaaf:context-input:v2:2026:${b.target.eventId}`;
         if (
           (await db.query("SELECT key FROM public.app_kv WHERE key=$1", [key]))
             .rowCount
         ) {
-          seen.add(b.target.eventId);
           existing++;
           continue;
         }
@@ -570,18 +570,14 @@ async function main() {
             liveArchiveKey: live.key,
             usageArchiveKeys: usage.map((g) => g.archiveKey),
           });
-          // Incomplete venue/usage/history stays unwritten so later slots retry.
           assertRecordableContext(record, history.value);
           const saved = await db.query(
             "INSERT INTO public.app_kv(key,value) SELECT $1,$2::jsonb || jsonb_build_object('recordedAt',clock_timestamp()) WHERE clock_timestamp() < $3::timestamptz ON CONFLICT(key) DO NOTHING RETURNING key",
             [key, JSON.stringify(record), b.target.kickoff],
           );
-          if (saved.rowCount) {
-            seen.add(b.target.eventId);
-            recorded++;
-          } else withheld++;
+          if (saved.rowCount) recorded++;
+          else withheld++;
         } catch (error) {
-          // Do not mark seen on failure — incomplete evidence must stay retryable.
           fail(error);
           withheld++;
         }

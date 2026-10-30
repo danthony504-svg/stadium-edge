@@ -206,6 +206,177 @@ export async function runNcaabValidationPipeline({
       };
     }
 
+    slot = ncaabResearchSlot(new Date(await clock()));
+    slotKey = `research:ncaab:pipeline:slot:${slot}`;
+    const prior = await get(slotKey);
+    const maintenanceKey = `research:ncaab:pipeline:maintenance:${slot}`;
+    const MAINTENANCE_CADENCE_MS = 30 * 60000;
+
+    /** Prepare / freeze / journal against saved archives — never charges odds. */
+    const runMaintenanceStages = async (opts: {
+      paidCollectionSkipped: boolean;
+      oddsAttempted: boolean;
+      attempts: number;
+      resultState: string;
+    }) => {
+      state = {
+        version: 1,
+        sport: "ncaab",
+        researchOnly: true,
+        slot,
+        startedAt: await clock(),
+        oddsAttempted: opts.oddsAttempted,
+        paidCollectionSkipped: opts.paidCollectionSkipped,
+        state: "running",
+        attempts: opts.attempts,
+        releaseEligible: false,
+        coachEnabled: false,
+        phase: "development",
+      };
+      await put(slotKey, {
+        ...prior,
+        ...state,
+        // Preserve original slot completion / attempt ledger for paid odds.
+        finishedAt: prior?.finishedAt,
+        state: prior?.state === "processed" ? "processed" : "running",
+      });
+      await put("research:ncaab:pipeline:latest", state);
+
+      try {
+        await runCollector("ncaab-prepare-development.mjs", []);
+      } catch {
+        fail("ncaab_development_prepare_failed");
+      }
+      const development = await get("research:ncaab:development-dataset:latest");
+      state.developmentState = development?.state ?? null;
+      state.authenticatedDevelopmentGames =
+        development?.authenticatedDevelopmentGames ?? 0;
+      state.featureCompleteDevelopmentGames =
+        development?.featureCompleteGames ?? 0;
+      state.developmentManifestSha256 = development?.manifestSha256 ?? null;
+
+      state.phase = "freeze";
+      await put("research:ncaab:pipeline:latest", state);
+      if (attemptFreeze) {
+        try {
+          const freeze = await attemptFreeze();
+          state.freezeState = freeze.state;
+          // Honest null until a real fit writes a candidate hash.
+          state.freezeModelSha256 = freeze.modelSha256 ?? null;
+          if (!freeze.modelSha256)
+            fail(freeze.state || "waiting_for_frozen_ncaab_candidate");
+        } catch {
+          fail("ncaab_freeze_attempt_failed");
+        }
+      }
+
+      state.phase = "journal";
+      await put("research:ncaab:pipeline:latest", state);
+      const frozen = await get("research:ncaab:adjusted-model:latest");
+      if (!frozen?.modelSha256) {
+        fail("waiting_for_frozen_ncaab_candidate");
+      } else if (recordJournal) {
+        try {
+          const journal = await recordJournal();
+          state.journalState = journal.state;
+          state.journalRecorded = journal.recorded ?? 0;
+          state.journalWithheld = journal.withheld ?? 0;
+          if (journal.state !== "processed") fail(journal.state);
+        } catch {
+          fail("ncaab_forecast_journal_failed");
+        }
+      } else {
+        fail("ncaab_forecast_journal_not_wired");
+      }
+
+      const finishedAt = await clock();
+      const latest: Record<string, unknown> = {
+        ...state,
+        state: opts.resultState,
+        finishedAt,
+        phase: "done",
+        blockers,
+        releaseEligible: false,
+        coachEnabled: false,
+      };
+      // Slot row stays first-write completed for paid odds; maintenance updates latest + cadence.
+      if (prior?.state === "processed" && prior?.finishedAt) {
+        await put(slotKey, {
+          ...prior,
+          lastMaintenanceAt: finishedAt,
+          lastMaintenanceState: opts.resultState,
+          blockers,
+          freezeState: state.freezeState,
+          freezeModelSha256: state.freezeModelSha256 ?? null,
+          authenticatedDevelopmentGames: state.authenticatedDevelopmentGames,
+          featureCompleteDevelopmentGames: state.featureCompleteDevelopmentGames,
+        });
+      } else {
+        await put(slotKey, {
+          ...latest,
+          state: "processed",
+        });
+      }
+      await put(maintenanceKey, {
+        startedAt: state.startedAt,
+        finishedAt,
+        state: opts.resultState,
+        researchOnly: true,
+        releaseEligible: false,
+      });
+      await put("research:ncaab:pipeline:latest", latest);
+      return latest;
+    };
+
+    // Completed paid slot: skip Odds API, still run bounded archive maintenance.
+    if (prior?.finishedAt && prior.state === "processed") {
+      const previousMaintenance = await get(maintenanceKey);
+      const maintenanceStarted = Date.parse(
+        previousMaintenance?.startedAt ?? "",
+      );
+      const nowMs = Date.parse(await clock());
+      if (
+        Number.isFinite(maintenanceStarted) &&
+        nowMs >= maintenanceStarted &&
+        nowMs - maintenanceStarted < MAINTENANCE_CADENCE_MS
+      ) {
+        return {
+          state: "skipped_completed_slot",
+          slot,
+          freeEvidenceRefresh: false,
+          maintenanceSkippedCadence: true,
+          blockers,
+          settlementsRecorded,
+          unsettledInBatch,
+          releaseEligible: false,
+          coachEnabled: false,
+          note: "ncaab_v1_no_mid_slot_paid_odds_refresh",
+        };
+      }
+      const latest = await runMaintenanceStages({
+        paidCollectionSkipped: true,
+        oddsAttempted: prior.oddsAttempted === true,
+        attempts: prior.attempts ?? 1,
+        resultState: "skipped_completed_slot",
+      });
+      return {
+        state: "skipped_completed_slot",
+        slot,
+        freeEvidenceRefresh: false,
+        maintenanceRan: true,
+        blockers,
+        settlementsRecorded,
+        unsettledInBatch,
+        authenticatedDevelopmentGames: latest.authenticatedDevelopmentGames,
+        featureCompleteDevelopmentGames: latest.featureCompleteDevelopmentGames,
+        freezeState: latest.freezeState,
+        freezeModelSha256: latest.freezeModelSha256 ?? null,
+        releaseEligible: false,
+        coachEnabled: false,
+        note: "ncaab_v1_no_mid_slot_paid_odds_refresh",
+      };
+    }
+
     if (!collectionEnabled) {
       return {
         state: "skipped_missing_odds_credentials",
@@ -216,22 +387,6 @@ export async function runNcaabValidationPipeline({
       };
     }
 
-    slot = ncaabResearchSlot(new Date(await clock()));
-    slotKey = `research:ncaab:pipeline:slot:${slot}`;
-    const prior = await get(slotKey);
-    if (prior?.finishedAt && prior.state === "processed") {
-      return {
-        state: "skipped_completed_slot",
-        slot,
-        freeEvidenceRefresh: false,
-        blockers,
-        settlementsRecorded,
-        unsettledInBatch,
-        releaseEligible: false,
-        coachEnabled: false,
-        note: "ncaab_v1_no_mid_slot_paid_odds_refresh",
-      };
-    }
     if (prior && (prior.attempts ?? 1) >= 3) {
       return {
         state: "skipped_exhausted_slot",
@@ -284,69 +439,22 @@ export async function runNcaabValidationPipeline({
       }
     }
 
-    state.phase = "development";
-    await put("research:ncaab:pipeline:latest", state);
-    try {
-      await runCollector("ncaab-prepare-development.mjs", []);
-    } catch {
-      fail("ncaab_development_prepare_failed");
-    }
-
-    state.phase = "freeze";
-    await put("research:ncaab:pipeline:latest", state);
-    if (attemptFreeze) {
-      try {
-        const freeze = await attemptFreeze();
-        state.freezeState = freeze.state;
-        state.freezeModelSha256 = freeze.modelSha256 ?? null;
-        await put(slotKey, state);
-        await put("research:ncaab:pipeline:latest", state);
-        if (!freeze.modelSha256)
-          fail(freeze.state || "waiting_for_frozen_ncaab_candidate");
-      } catch {
-        fail("ncaab_freeze_attempt_failed");
-      }
-    }
-
-    state.phase = "journal";
-    await put("research:ncaab:pipeline:latest", state);
-    const frozen = await get("research:ncaab:adjusted-model:latest");
-    if (!frozen?.modelSha256) {
-      fail("waiting_for_frozen_ncaab_candidate");
-    } else if (recordJournal) {
-      try {
-        const journal = await recordJournal();
-        state.journalState = journal.state;
-        state.journalRecorded = journal.recorded ?? 0;
-        state.journalWithheld = journal.withheld ?? 0;
-        await put(slotKey, state);
-        await put("research:ncaab:pipeline:latest", state);
-        if (journal.state !== "processed") fail(journal.state);
-      } catch {
-        fail("ncaab_forecast_journal_failed");
-      }
-    } else {
-      fail("ncaab_forecast_journal_not_wired");
-    }
-
-    const finishedAt = await clock();
-    state = {
-      ...state,
-      state: "processed",
-      finishedAt,
-      phase: "done",
-      blockers,
-      releaseEligible: false,
-      coachEnabled: false,
-    };
-    await put(slotKey, state);
-    await put("research:ncaab:pipeline:latest", state);
+    const latest = await runMaintenanceStages({
+      paidCollectionSkipped: false,
+      oddsAttempted: state.oddsAttempted === true,
+      attempts: state.attempts as number,
+      resultState: "processed",
+    });
     return {
       state: "processed",
       slot,
       blockers,
       settlementsRecorded,
       unsettledInBatch,
+      authenticatedDevelopmentGames: latest.authenticatedDevelopmentGames,
+      featureCompleteDevelopmentGames: latest.featureCompleteDevelopmentGames,
+      freezeState: latest.freezeState,
+      freezeModelSha256: latest.freezeModelSha256 ?? null,
       releaseEligible: false,
       coachEnabled: false,
     };
