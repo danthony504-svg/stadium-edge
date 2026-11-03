@@ -169,3 +169,14 @@ test("resolveBuildLegTarget defaults build asks to 6", () => {
   assert.equal(resolveBuildLegTarget("8 leg NBA"), 8);
   assert.equal(resolveBuildLegTarget("injury report"), 0);
 });
+
+test("count + sport shorthand routes to fixed-count builder across sports", () => {
+  for (const sport of ["nba","nfl","nhl","mlb","wnba","ncaaf","ncaab","cfb","soccer","ufc","mma","tennis"]) {
+    for (const ask of [`10 ${sport}`, `7 ${sport} tonight`, `give me 8 ${sport}`]) {
+      assert.equal(isParlayBuildAsk(ask), true, ask);
+      assert.equal(resolveBuildLegTarget(ask), Number(ask.match(/\d+/)![0]), ask);
+    }
+  }
+  assert.equal(resolveBuildLegTarget("20 nba"), 15);
+  for (const ask of ["2026 nba", "0 nba", "10 nba points", "who scored 10 nba points?", "NBA score 110 100"]) assert.equal(parseRequestedLegs(ask), 0, ask);
+});

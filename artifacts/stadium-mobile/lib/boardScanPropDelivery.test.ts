@@ -589,7 +589,7 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
     shortfallLead: buildFixedLegCountShortfallLead(6, shortGl.length),
   });
   assert.match(doneNote, /only 3 cleared the AI quality bar/i);
-  assert.match(doneNote, /none cleared the AI quality bar with these game lines/i);
+  assert.match(doneNote, /none were verified for this ticket/i);
 
   const pendingShortNote = buildFinalCoachParlayNote({
     target: 6,
@@ -1321,4 +1321,10 @@ test("empty source board preserves the requested-team miss", () => {
     failureReason: {code: "NO_ODDS_GAMES", detail: "internal only"}});
   assert.equal(note, "No posted odds were found for the requested team.");
   assert.doesNotMatch(note, /requested sport|quality bar/);
+});
+
+test("zero simulations is not a completed quality rejection", () => {
+  const note = buildFinalCoachParlayNote({ target: 7, picks: [{market: "Spread"}], propPoolSize: 426, propsPending: false, shortfallLead: "Only one cleared the AI quality bar.", failureDiagnostics: {propSimEvaluated: 0} });
+  assert.match(note, /simulations did not run/i);
+  assert.doesNotMatch(note, /quality bar|scanned 426/i);
 });
