@@ -1136,17 +1136,22 @@ export function buildFinalCoachParlayNote(opts: {
       : "";
   // Prefer the props-pending lead over a bare "quality bar" shortfall — seats
   // held / scoring cut short is not the same as the board failing the bar.
-  const lead = propsPendingLead || opts.shortfallLead;
+  const propsNotEvaluated = opts.propPoolSize > 0 && propLike === 0 &&
+    opts.picks.length < opts.target && opts.failureDiagnostics?.propSimEvaluated === 0;
+  const lead = propsNotEvaluated
+    ? `Returned ${opts.picks.length} of ${opts.target} requested picks. Player-prop simulations did not run, so no player props were added. No ungraded filler was added.`
+    : propsPendingLead || opts.shortfallLead;
   const thinGameOnlyNote =
     !opts.propsOnly &&
     opts.picks.length > 0 &&
     opts.picks.length < opts.target &&
     propLike === 0 &&
     opts.propPoolSize > 0 &&
-    !opts.propsPending
+    !opts.propsPending &&
+    !propsNotEvaluated
       ? opts.requirePropMix
         ? ` Player props did not clear the AI quality bar — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that did. No ungraded filler was added.`
-        : ` Scanned ${opts.propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
+        : ` Player props were available, but none were verified for this ticket.`
       : "";
   const propsIncompleteNote =
     // Pending lead already states the unfinished-props story — only append the

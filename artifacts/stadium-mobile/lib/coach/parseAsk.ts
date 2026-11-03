@@ -46,6 +46,11 @@ export function parseRequestedLegs(text: string): number {
     const n = parseInt(sportPicks[1]!, 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
+  // Whole-ask shorthand uses the graded builder; scores/stat questions do not.
+  const shorthand = raw.trim().match(
+    /^(?:(?:give\s+me|build|make|create|need|want)\s+)?([1-9]\d{0,2})\s+(?:nhl|nfl|nba|mlb|wnba|ncaaf|ncaab|cfb|soccer|ufc|mma|tennis)(?:\s+(?:tonight|today|tomorrow))?[.!?]?$/i,
+  );
+  if (shorthand) return Number(shorthand[1]);
   // "5 picks tonight" / "12 picks tomorrow" — bare count + picks (no sport token).
   const barePicks = raw.match(/\b(\d{1,3})\s+(?:different\s+)?picks?\b/i);
   if (barePicks) {
