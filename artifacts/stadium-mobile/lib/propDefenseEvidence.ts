@@ -26,10 +26,15 @@ export function teamDefensePack(def: TeamDefense, fallbackName: string | null = 
         teamName,
       }
     : null;
-  // Non-football: keep the row when we at least have pointsAgainst.
+  // Exact-market box-score evidence is independent of the headline stats feed.
+  // A missing headline must not discard a usable market pack; downstream gates
+  // still validate the requested market, sample, scope and dates.
+  const hasMarketEvidence = def.opponentMarkets?.some(row =>
+    row.sampleSize >= 3 && Number.isFinite(row.perGame));
   if (
     !hasRush &&
     !hasPass &&
+    !hasMarketEvidence &&
     def.avgPointsAgainst == null &&
     !Object.keys(def.defensive ?? {}).length
   ) {

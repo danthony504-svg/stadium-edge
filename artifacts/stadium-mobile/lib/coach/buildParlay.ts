@@ -27,7 +27,7 @@ import {
   fetchFullBoardPropPool,
   getGames,
   getLiveOdds,
-  getOdds,
+  getCoachOdds,
   type EspnGame,
   type MatchupHistoryEntry,
   type OddsGame,
@@ -123,6 +123,7 @@ import {
   type SlateDay,
 } from "@/lib/slate";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
+import { summarizeCoachBoard, emptyCoachBoardReason, type CoachBoardAvailability } from "@/lib/coachBoardAvailability";
 import {
   filterPicksByAskMarketConstraint,
   filterPropPoolByAskMarkets,
@@ -229,7 +230,13 @@ export async function loadScanInputs(
   slateDay: SlateDay;
   /** Games loaded for the board before franchise filter (same sports). */
   oddsGamesBeforeTeamFilter: OddsGame[];
+  boardAvailability: CoachBoardAvailability;
 }> {
+  if (signal.aborted) {
+    const error = new Error("coach_board_load_cancelled");
+    error.name = "AbortError";
+    throw error;
+  }
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
   // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
   const sports = coachBoardSportsForAsk(askText, requestedLegs, DEFAULT_SPORTS);
@@ -241,14 +248,18 @@ export async function loadScanInputs(
   );
   // Live enrichment must not serialize the start of the full prop-board load.
   const liveFeedPromise = getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] }));
-  const [espnGamesRaw, oddsRaw] = await Promise.all([
+  let failedOddsSports = 0;
+  const [espnGamesRaw, receivedOdds] = await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>
       rows.flat(),
     ),
-    Promise.all(sports.map((s) => getOdds(s, signal).catch(() => [] as OddsGame[]))).then((rows) =>
-      filterBettableOddsGames(rows.flat()),
-    ),
+    Promise.all(sports.map((s) => getCoachOdds(s, signal).catch(() => {
+      failedOddsSports++;
+      return [] as OddsGame[];
+    }))).then(rows => rows.flat()),
   ]);
+  const boardAvailability = summarizeCoachBoard(receivedOdds, failedOddsSports);
+  const oddsRaw = filterBettableOddsGames(receivedOdds);
 
   // "6 leg Saints" / "4 leg Troy" → keep only that franchise's matchup.
   // "6 leg NHL not the ducks" → drop the entire excluded matchup (both clubs).
@@ -311,6 +322,7 @@ export async function loadScanInputs(
     excludedTeams,
     slateDay,
     oddsGamesBeforeTeamFilter,
+    boardAvailability,
   };
 }
 
@@ -1646,6 +1658,10 @@ async function buildCoachParlayImpl(opts: {
     propsOnly,
     picks,
   });
+  if (picks.length === 0 && scan?.failureReason?.code === "NO_ODDS_GAMES") {
+    const sourceReason = emptyCoachBoardReason(inputs.boardAvailability);
+    if (sourceReason) scan = { ...scan, failureReason: sourceReason };
+  }
   const body = buildFinalCoachParlayNote({
     target,
     picks,

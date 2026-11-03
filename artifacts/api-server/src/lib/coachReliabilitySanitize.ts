@@ -373,10 +373,17 @@ export function mapScanFailureCode(code: string): {
         alertable: true,
       };
     case "NO_ODDS_GAMES":
+    case "ODDS_BOARD_LOAD_FAILED":
       return {
         eventType: "coach_odds_mismatch",
         failureReason: "odds_mismatch",
         alertable: true,
+      };
+    case "NO_UPCOMING_ODDS":
+      return {
+        eventType: "parlay_underfilled",
+        failureReason: "legitimate_underfill",
+        alertable: false,
       };
     case "PROP_POOL_EMPTY":
       return {

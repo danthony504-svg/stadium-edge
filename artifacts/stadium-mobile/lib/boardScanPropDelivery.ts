@@ -1118,6 +1118,14 @@ export function buildFinalCoachParlayNote(opts: {
    */
   requirePropMix?: boolean;
 }): string {
+  if (opts.picks.length === 0 && !opts.propsPending && opts.propPoolSize === 0) {
+    if (opts.failureReason?.code === "ODDS_BOARD_LOAD_FAILED") {
+      return "The odds board could not be loaded. Availability could not be verified, so no ticket was built. Please retry.";
+    }
+    if (opts.failureReason?.code === "NO_UPCOMING_ODDS") {
+      return "The loaded odds are for games that have already started or are outside the next 48 hours. No upcoming pregame odds were available, so no ticket was built. Try a later slate or another sport.";
+    }
+  }
   // An empty source board is not evidence that evaluated picks failed quality.
   // Do not infer an offseason or outage: either can produce unavailable odds.
   if (opts.picks.length === 0 && opts.propPoolSize === 0 &&
