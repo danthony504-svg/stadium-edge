@@ -4,7 +4,8 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { summaryHistory } from "./ncaaf-repair-team-history.mjs";
-import { bindConferenceReports } from "./ncaaf-conference-availability.mjs";
+import { collectorFailureDiagnostic } from "./ncaaf-collector-diagnostic.mjs";
+import { latestConferenceArchiveKeys, bindConferenceReports } from "./ncaaf-conference-availability.mjs";
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const canonical = (x) => JSON.stringify(sortKeys(x));
 function sortKeys(x) {
@@ -408,6 +409,16 @@ export function selectUsageArchives(summaries, target, cutoff) {
 
   return [...chosen.values()];
 }
+/** Read only the latest receipt per conference, never sort historical payloads. */
+export async function loadContextArchives(query) {
+  const keys = await latestConferenceArchiveKeys(query);
+  const archives = [];
+  for (const { key } of keys) {
+    const row = (await query("SELECT key,value FROM public.app_kv WHERE key=$1", [key])).rows[0];
+    if (row) archives.push(row);
+  }
+  return archives;
+}
 async function main() {
   const labelsOnly = process.argv.includes("--labels-only");
   if (!process.argv.includes("--execute")) {
@@ -437,6 +448,7 @@ async function main() {
     query_timeout: 15000,
   });
   await db.connect();
+  let phase = "database_check";
   try {
     if (
       (await db.query("SELECT current_database() AS name")).rows[0].name !==
@@ -448,13 +460,8 @@ async function main() {
         .rows[0].ok
     )
       throw Error("context_overlap");
-    const archiveRows = labelsOnly
-      ? []
-      : (
-          await db.query(
-            "SELECT DISTINCT ON (value->>'conference') key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:conference-availability-v2:%' ORDER BY value->>'conference',key DESC",
-          )
-        ).rows;
+    phase = "archive_lookup";
+    const archiveRows = labelsOnly ? [] : await loadContextArchives(db.query.bind(db));
     const live = labelsOnly
       ? null
       : (
@@ -462,6 +469,7 @@ async function main() {
             "SELECT key,value FROM public.app_kv WHERE key LIKE 'research:ncaaf:live-inputs:%' ORDER BY key DESC LIMIT 1",
           )
         ).rows[0];
+    phase = "history_lookup";
     const summaries = labelsOnly
       ? []
       : (
@@ -481,6 +489,7 @@ async function main() {
       existing = 0,
       withheld = 0;
     const seen = new Set();
+    phase = "context_assembly";
     for (const a of archiveRows) {
       const now = new Date(
         (await db.query("SELECT clock_timestamp() AS now")).rows[0].now,
@@ -584,6 +593,7 @@ async function main() {
       }
     }
     // Labels may arrive later; they never overwrite the frozen pregame input.
+    phase = "labels";
     const priorStatus = (
       await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
         labelsOnly
@@ -676,6 +686,7 @@ async function main() {
       releaseEligible: false,
       finishedAt: new Date().toISOString(),
     };
+    phase = "status_save";
     await db.query(
       "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
       [
@@ -686,6 +697,14 @@ async function main() {
       ],
     );
     console.log(JSON.stringify(result));
+  } catch (error) {
+    const result = collectorFailureDiagnostic(error, phase);
+    if (phase !== "database_check") await db.query(
+      "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()",
+      [labelsOnly ? "research:ncaaf:context-labels:latest" : "research:ncaaf:context-dataset:latest", JSON.stringify(result)],
+    ).catch(() => {});
+    console.error(JSON.stringify(result));
+    throw error;
   } finally {
     await db.end();
   }
