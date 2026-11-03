@@ -8,6 +8,7 @@ import { propMarketLabel } from "./propMarketLabel.ts";
 import { propSharedDistributionMarketKey } from "./propSharedDistribution.ts";
 import { marketFamily } from "./altLinePool.ts";
 import { isTeamTotalMarket } from "./coachP0UnvalidatedTotals.ts";
+import { parseMarketPeriod } from "./simMarketSupport.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 
 const norm = (s: string) =>
@@ -98,6 +99,16 @@ export function marketLadderKey(pick: {
   return `${gameKey}|${fam}|${pickSideKey(pick.pick)}`.toLowerCase();
 }
 
+/** Ticket-only grouping: opposing handicap sides are a middle, not independent legs.
+ * Keep side/line identities unchanged in the scored candidate pool.
+ */
+export function ticketMarketLadderKey(pick: Parameters<typeof marketLadderKey>[0]): string {
+  if (!pick.isProp && marketFamily(pick.market).endsWith("spread")) {
+    return `${canonicalGameKey(pick.game)}|${parseMarketPeriod(pick.market)}|spread-ticket`;
+  }
+  return marketLadderKey(pick);
+}
+
 /**
  * Score-pool key: correlation ladder + distinct posted threshold.
  * Distinct alt lines (67.5 vs 149.5) score independently; ticket seating still
@@ -139,8 +150,8 @@ export function wouldRepeatMarketLadder(
   }[],
 ): boolean {
   if (!ticket.length) return false;
-  const key = marketLadderKey(candidate);
-  return ticket.some((p) => marketLadderKey(p) === key);
+  const key = ticketMarketLadderKey(candidate);
+  return ticket.some((p) => ticketMarketLadderKey(p) === key);
 }
 
 /**
@@ -153,7 +164,7 @@ export function dedupePicksByMarketLadder<T extends ParsedPick>(picks: T[]): T[]
   const best = new Map<string, T>();
   const order: string[] = [];
   for (const p of picks) {
-    const key = marketLadderKey(p);
+    const key = ticketMarketLadderKey(p);
     const prev = best.get(key);
     if (!prev) {
       best.set(key, p);

@@ -167,6 +167,33 @@ test("server-verified App Review access unlocks without fabricating Go/Pro", () 
   assert.notEqual(view.statusLabel, "Stadium Edge Pro");
 });
 
+test("server-verified research tester unlocks research-only; client email never grants", () => {
+  const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free", storeKitActive: false });
+  assert.equal(
+    hasProAccess(free, start, {
+      email: "tester@stadiumedge.app",
+      serverResearchTesterAccess: false,
+    }),
+    false,
+  );
+  assert.equal(
+    hasProAccess(free, start, { serverResearchTesterAccess: true }),
+    true,
+  );
+  const view = buildEntitlementView(free, start, {
+    serverResearchTesterAccess: true,
+    email: "fan@example.com",
+  });
+  assert.equal(view.unlockSource, "research");
+  assert.equal(view.statusLabel, "Research");
+  assert.match(view.statusDetail, /Research — not validated/);
+  assert.equal(view.planId, "free");
+  assert.equal(view.isPro, true);
+  assert.notEqual(view.statusLabel, "Stadium Edge Go");
+  assert.notEqual(view.statusLabel, "Stadium Edge Pro");
+});
+
 test("ordinary free account stays Free; expired StoreKit stays locked", () => {
   const start = 1_700_000_000_000;
   const freeView = buildEntitlementView(baseState({ planId: "free" }), start, {

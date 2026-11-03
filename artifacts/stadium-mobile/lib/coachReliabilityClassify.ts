@@ -1,3 +1,4 @@
+import { coachAskTeamScope } from "./coachAskTeamScope.ts";
 /**
  * Mobile-side mapping of CoachScanFailureCode → reliability event.
  * Mirrors api-server coachReliabilitySanitize.mapScanFailureCode (keep in sync).
@@ -87,7 +88,7 @@ export function classifySportCategoryFromAsk(text: string): string {
   if (/\bufc\b|\bmma\b/.test(t)) hits.push("ufc");
   if (/\btennis\b/.test(t)) hits.push("tennis");
   const unique = [...new Set(hits)];
-  if (unique.length === 0) return "unspecified";
+  if (unique.length === 0) return coachAskTeamScope(text)?.sport ?? "unspecified";
   if (unique.length > 1) return "multi";
   return unique[0]!;
 }

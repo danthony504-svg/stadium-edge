@@ -5,13 +5,15 @@ import { checkPropProviderProvenance } from "./propProviderProvenance.ts";
 import { propProvenanceAllowsSeating } from "./coachPropProbabilityProvenance.ts";
 import { pickHasPlayerGameGroundingMismatch } from "./coachReliabilityGrounding.ts";
 
-export type PropAuditStage = "posted" | "scope_excluded" | "eligible" | "simulation" | "grading" | "delivery_blocked" | "selected";
+export type PropAuditStage = "not_evaluated" | "posted" | "scope_excluded" | "eligible" | "simulation" | "grading" | "delivery_blocked" | "selected";
 export type PropAuditRow = {
   key: string; sport: string; eventId: string; athleteId: string; player: string;
   game: string; market: string; side: string; line: number | null; odds: number;
   sportsbook: string; stage: PropAuditStage; reason: string; nullReason: string | null;
   grade: string | null; confidence: number | null; edge: number | null; simHit: number | null;
   simulations: number | null; historyGames: number | null; issues: string[];
+  sourceUpdatedAt: string | null; sourceAgeMs: number | null;
+  sourceTimeState: "timestamped" | "unknown" | "future_timestamp";
 };
 export type PropAuditReport = {
   version: 1; requestId: string; startedAt: string; finishedAt: string;
@@ -40,7 +42,7 @@ function snapshot(p: ParsedPick): ParsedPick {
     propProbabilityProvenance: p.propProbabilityProvenance ? { ...p.propProbabilityProvenance } : null };
 }
 function numeric(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
-const stageRank: Record<PropAuditStage, number> = { posted: 0, scope_excluded: 1, eligible: 2, simulation: 3, grading: 4, delivery_blocked: 5, selected: 6 };
+const stageRank: Record<PropAuditStage, number> = { not_evaluated: 2, posted: 0, scope_excluded: 1, eligible: 2, simulation: 3, grading: 4, delivery_blocked: 5, selected: 6 };
 export function createCoachPropAudit(requestId: string, schedule: (work: () => void) => void = work => { setTimeout(work, foregroundBuilds ? 100 : 0); }) {
   const startedAt = new Date().toISOString();
   const entries = new Map<string, { pick: ParsedPick; stage: PropAuditStage; reason: string; nullReason: string | null; historyGames: number | null }>();
@@ -101,7 +103,7 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
         const prov = p.propProbabilityProvenance ?? score?.propProbabilityProvenance;
         const issues = stage === "selected" ? deliveryIssues(p) : [];
         let outcome = reason;
-        if (stage === "posted" || stage === "eligible") outcome = "not_simulated_in_this_request";
+        if (stage === "posted" || (stage === "eligible" && reason === "eligible")) outcome = "not_simulated_in_this_request";
         if (stage === "grading" && reason === "graded") {
           const q = qualifyCoachCandidate({ ...p, qualificationStatus: undefined }, { requestStyle: "normal" });
           outcome = q.status === "qualified" ? "qualified_not_selected" : `quality_${q.reason}`;
@@ -111,7 +113,7 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
         rows.push({ key: propAuditKey(p), sport: p.sport ?? "", eventId: p.eventId ?? "", athleteId: p.athleteId ?? "", player: p.player ?? "",
           game: p.game ?? "", market: p.propMarketKey ?? p.market ?? "", side: p.propSide ?? "", line: numeric(p.propLine), odds: p.odds,
           sportsbook: p.sportsbook ?? "", stage, reason: outcome, nullReason, grade: score?.grade ?? null, confidence: numeric(score?.confidencePct),
-          edge: numeric(score?.edgePct), simHit: numeric(score?.simHit), simulations: numeric(prov?.simulations), historyGames, issues });
+          edge: numeric(score?.edgePct), simHit: numeric(score?.simHit), simulations: numeric(prov?.simulations), historyGames, issues, ...quoteTimeEvidence(p.sourceUpdatedAt, Date.parse(finishedAt)) });
       }
       schedule(chunk);
     }
@@ -121,3 +123,10 @@ export function createCoachPropAudit(requestId: string, schedule: (work: () => v
 }
 export type CoachPropAudit = ReturnType<typeof createCoachPropAudit>;
 export function latestCoachPropAudit(): PropAuditReport | null { return latest[0] ?? null; }
+
+/** Source age does not assert that a quote remains executable. */
+export function quoteTimeEvidence(sourceUpdatedAt: unknown, now: number) {
+ const source = typeof sourceUpdatedAt === "string" ? Date.parse(sourceUpdatedAt) : NaN;
+ if (!Number.isFinite(source) || !Number.isFinite(now)) return { sourceUpdatedAt: null, sourceAgeMs: null, sourceTimeState: "unknown" as const };
+ return { sourceUpdatedAt: sourceUpdatedAt as string, sourceAgeMs: now-source, sourceTimeState: source > now ? "future_timestamp" as const : "timestamped" as const };
+}

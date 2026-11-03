@@ -15,6 +15,22 @@ const zones = {
   MT: "America/Denver",
   PT: "America/Los_Angeles",
 };
+/** Select archive keys without decompressing every historical JSON payload. */
+export async function latestConferenceArchiveKeys(query) {
+  const prefixes = CONFERENCES.map((conference) =>
+    `research:ncaaf:conference-availability-v2:${conference}:`);
+  const result = await query(
+    `SELECT a.key FROM unnest($1::text[]) AS p(prefix)
+     CROSS JOIN LATERAL (
+       SELECT key FROM public.app_kv
+       WHERE key LIKE p.prefix || '%'
+       ORDER BY key DESC LIMIT 1
+     ) a ORDER BY p.prefix`,
+    [prefixes],
+  );
+  return result.rows;
+}
+
 export function availabilityStatus(s) {
   const statuses = new Map([
     ["Available", "available"],
@@ -91,14 +107,15 @@ export function buildConferenceArchive(conference, published, history) {
   )
     throw Error("conference_invalid_payload");
   const entries = Object.entries(p);
-  if (!entries.length || entries.length > 128)
+  if (entries.length > 128)
     throw Error("conference_invalid_reports");
   const observedAt = new Date(
     Math.max(Date.parse(published.receivedAt), Date.parse(history.receivedAt)),
   ).toISOString();
   const teams = new Set();
   let statusRows = 0;
-  const reports = entries.map(([reportId, r]) => {
+  let deferredFutureReports = 0;
+  const reports = entries.flatMap(([reportId, r]) => {
     if (
       !/^\d+$/.test(reportId) ||
       !Array.isArray(r.games) ||
@@ -106,8 +123,10 @@ export function buildConferenceArchive(conference, published, history) {
     )
       throw Error("conference_invalid_report");
     const publishedAt = publicationTime(r);
-    if (Date.parse(publishedAt) > Date.parse(published.receivedAt))
-      throw Error("conference_future_publication");
+    if (Date.parse(publishedAt) > Date.parse(published.receivedAt)) {
+      deferredFutureReports++;
+      return [];
+    }
     const sides = r.games.map((g) => {
       if (!norm(g.teamName) || !Array.isArray(g.rows) || g.rows.length > 250)
         throw Error("conference_invalid_team");
@@ -168,14 +187,14 @@ export function buildConferenceArchive(conference, published, history) {
         ),
     );
     const days = [...daySets[0]].filter((day) => daySets[1].has(day));
-    return {
+    return [{
       reportId,
       publishedAt,
       reportType: r.ReportType,
       sides,
       eventDay: days.length === 1 ? days[0] : null,
       eventDayVerified: days.length === 1,
-    };
+    }];
   });
   const compress = (c, route) => ({
     endpoint: ENDPOINT + route,
@@ -191,6 +210,7 @@ export function buildConferenceArchive(conference, published, history) {
     conference,
     observedAt,
     reportCount: reports.length,
+    deferredFutureReports,
     teamCount: teams.size,
     statusRows,
     reports,
@@ -202,6 +222,44 @@ export function buildConferenceArchive(conference, published, history) {
     automaticUnlock: false,
   };
 }
+/**
+ * Empty or failed conference captures must stay retryable inside the same slot.
+ * Captures with deferred future reports also retry after backoff; new source
+ * archives/bindings are appended, never rewritten. Never invents report dates.
+ */
+export function shouldRetryConferenceCapture(
+  attempt,
+  nowMs,
+  minAgeMs = 30 * 60000,
+  staleRunningMs = 15 * 60000,
+) {
+  if (!attempt || typeof attempt !== "object") return true;
+  const started = Date.parse(attempt.startedAt ?? "");
+  // A killed collector can leave state=running forever; reclaim after staleRunningMs.
+  if (attempt.state === "running") {
+    if (!Number.isFinite(started) || !Number.isFinite(nowMs) || nowMs < started)
+      return false;
+    return nowMs - started >= staleRunningMs;
+  }
+  const finished = Date.parse(attempt.finishedAt ?? attempt.startedAt ?? "");
+  if (!Number.isFinite(finished) || !Number.isFinite(nowMs) || nowMs < finished)
+    return false;
+  if (nowMs - finished < minAgeMs) return false;
+  if (attempt.state === "failed") return true;
+  if (attempt.state === "processed" && ((attempt.verifiedEvents ?? 0) === 0 || (attempt.deferredFutureReports ?? 0) > 0))
+    return true;
+  // Research slots span up to 8h; bindConferenceReports rejects archives older
+  // than 6h. Re-capture processed attempts once they would fail that freshness
+  // window so catch-up can recover holdout/development contexts.
+  if (
+    attempt.state === "processed" &&
+    Number.isFinite(finished) &&
+    nowMs - finished > 6 * 3600000
+  )
+    return true;
+  return false;
+}
+
 export function bindConferenceReports(archive, live, now) {
   const clock = Date.parse(now);
   if (
@@ -342,6 +400,11 @@ export function bindConferenceReports(archive, live, now) {
     };
   });
 }
+/** Persist only an allowlisted code and phase: never provider bodies, athlete rows or arbitrary errors. */
+export function conferenceFailureDiagnostic(error, phase) {
+  const codes = new Set(['conference_invalid_publication','conference_invalid_payload','conference_invalid_reports','conference_invalid_report','conference_invalid_team','conference_invalid_status','conference_ambiguous_sides','conference_invalid_receipt','conference_capture_hash','conference_receipt_mismatch','conference_invalid_live_archive','conference_invalid_scoreboard','conference_stale_or_future_capture','conference_provider_http','conference_response_too_large']);
+  return {failurePhase: ['published_receipt','history_receipt','archive_validation','archive_save','event_binding','binding_save'].includes(phase) ? phase : 'unknown', failureCode: codes.has(error?.message) ? error.message : error?.name === 'TimeoutError' ? 'conference_provider_timeout' : error instanceof SyntaxError ? 'conference_invalid_json' : 'conference_internal_failure'};
+}
 async function receipt(route, conference) {
   const requestStartedAt = new Date().toISOString();
   const response = await fetch(ENDPOINT + route, {
@@ -415,25 +478,51 @@ async function main() {
     )
       throw Error("conference_capture_overlap");
     let captureFailed = false;
+    let processedThisRun = 0;
     for (const conference of CONFERENCES) {
-      const phase = process.argv.includes("--development-catchup") ? ":development-catchup" : "";
+      const phase = process.argv.includes("--development-catchup")
+        ? ":development-catchup"
+        : process.argv.includes("--slot-free-refresh")
+          ? ":slot-free-refresh"
+          : "";
       const attemptKey = `research:ncaaf:conference-capture-slot:${conference}:${slot}${phase}`;
-      const claimed = await db.query(
-        "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-        [
+      const priorAttempt = (
+        await db.query("SELECT value FROM public.app_kv WHERE key=$1", [
           attemptKey,
-          JSON.stringify({
-            state: "running",
-            startedAt: new Date().toISOString(),
-            releaseEligible: false,
-          }),
-        ],
-      );
-      if (!claimed.rowCount) continue;
+        ])
+      ).rows[0]?.value;
+      const nowMs = Date.now();
+      if (priorAttempt && !shouldRetryConferenceCapture(priorAttempt, nowMs))
+        continue;
+      const running = {
+        state: "running",
+        startedAt: new Date().toISOString(),
+        releaseEligible: false,
+        retryOf:
+          priorAttempt?.state === "processed" || priorAttempt?.state === "failed"
+            ? priorAttempt.state
+            : null,
+      };
+      if (priorAttempt) {
+        await db.query(
+          "UPDATE public.app_kv SET value=$2::jsonb,updated_at=now() WHERE key=$1",
+          [attemptKey, JSON.stringify(running)],
+        );
+      } else {
+        const claimed = await db.query(
+          "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+          [attemptKey, JSON.stringify(running)],
+        );
+        if (!claimed.rowCount) continue;
+      }
+      let failurePhase = "published_receipt";
       try {
-        const published = await receipt("get-publish-public", conference),
-          history = await receipt("get-archive-public", conference),
-          archive = buildConferenceArchive(conference, published, history);
+        const published = await receipt("get-publish-public", conference);
+        failurePhase = "history_receipt";
+        const history = await receipt("get-archive-public", conference);
+        failurePhase = "archive_validation";
+        const archive = buildConferenceArchive(conference, published, history);
+        failurePhase = "archive_save";
         const key = `research:ncaaf:conference-availability-v2:${conference}:${archive.observedAt}`;
         await db.query(
           "INSERT INTO public.app_kv(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO NOTHING",
@@ -447,9 +536,11 @@ async function main() {
         const now = new Date(
           (await db.query("SELECT clock_timestamp() AS now")).rows[0].now,
         ).toISOString();
+        failurePhase = "event_binding";
         const bindings = live
           ? bindConferenceReports(archive, live.value, now)
           : [];
+        failurePhase = "binding_save";
         const bindingKey = `research:ncaaf:conference-bindings:${conference}:${archive.observedAt}`;
         const result = {
           researchOnly: true,
@@ -473,6 +564,8 @@ async function main() {
               archiveKey: key,
               bindingKey,
               reportCount: archive.reportCount,
+              deferredFutureReports: archive.deferredFutureReports,
+              waitingReason: archive.reportCount === 0 ? (archive.deferredFutureReports > 0 ? "conference_reports_not_yet_published" : "conference_no_published_reports") : null,
               teamCount: archive.teamCount,
               verifiedEvents: result.verifiedEvents,
               finishedAt: now,
@@ -480,6 +573,7 @@ async function main() {
             }),
           ],
         );
+        processedThisRun += 1;
         console.log(
           JSON.stringify({
             conference,
@@ -490,8 +584,9 @@ async function main() {
             automaticUnlock: false,
           }),
         );
-      } catch {
+      } catch (error) {
         captureFailed = true;
+        const diagnostic = conferenceFailureDiagnostic(error, failurePhase);
         await db.query(
           "UPDATE public.app_kv SET value=$2::jsonb,updated_at=now() WHERE key=$1",
           [
@@ -499,6 +594,7 @@ async function main() {
             JSON.stringify({
               state: "failed",
               reason: "conference_capture_or_binding_failed",
+              ...diagnostic,
               finishedAt: new Date().toISOString(),
               releaseEligible: false,
             }),
@@ -513,7 +609,13 @@ async function main() {
         );
       }
     }
-    if (captureFailed) process.exitCode = 1;
+    // Partial conference success must not abort catch-up/free-refresh: later
+    // usage/context retries still need to run. Exit non-zero only when this
+    // invocation attempted work and recorded zero processed conferences.
+    if (captureFailed && processedThisRun === 0) {
+      console.error("conference_all_captures_failed");
+      process.exitCode = 1;
+    }
   } finally {
     await db.end();
   }
@@ -522,9 +624,12 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 )
-  main().catch(() => {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : "";
     console.error(
-      "Conference research collector failed; no forecast or release changed.",
+      /^(conference|pipeline)_[a-z0-9_]+$/.test(message)
+        ? message
+        : "conference_collector_failed",
     );
     process.exitCode = 1;
   });

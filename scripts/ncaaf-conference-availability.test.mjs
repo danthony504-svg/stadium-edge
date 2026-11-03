@@ -7,6 +7,8 @@ import {
   buildConferenceArchive,
   bindConferenceReports,
   decodeCapture,
+  shouldRetryConferenceCapture,
+  conferenceFailureDiagnostic,
 } from "./ncaaf-conference-availability.mjs";
 const now = "2026-10-24T03:00:00Z";
 const receipt = (body) => ({
@@ -193,9 +195,10 @@ test("future publication, future receipts, changed raw bytes, started games and 
   const { p, h, archive, live } = fixture();
   const future = structuredClone(p);
   future["3300"].postedTime = "23:00:00";
-  assert.throws(() =>
-    buildConferenceArchive("B10", receipt(future), receipt(h)),
-  );
+  const deferred = buildConferenceArchive("B10", receipt(future), receipt(h));
+  assert.equal(deferred.reportCount, 0);
+  assert.equal(deferred.deferredFutureReports, 1);
+  assert.deepEqual(bindConferenceReports(deferred, live, now), []);
   assert.throws(() =>
     bindConferenceReports(archive, live, "2026-10-24T02:00:00Z"),
   );
@@ -219,4 +222,97 @@ test("single-digit official publication hours retain exact timezone and invalid-
   assert.equal(publicationTime({...r,postedTime:"09:00:00"}),publicationTime(r));
   for(const postedTime of ["24:00:00","9:60:00","9:00","90000","9:00:60"])
     assert.throws(()=>publicationTime({...r,postedTime}),/invalid_publication/);
+});
+
+test("empty or failed conference captures stay retryable; verified captures do not", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  assert.equal(shouldRetryConferenceCapture(null, now), true);
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 0, finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "failed", finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 0, finishedAt: "2026-10-25T11:45:00Z" },
+      now,
+    ),
+    false,
+    "30-minute backoff",
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "processed", verifiedEvents: 2, finishedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "running", startedAt: "2026-10-25T11:50:00Z" },
+      now,
+    ),
+    false,
+    "fresh running attempt stays exclusive",
+  );
+  assert.equal(
+    shouldRetryConferenceCapture(
+      { state: "running", startedAt: "2026-10-25T11:00:00Z" },
+      now,
+    ),
+    true,
+    "stale running attempt after collector kill is reclaimable",
+  );
+});
+
+test("future reports do not poison already published reports or become eligible as archived time passes", () => {
+ const {p,h,live}=fixture();
+ p['3301']={...structuredClone(p['3300']),postedTime:'23:00:00'};
+ const a=buildConferenceArchive('B10',receipt(p),receipt(h));
+ assert.equal(a.reportCount,1);assert.equal(a.deferredFutureReports,1);
+ assert.equal(bindConferenceReports(a,live,now).length,1);
+ assert.equal(bindConferenceReports(a,live,'2026-10-24T05:00:00Z').length,1);
+ assert.equal(shouldRetryConferenceCapture({state:'processed',verifiedEvents:0,finishedAt:now},Date.parse(now)+30*60000),true);
+});
+test("empty official publication list is an authenticated empty capture, not made-up availability",()=>{
+ const {h,live}=fixture();const a=buildConferenceArchive('B10',receipt({}),receipt(h));
+ assert.equal(a.reportCount,0);assert.equal(a.statusRows,0);assert.deepEqual(bindConferenceReports(a,live,now),[]);
+});
+test("failure diagnostics never persist arbitrary errors or provider data",()=>{
+ assert.deepEqual(conferenceFailureDiagnostic(Error('conference_invalid_publication'),'archive_validation'),{failureCode:'conference_invalid_publication',failurePhase:'archive_validation'});
+ assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failureCode,'conference_internal_failure');
+ assert.equal(conferenceFailureDiagnostic(Error('secret athlete record'),'secret URL').failurePhase,'unknown');
+});
+
+test("mixed captures stay retryable after backoff without rewriting earlier evidence",()=>{
+ const attempt={state:'processed',verifiedEvents:1,deferredFutureReports:2,finishedAt:now};
+ assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+29*60000),false);
+ assert.equal(shouldRetryConferenceCapture(attempt,Date.parse(now)+30*60000),true);
+ assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+30*60000),false);
+ // Slot spans up to 8h; refresh once the 6h bind freshness window would reject the archive.
+ assert.equal(shouldRetryConferenceCapture({...attempt,deferredFutureReports:0},Date.parse(now)+6*3600000+1),true);
+});
+
+test("latest archive lookup reads only indexed keys, never historical JSON", async () => {
+  const { latestConferenceArchiveKeys } = await import('./ncaaf-conference-availability.mjs');
+  const calls = [];
+  const rows = [{ key: 'research:ncaaf:conference-availability-v2:B10:2026-10-29T00:00:00Z' }];
+  assert.deepEqual(await latestConferenceArchiveKeys(async (sql, params) => {
+    calls.push({ sql, params });
+    return { rows };
+  }), rows);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].params[0].length, 4);
+  assert.match(calls[0].sql, /SELECT key FROM public.app_kv/);
+  assert.match(calls[0].sql, /ORDER BY key DESC LIMIT 1/);
+  assert.doesNotMatch(calls[0].sql, /value|DISTINCT/);
 });

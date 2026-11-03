@@ -2,7 +2,6 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { spawn } from "node:child_process";
 import {
   fitAndFreezeContextModel,
   recordAdjustedContextForecasts,
@@ -11,6 +10,7 @@ import { catchUpNcaafDevelopment } from "./lib/ncaafDevelopmentCatchup.js";
 import { runNcaafResearchLifecycle } from "./lib/ncaafResearchLifecycle.js";
 import { runNcaafValidationPipeline } from "./lib/ncaafValidationPipeline.js";
 import { recordOvertimeTransferForecasts } from "./lib/ncaafOvertimeTransferJournal.js";
+import { runResearchCollector } from "./lib/researchCollectorRunner.js";
 const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const allowed = new Set([
   "ncaaf-capture-history.mjs",
@@ -23,34 +23,15 @@ const allowed = new Set([
   "ncaaf-repair-team-history.mjs",
 ]);
 async function runCollector(name: string, args: string[]) {
-  if (!allowed.has(name)) throw Error("pipeline_unknown_collector");
-  await new Promise<void>((resolveRun, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        "--max-old-space-size=192",
-        resolve(repoRoot, "scripts", name),
-        ...args,
-        "--execute",
-      ],
-      { stdio: ["ignore", "ignore", "ignore"], env: process.env },
-    );
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(Error("pipeline_collector_timeout"));
-    }, 8 * 60_000);
-    child.once("error", () => {
-      clearTimeout(timeout);
-      reject(Error("pipeline_collector_start_failed"));
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) resolveRun();
-      else reject(Error("pipeline_collector_failed"));
-    });
-    const stop = () => child.kill("SIGTERM");
-    process.once("SIGTERM", stop);
-    child.once("exit", () => process.off("SIGTERM", stop));
+  // Context assembly rebuilds large conference receipts; keep heap above OOM floor.
+  const heapMb = name === "ncaaf-context-dataset.mjs" ? 512 : 384;
+  await runResearchCollector({
+    repoRoot,
+    scriptName: name,
+    args,
+    allowed,
+    heapMb,
+    env: { ...process.env, NCAAF_REPO_ROOT: repoRoot },
   });
 }
 async function main() {

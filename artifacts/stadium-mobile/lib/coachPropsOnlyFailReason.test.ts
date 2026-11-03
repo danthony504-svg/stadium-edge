@@ -626,3 +626,8 @@ test("NFL → Anytime TD → MLB: authoritative sports label MLB shortfall (not 
   assert.match(neutral, /qualified eligible player props/);
   assert.doesNotMatch(neutral, /football/i);
 });
+
+test("pre-simulation missing opponent evidence is never called an odds rejection",()=>{
+ const diag=buildPropsOnlyFailDiag({target:7,pool:32,athleteLinked:32,candidates:0,historyLoaded:0,graded:0,bestEvSides:0,oddsCleared:0,staged:0,nullReasons:{missing_opponent_defense:32}});
+ const note=propsOnlyTerminalEmptyNote(diag);assert.match(note,/opponent evidence was unavailable/);assert.doesNotMatch(note,/cleared the ticket odds bar/);
+});

@@ -3,6 +3,7 @@ export function createPropRequestCooldown(now: () => number = Date.now) {
   const until = new Map<string, number>();
   const route = (path: string) => {
     const key = path.split("?")[0]!;
+    if (key.startsWith("/sports/simulate/")) return "/sports/simulate";
     return key === "/sports/props" || key === "/sports/prizepicks-props" ? key : null;
   };
   const isBlocked = (path: string) => {

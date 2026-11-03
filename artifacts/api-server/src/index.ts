@@ -7,6 +7,10 @@ import {
   queueNcaafResearchValidation,
   stopNcaafResearchValidation,
 } from "./lib/ncaafResearchScheduler.js";
+import {
+  queueNcaabResearchValidation,
+  stopNcaabResearchValidation,
+} from "./lib/ncaabResearchScheduler.js";
 import { logger } from "./lib/logger";
 import { getCronHealth } from "./lib/notifyJobs";
 
@@ -90,10 +94,12 @@ const server = app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   void logCronHealthOnBoot();
   queueNcaafResearchValidation();
+  queueNcaabResearchValidation();
 });
 
 process.once("SIGTERM", () => {
   stopNcaafResearchValidation();
+  stopNcaabResearchValidation();
   server.close(() => process.exit(0));
   const deadline = setTimeout(() => process.exit(0), 25_000);
   deadline.unref();

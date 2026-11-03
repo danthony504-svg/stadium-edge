@@ -51,6 +51,7 @@ import {
 } from "./pickRecommendation.ts";
 import {
   coachCandidateIsQualified,
+  qualifyCoachCandidate,
   resolveCoachRequestStyle,
   withCoachQualification,
   type CoachQualificationReason,
@@ -124,6 +125,7 @@ export function boardLegPoolRole(
   pick: ParsedPick,
   score: ParsedPick["finalAiScore"],
   opts?: {
+    onRejected?: (reason: string) => void;
     requestStyle?: CoachRequestStyle;
     ticketStyle?: string | null;
     askText?: string | null;
@@ -131,6 +133,7 @@ export function boardLegPoolRole(
     allowRareMultiCount?: boolean;
   },
 ): "main" | "alt" | null {
+  const reject = (reason: string): null => { try { opts?.onRejected?.(reason); } catch { /* observe only */ } return null; };
   // Shared quality authority — rejected candidates are terminally ineligible.
   // Role labeling below may be stricter; it must never bypass this floor.
   // Prefer immutable attached status (qualify once); otherwise evaluate with
@@ -161,7 +164,7 @@ export function boardLegPoolRole(
         !!(pick as { allowRareMultiCount?: boolean }).allowRareMultiCount,
     })
   ) {
-    return null;
+    return reject("rare_multi_count_gate");
   }
   // Anytime TD: extreme market disagreement requires stronger sample reliability.
   // Positive EV alone never seats a longshot TD.
@@ -178,10 +181,9 @@ export function boardLegPoolRole(
       },
     )
   ) {
-    return null;
+    return reject("anytime_td_reliability_gate");
   }
-  if (
-    !coachCandidateIsQualified(
+  const qualification = qualifyCoachCandidate(
       {
         market: pick.market,
         sport: pick.sport,
@@ -210,17 +212,15 @@ export function boardLegPoolRole(
         requestStyle,
         isProp: !!pick.isProp,
       },
-    )
-  ) {
-    return null;
-  }
+    );
+  if (qualification.status !== "qualified") return reject(`quality_${qualification.reason}`);
   if (isMainBoardPick(pick)) {
     if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
     if (pick.isProp && propSimEdgeStagingQualifies(pick, score ?? undefined)) return "main";
-    return null;
+    return reject("main_recommendation_gate");
   }
   if (isAltBoardPick(pick)) {
-    return qualifiesAltPick(pick, score ?? undefined) ? "alt" : null;
+    return qualifiesAltPick(pick, score ?? undefined) ? "alt" : reject("alt_recommendation_gate");
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
   if (qualifiesAltPick(pick, score ?? undefined)) return "alt";
@@ -241,7 +241,7 @@ export function boardLegPoolRole(
   if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
   }
-  return null;
+  return reject("recommendation_or_market_gate");
 }
 
 /** Label each leg main vs alt for ticket gating and ALT PICK badges. */

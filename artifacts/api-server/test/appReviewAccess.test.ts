@@ -90,7 +90,7 @@ test("owner allowlist: only server env emails; forged non-owner rejected", () =>
   );
 });
 
-test("resolvePremiumApiAccess: review OR owner OR paid; free stays locked", () => {
+test("resolvePremiumApiAccess: review OR owner OR research OR paid; free stays locked", () => {
   assert.equal(
     resolvePremiumApiAccess({
       paidEntitlement: false,
@@ -108,6 +108,15 @@ test("resolvePremiumApiAccess: review OR owner OR paid; free stays locked", () =
   );
   assert.equal(
     resolvePremiumApiAccess({
+      paidEntitlement: false,
+      designatedAppReview: false,
+      designatedOwnerTest: false,
+      designatedResearchTester: true,
+    }),
+    true,
+  );
+  assert.equal(
+    resolvePremiumApiAccess({
       paidEntitlement: true,
       designatedAppReview: false,
       designatedOwnerTest: false,
@@ -119,6 +128,7 @@ test("resolvePremiumApiAccess: review OR owner OR paid; free stays locked", () =
       paidEntitlement: false,
       designatedAppReview: false,
       designatedOwnerTest: false,
+      designatedResearchTester: false,
     }),
     false,
   );

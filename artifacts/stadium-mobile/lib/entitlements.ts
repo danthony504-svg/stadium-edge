@@ -239,7 +239,13 @@ export type SubscriptionPersistedState = {
   storeKitManagementUrl: string | null;
 };
 
-export type UnlockSource = "storekit" | "promo" | "admin" | "review" | "none";
+export type UnlockSource =
+  | "storekit"
+  | "promo"
+  | "admin"
+  | "review"
+  | "research"
+  | "none";
 
 export type EntitlementView = {
   planId: PlanId;
@@ -439,6 +445,12 @@ export type EntitlementAccessOpts = {
    */
   serverOwnerAccess?: boolean;
   /**
+   * Server-verified research-tester access from GET /subscriptions/entitlement
+   * (`researchTesterAccess`). Never set from client email / EXPO_PUBLIC_*.
+   * Unlocks internal NCAAF/NCAAB research Coach only — not subscriber release.
+   */
+  serverResearchTesterAccess?: boolean;
+  /**
    * @deprecated Ignored. Client email allowlists must not grant premium.
    */
   appReviewAccountEmails?: readonly string[];
@@ -465,6 +477,7 @@ export function hasProAccess(
   void opts.email; // ignored for unlock — identity is server-verified
   if (opts.serverAppReviewAccess === true) return true;
   if (opts.serverOwnerAccess === true) return true;
+  if (opts.serverResearchTesterAccess === true) return true;
   return hasPromoOrPlanAccess(state, nowMs);
 }
 
@@ -501,9 +514,10 @@ export function resolveUnlockSource(
   void opts.appReviewAccountEmails; // ignored — never trust client email lists
   void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
   void opts.email;
-  // Server-verified owner/review access is not a fake Go/Pro StoreKit plan.
+  // Server-verified owner/review/research access is not a fake Go/Pro StoreKit plan.
   if (opts.serverOwnerAccess === true) return "admin";
   if (opts.serverAppReviewAccess === true) return "review";
+  if (opts.serverResearchTesterAccess === true) return "research";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   return "none";
@@ -590,6 +604,10 @@ export function buildEntitlementView(
     // Account-specific ASC review allowlist only — never a global mode flag.
     statusLabel = "App Review";
     statusDetail = "Designated review account · not a consumer subscription";
+  } else if (unlockSource === "research") {
+    statusLabel = "Research";
+    statusDetail =
+      "Research — not validated. Internal tester access · not a subscriber release";
   } else if (isAdmin) {
     statusLabel = "Admin";
     statusDetail = "Full access · owner test account (server-verified)";

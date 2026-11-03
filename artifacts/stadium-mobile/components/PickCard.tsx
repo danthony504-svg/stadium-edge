@@ -1,3 +1,4 @@
+import { PlayerMatchupEvidence } from "@/components/PlayerMatchupEvidence";
 import { sideOf } from "@/lib/pickCardModel";
 import { norm, sameGame, parseEdgeStats, marketFamily, gameAltOptions, enrichPickMeta, gameSideFromPick, gameTotalFromPick, parsePicks, ALT_BACKFILL_ORDER, GENERIC_BACKFILL_ORDER, FULL_REACH_GAME_ORDER, PERIOD_BACKFILL_ORDER, backfillPicks, backfillProps } from "@/lib/pickCardModel";
 export { norm, sameGame, parseEdgeStats, marketFamily, gameAltOptions, enrichPickMeta, gameSideFromPick, gameTotalFromPick, parsePicks, ALT_BACKFILL_ORDER, GENERIC_BACKFILL_ORDER, FULL_REACH_GAME_ORDER, PERIOD_BACKFILL_ORDER, backfillPicks, backfillProps } from "@/lib/pickCardModel";
@@ -919,6 +920,14 @@ export function PickCard({
 
       <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
 
+      {!premiumLocked && !hideReadout && pick.isProp && pick.sport && pick.propMarketKey &&
+        pick.propLine != null && Number.isFinite(pick.propLine) &&
+        (pick.propSide === "Over" || pick.propSide === "Under") && (
+        <PlayerMatchupEvidence key={`${pick.athleteId}:${pick.propMarketKey}:${pick.propLine}:${pick.propSide}`}
+          position={pick.rosterPosition} sport={pick.sport} athleteId={pick.athleteId} playerTeamId={pick.playerTeamId}
+          game={pick.game} startsAt={pick.startsAt} market={pick.propMarketKey}
+          line={pick.propLine} side={pick.propSide} />
+      )}
       <LineLadder pick={pick} locked={premiumLocked} />
 
       {hideReadout ? null : pick.scores ||

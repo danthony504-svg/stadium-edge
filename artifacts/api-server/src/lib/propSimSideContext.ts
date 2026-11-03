@@ -21,7 +21,7 @@ export function deriveSideFromTeamIds(
   const home = String(homeTeamId ?? "").trim();
   const away = String(awayTeamId ?? "").trim();
   const own = String(playerTeamId ?? "").trim();
-  if (!home || !away || !own) {
+  if (!home || !away || !own || home === away) {
     return { isHome: null, opponentTeamId: null, playerTeamId: own || null };
   }
   if (own === home) {
@@ -48,18 +48,20 @@ export function stampPropSideContext<
   awayTeamId: string | null | undefined,
   playerTeamId?: string | null,
 ): T & PropSideContext & { homeTeamId: string | null; awayTeamId: string | null } {
-  const home = String(prop.homeTeamId ?? homeTeamId ?? "").trim() || null;
-  const away = String(prop.awayTeamId ?? awayTeamId ?? "").trim() || null;
+  const home = String(homeTeamId ?? prop.homeTeamId ?? "").trim() || null;
+  const away = String(awayTeamId ?? prop.awayTeamId ?? "").trim() || null;
   const own =
     String(playerTeamId ?? prop.playerTeamId ?? "").trim() || null;
   const side = deriveSideFromTeamIds(home, away, own);
+  // Complete team IDs are authoritative even when they disprove old context.
+  const authoritative = Boolean(home && away && own);
   return {
     ...prop,
     homeTeamId: home,
     awayTeamId: away,
     playerTeamId: side.playerTeamId,
-    // Prefer freshly derived side from team ids; keep prior only if derivation failed.
-    isHome: side.isHome ?? prop.isHome ?? null,
-    opponentTeamId: side.opponentTeamId ?? prop.opponentTeamId ?? null,
+    // Incomplete IDs can retain caller context; contradictory IDs cannot.
+    isHome: authoritative ? side.isHome : side.isHome ?? prop.isHome ?? null,
+    opponentTeamId: authoritative ? side.opponentTeamId : side.opponentTeamId ?? prop.opponentTeamId ?? null,
   };
 }

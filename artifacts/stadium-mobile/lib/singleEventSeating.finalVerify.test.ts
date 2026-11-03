@@ -237,10 +237,10 @@ type SportVerifyRow = {
 };
 
 test("capacity ceilings are maxima when independents exist — not live guarantees", () => {
-  assert.deepEqual(SINGLE_EVENT_CAPS[4], { maxProps: 3, maxGameEventLines: 3 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[5], { maxProps: 4, maxGameEventLines: 3 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[8], { maxProps: 6, maxGameEventLines: 4 });
-  assert.deepEqual(SINGLE_EVENT_CAPS[10], { maxProps: 8, maxGameEventLines: 5 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[4], { maxProps: 4, maxGameEventLines: 3 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[5], { maxProps: 5, maxGameEventLines: 3 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[8], { maxProps: 8, maxGameEventLines: 4 });
+  assert.deepEqual(SINGLE_EVENT_CAPS[10], { maxProps: 10, maxGameEventLines: 5 });
   // Thin tennis/UFC boards underfill below ceiling — proves ceilings ≠ guarantees.
   for (const sport of ["tennis", "ufc"] as const) {
     const row = SPORTS.find((s) => s.sport === sport)!;

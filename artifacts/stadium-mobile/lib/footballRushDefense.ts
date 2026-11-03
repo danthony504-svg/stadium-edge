@@ -1,3 +1,4 @@
+import {hasOpponentMarketEvidence,isTeamPropEvidenceRequired} from "./opponentMarketGate.ts";
 /**
  * Soft/hard tilt for football skill props vs opponent run/pass defense.
  * Uses real yards-allowed averages from recent box scores only.
@@ -23,6 +24,7 @@ export type PassDefenseSlice = {
 };
 
 export type FootballOppDefenseSlice = {
+  opponentMarkets?: Array<{market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
   rush?: RushDefenseSlice | null;
   pass?: PassDefenseSlice | null;
   teamName?: string | null;
@@ -66,6 +68,7 @@ export type FootballOppDefenseSlice = {
   goalsAgainstAvg?: number | null;
   savePct?: number | null;
   shotsAgainst?: number | null;
+  shotsAgainstSample?: number | null;
   blockedShots?: number | null;
   takeaways?: number | null;
   /** Soccer feed fields. */
@@ -480,7 +483,7 @@ export function footballRushDefenseTilt(opts: {
         if (ypc <= 3.7) tilt += isOver ? -0.15 : 0.1;
         else if (ypc >= 4.8) tilt += isOver ? 0.1 : -0.08;
       }
-      bits.push(`n=${rush.sampleSize}`);
+      bits.push(`based on ${rush.sampleSize} games`);
     }
     // Run-blocking proxy: own offensive YPC (not yards-before-contact — unavailable).
     if (own?.ownRushYpc != null) {
@@ -551,7 +554,7 @@ export function footballRushDefenseTilt(opts: {
         if (ypa <= 5.8) tilt += isOver ? -0.12 : 0.08;
         else if (ypa >= 7.4) tilt += isOver ? 0.1 : -0.08;
       }
-      bits.push(`n=${pass.sampleSize}`);
+      bits.push(`based on ${pass.sampleSize} games`);
     }
 
     // Pressure effects — market-aware (not blanket Under):
@@ -658,6 +661,22 @@ export function isNhlScoringMarket(market?: string | null): boolean {
  * rank) so phone "5 leg NHL" does not empty when packs are thin
  * (bestEv=5 oddsOk=0 after #562).
  */
+/** Exact-market requirements, checked before loading history or simulations. */
+export function missingRequiredOpponentEvidence(opts: {
+  sport?: string | null; market?: string | null; pack?: FootballOppDefenseSlice | null;
+}): boolean {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  const market = String(opts.market ?? "");
+  if (isTeamPropEvidenceRequired(sport, market) && !hasOpponentMarketEvidence(sport,market,opts.pack?.opponentMarkets)) {
+    const p=opts.pack;
+    const rush = ["nfl","ncaaf"].includes(sport) && /^player_rush_yds(?:_alternate)?$/.test(market) && p?.rush && p.rush.sampleSize >= 3 && Number.isFinite(p.rush.rushingYardsAllowedPerGame);
+    const pass = ["nfl","ncaaf"].includes(sport) && /^player_pass_yds(?:_alternate)?$/.test(market) && p?.pass && p.pass.sampleSize >= 3 && Number.isFinite(p.pass.passingYardsAllowedPerGame);
+    const shots = sport === "nhl" && /^player_shots_on_goal(?:_alternate)?$/.test(market) && p && (p.shotsAgainstSample ?? 0) >= 3 && Number.isFinite(p.shotsAgainst);
+    if (!rush && !pass && !shots) return true;
+  }
+  return false;
+}
+
 export function shouldDropPropMissingOppDefense(opts: {
   sport?: string | null;
   market?: string | null;
@@ -667,7 +686,9 @@ export function shouldDropPropMissingOppDefense(opts: {
   vsOpponentGames?: number | null;
 }): boolean {
   const sport = String(opts.sport ?? "").toLowerCase();
+  if (missingRequiredOpponentEvidence(opts)) return true;
   if (sport !== "nhl") return false;
+  if (/^player_shots_on_goal(?:_alternate)?$/.test(opts.market ?? "")) return !(opts.pack && Number.isFinite(opts.pack.shotsAgainst) && (opts.pack.shotsAgainstSample ?? 0) >= 3);
   if (!isNhlScoringMarket(opts.market)) return false;
   if (String(opts.side ?? "").toLowerCase() !== "over") return false;
   const line = opts.line;
@@ -719,44 +740,13 @@ export function multiSportOppDefenseTilt(opts: {
   const who = pack.teamName ? `${pack.teamName} ` : "";
 
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
-    const isPts = /point|pts|three|3.?pt|threes|field goal/.test(key);
-    const isAst = /assist|\bast\b/.test(key);
-    const isReb = /rebound|\breb\b/.test(key);
-    let tilt = 0;
-    const bits: string[] = [];
-    const pa = pack.pointsAgainst;
-    if (pa != null && (isPts || (!isAst && !isReb))) {
-      const stingy = sport === "ncaab" ? pa <= 65 : pa <= 108;
-      const leaky = sport === "ncaab" ? pa >= 78 : pa >= 118;
-      bits.push(`${pa} pts allowed/g`);
-      if (stingy) tilt += isOver ? -0.35 : 0.25;
-      else if (leaky) tilt += isOver ? 0.3 : -0.2;
-    }
-    if (isAst && pack.steals != null) {
-      bits.push(`${pack.steals.toFixed(1)} stl/g`);
-      if (pack.steals >= 8.5) tilt += isOver ? -0.25 : 0.18;
-      else if (pack.steals <= 6.5) tilt += isOver ? 0.2 : -0.12;
-    }
-    if (isReb && pack.defRebounds != null) {
-      bits.push(`${pack.defRebounds.toFixed(1)} dreb/g`);
-      if (pack.defRebounds >= 35) tilt += isOver ? -0.25 : 0.18;
-      else if (pack.defRebounds <= 31) tilt += isOver ? 0.22 : -0.12;
-    }
-    if (isPts && pack.blocks != null && pack.blocks >= 5.5) {
-      bits.push(`${pack.blocks.toFixed(1)} blk/g`);
-      tilt += isOver ? -0.12 : 0.08;
-    }
-    if (isReb && pack.oppFgPct != null && pack.oppFgPct <= 0.44) {
-      bits.push(`opp FG% ${(pack.oppFgPct * 100).toFixed(0)}`);
-      tilt += isOver ? 0.15 : -0.1;
-    }
-    // Present Match even for mid-tier D (tilt 0) — bits prove we compared the opponent.
-    if (!bits.length) return empty;
-    return {
-      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
-      blockOver: false,
-      display: `${who}${bits.join(", ")}`,
-    };
+    // Own steals/blocks/rebounds cannot stand in for allowed player production.
+    const market = canonicalPropMarketKey(opts.market ?? "").replace(/_alternate$/, "");
+    if (!hasOpponentMarketEvidence(sport, market, pack.opponentMarkets)) return empty;
+    const row = pack.opponentMarkets?.find(r => r.market === market);
+    if (!row) return empty;
+    return { tilt: 0, blockOver: false,
+      display: `${who}${row.perGame.toFixed(1)} ${market.replace(/^player_/, "").replace(/_/g, " ")} allowed/g (${row.sampleSize} games; team-wide context)` };
   }
 
   if (sport === "nhl") {
@@ -792,8 +782,8 @@ export function multiSportOppDefenseTilt(opts: {
         tilt += isOver ? 0.2 : -0.12;
       }
     }
-    if (isShots && pack.shotsAgainst != null) {
-      bits.push(`${pack.shotsAgainst.toFixed(0)} SA`);
+    if (isShots && pack.shotsAgainst != null && (pack.shotsAgainstSample ?? 0) >= 3) {
+      bits.push(`${pack.shotsAgainst.toFixed(1)} shots allowed/game (based on ${pack.shotsAgainstSample} games)`);
       // High shots against → more SOG opportunities for skaters.
       if (pack.shotsAgainst >= 32) tilt += isOver ? 0.25 : -0.15;
       else if (pack.shotsAgainst <= 26) tilt += isOver ? -0.22 : 0.15;

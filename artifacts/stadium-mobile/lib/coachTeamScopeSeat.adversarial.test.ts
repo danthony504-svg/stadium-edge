@@ -217,12 +217,7 @@ function mixedBoardPool(): BoardScoredLeg[] {
 function seatScopedTicket(ask: string, pool: BoardScoredLeg[], target = 9) {
   const scope = coachAskTeamScope(ask);
   const stagePool = filterScoredLegsForAskTeam(pool, scope);
-  const eventKey =
-    scope?.sport === "nhl"
-      ? SABRES_GAME
-      : scope?.sport === "nfl"
-        ? BILLS_GAME
-        : null;
+  const eventKey = stagePool[0]?.pick.game ?? null;
   const staged = buildStagedTicketFromScan(stagePool, target, `adv-${ask}`, {
     askText: ask,
     singleEventSport: scope?.sport ?? null,
@@ -502,4 +497,18 @@ test("PR #711 regression: rejected candidates stay rejected even when in scope",
     9,
   );
   assert.equal(picks.length, 0);
+});
+
+test("device cowboy ask seats Dallas only despite stronger foreign filler", () => {
+  const game = "Dallas Cowboys @ Philadelphia Eagles";
+  const pool = [
+    ...mixedBoardPool(),
+    scoredLeg({ sport: "nfl", game, grade: "B+", confidencePct: 58, edgePct: 4, simHit: 0.56 }),
+  ];
+  const { scope, picks } = seatScopedTicket("7 leg cowboy games", pool, 7);
+  assert.ok(scope);
+  assert.ok(picks.length > 0 && picks.length < 7);
+  assert.ok(picks.every(p => p.sport === "nfl" && p.game === game));
+  assert.match(coachAskTeamShortfallNote(scope, 7, picks.length, 1), /won't fill with other games/i);
+  assert.equal(seatScopedTicket("7 leg cowboy games", mixedBoardPool(), 7).picks.length, 0);
 });

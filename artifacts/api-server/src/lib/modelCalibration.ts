@@ -12,12 +12,16 @@ export type { CalibrationBucket };
 export { computeCalibrationFromGraded, calibrationDeltaForPick };
 
 export async function fetchModelCalibration(): Promise<{
+  evidenceType: "settled_hit_rate_only";
+  probabilityCalibrationVerified: false;
   updatedAt: string;
   buckets: CalibrationBucket[];
 }> {
   return cachedJson("model-calibration:v1", 30 * 60 * 1000, async () => {
     const rows = await getGradedHistory(500);
     return {
+      evidenceType: "settled_hit_rate_only" as const,
+      probabilityCalibrationVerified: false as const,
       updatedAt: new Date().toISOString(),
       buckets: computeCalibrationFromGraded(
         rows.map((r) => ({

@@ -96,7 +96,7 @@ test("adversarial: forged review/admin emails do not unlock Coach without server
   );
 });
 
-test("server-verified App Review / owner access unlocks Coach; ordinary free stays locked", () => {
+test("server-verified App Review / owner / research access unlocks Coach; ordinary free stays locked", () => {
   const free = state({ planId: "free" });
   assert.equal(
     hasCoachPremiumAccess(free, NOW, {
@@ -119,9 +119,27 @@ test("server-verified App Review / owner access unlocks Coach; ordinary free sta
     hasCoachPremiumAccess(free, NOW, {
       signedIn: true,
       email: "fan@example.com",
+      serverResearchTesterAccess: true,
+    }),
+    true,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
       serverAppReviewAccess: false,
       serverOwnerAccess: false,
+      serverResearchTesterAccess: false,
       appReviewMode: true,
+    }),
+    false,
+  );
+  // Client email claim alone never unlocks research path.
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "tester@stadiumedge.app",
+      serverResearchTesterAccess: false,
     }),
     false,
   );

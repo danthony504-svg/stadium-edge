@@ -310,3 +310,22 @@ describe("NBA assists unblocked for basketball", () => {
     assert.ok(pre.venueShift > 1 || pre.opponentMatchupShift > 1);
   });
 });
+
+it("known conflicting team IDs clear stale opponent and venue context", () => {
+ const stale={playerTeamId:"99",isHome:true,opponentTeamId:"14"};
+ const x=stampPropSideContext(stale,"21","14");
+ assert.equal(x.isHome,null);
+ assert.equal(x.opponentTeamId,null);
+ assert.equal(stale.isHome,true);
+ const invalid=stampPropSideContext({playerTeamId:"21",isHome:true,opponentTeamId:"14"},"21","21");
+ assert.equal(invalid.isHome,null);
+ assert.equal(invalid.opponentTeamId,null);
+});
+
+it("current game IDs replace stale IDs carried on a reused prop", () => {
+ const x=stampPropSideContext({playerTeamId:"21",homeTeamId:"14",awayTeamId:"21",isHome:false,opponentTeamId:"14"},"21","30");
+ assert.equal(x.homeTeamId,"21");
+ assert.equal(x.awayTeamId,"30");
+ assert.equal(x.isHome,true);
+ assert.equal(x.opponentTeamId,"30");
+});

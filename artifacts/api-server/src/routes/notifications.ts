@@ -1,4 +1,5 @@
 import { queueNcaafResearchValidation } from "../lib/ncaafResearchScheduler.js";
+import { queueNcaabResearchValidation } from "../lib/ncaabResearchScheduler.js";
 import { Router, type IRouter, type Request } from "express";
 import { getAuth } from "@clerk/express";
 import { and, eq } from "drizzle-orm";
@@ -180,6 +181,7 @@ router.post("/notifications/cron", async (req, res) => {
   }
   try {
     queueNcaafResearchValidation();
+    queueNcaabResearchValidation();
     const result = await runNotificationJobs();
     // Stamp the heartbeat so a stalled schedule can be detected (see the status
     // endpoint below). Fail-safe — a heartbeat write must never fail the run.
@@ -247,6 +249,37 @@ router.get("/notifications/ncaaf-research/status", async (req, res) => {
     res
       .status(500)
       .json({ error: "research status unavailable", releaseEligible: false });
+  }
+});
+
+router.get("/notifications/ncaab-research/status", async (req, res) => {
+  const key = process.env.NOTIFY_CRON_KEY;
+  if (!key) {
+    res.status(503).json({ error: "cron not configured" });
+    return;
+  }
+  if (req.get("x-cron-key") !== key) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  try {
+    const row = await pool.query(
+      "SELECT value FROM public.app_kv WHERE key=$1",
+      ["research:ncaab:pipeline:latest"],
+    );
+    const report = row.rows[0]?.value ?? null;
+    res.json({
+      enabled: process.env.NCAAB_RESEARCH_PIPELINE_ENABLED === "true",
+      report,
+      releaseEligible: false,
+      coachEnabled: false,
+    });
+  } catch {
+    res.status(500).json({
+      error: "ncaab research status unavailable",
+      releaseEligible: false,
+      coachEnabled: false,
+    });
   }
 });
 

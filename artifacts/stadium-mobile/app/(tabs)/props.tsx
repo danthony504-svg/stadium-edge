@@ -1,3 +1,4 @@
+import { propsBrowseDeadline, PROPS_EVENT_BUDGET_MS, PROPS_OPTIONAL_IDS_BUDGET_MS } from "@/lib/propsBrowseDeadline";
 import Feather from "@expo/vector-icons/Feather";
 import { postedMarketKeys } from "@/lib/postedMarketCategories";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
@@ -27,6 +28,7 @@ import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
+import type { ConsiderPick } from "@/lib/teamMatchupConsider";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -45,15 +47,22 @@ import {
   type PlayerSearchResult,
   type PropPoolEntry,
 } from "@/lib/api";
-import { formatAmerican } from "@/lib/format";
+import { formatAmerican, formatGameTime } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { selectionScoreForEntry } from "@/lib/propSelection";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
+import { oddsRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
+import {
+  gameHasTeamPostedProps,
+  isTeamPropsSport,
+} from "@/lib/teamPostedProps";
 // Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
 // are listed but have NO player-prop feed — they get a real matches list here
 // instead, the prop rails stay empty (honest), and tapping a match opens odds.
 import { BROWSE_ONLY_SPORTS, isPillSport } from "@/components/SportPills";
+
+type PropsBrowseMode = "player" | "team";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -161,7 +170,7 @@ async function fetchAllProps(
 ): Promise<GamePropsPage> {
   const [odds, games] = await Promise.all([
     getOdds(sport, signal),
-    getGames(sport, signal).catch(() => [] as EspnGame[]),
+    propsBrowseDeadline(child => getGames(sport, child), signal, PROPS_OPTIONAL_IDS_BUDGET_MS).catch(() => [] as EspnGame[]),
   ]);
   const idMap = buildIdMap(games);
   // Soccer (World Cup) is a tournament: books post real player props days before
@@ -185,7 +194,7 @@ async function fetchAllProps(
     pickable.map(async (g): Promise<GameProps> => {
       const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
       try {
-        const r = await getProps(
+        const r = await propsBrowseDeadline(child => getProps(
           {
             sport,
             eventId: g.id,
@@ -195,8 +204,8 @@ async function fetchAllProps(
             awayTeamId: ids?.awayTeamId,
             startsAt: g.commenceTime,
           },
-          signal,
-        );
+          child,
+        ), signal, PROPS_EVENT_BUDGET_MS);
         // Keep every priced line. Mains drive the list rows (one per player +
         // market); the full set (incl. alternate rungs) feeds the per-row alt
         // expander and the props sheet.
@@ -209,6 +218,7 @@ async function fetchAllProps(
       }
     }),
   );
+  if (signal?.aborted) { const error = new Error("Player props loading cancelled"); error.name = "AbortError"; throw error; }
   // Honest failure surfacing: if there were pickable games but EVERY props
   // request failed, this is a data-unavailable error, not an empty slate —
   // throw so the UI shows the retryable ErrorState instead of "no props".
@@ -393,6 +403,8 @@ function PropsScreen() {
   const [marketFilter, setMarketFilter] = useState<string | null>(null);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
+  // Player Props | Team Props — local browse mode only. Does not touch Coach.
+  const [propsMode, setPropsMode] = useState<PropsBrowseMode>("player");
   // When the player sheet sends the user to the full-breakdown route we HIDE it
   // (keep its state) rather than closing it, then restore it whenever this
   // screen regains focus — so pressing back on the breakdown lands on the sheet.
@@ -421,8 +433,8 @@ function PropsScreen() {
     });
   };
 
-  // Open the team-props sheet from a team search hit. We carry only the team
-  // names + game context; the sheet fetches everything it shows from real feeds.
+  // Open the matchup Team Props sheet. Prefer full event identity (odds event id
+  // + home/away names) so both-team analysis and player binding stay exact.
   const openTeam = (t: {
     team: string;
     opp: string;
@@ -430,7 +442,11 @@ function PropsScreen() {
     sport: string;
     gameLabel: string;
     startsAt: string;
+    eventId?: string | null;
+    homeTeam?: string;
+    awayTeam?: string;
   }) => {
+    const [awayFromLabel, homeFromLabel] = t.gameLabel.split(" @ ").map((s) => s?.trim());
     setTeamSheet({
       team: t.team,
       opp: t.opp,
@@ -438,6 +454,26 @@ function PropsScreen() {
       sport: t.sport,
       gameLabel: t.gameLabel,
       startsAt: t.startsAt,
+      eventId: t.eventId ?? null,
+      homeTeam: t.homeTeam ?? homeFromLabel ?? (t.isHome ? t.team : t.opp),
+      awayTeam: t.awayTeam ?? awayFromLabel ?? (t.isHome ? t.opp : t.team),
+    });
+  };
+
+  const openConsiderPick = (pick: ConsiderPick, allProps: PlayerProp[]) => {
+    const playerProps = allProps.filter((p) => p.player === pick.player);
+    const seed = playerProps.find((p) => p.market === pick.marketKey) ?? pick.prop;
+    setSheet({
+      player: pick.player,
+      athleteId: pick.athleteId,
+      headshot: pick.headshot,
+      playerTeamId: seed.playerTeamId ?? null,
+      teamAbbr: null,
+      sport: teamSheet?.sport ?? sport,
+      gameLabel: teamSheet?.gameLabel ?? `${pick.oppName} vs ${pick.teamName}`,
+      startsAt: teamSheet?.startsAt ?? "",
+      initialMarket: pick.marketKey,
+      props: playerProps.length ? playerProps : [seed],
     });
   };
 
@@ -525,11 +561,12 @@ function PropsScreen() {
       return {
         queryKey: ["props-all", s.id, limit],
         queryFn: async ({ signal }: { signal?: AbortSignal }) => {
-          const page = await fetchAllProps(s.id, limit, signal);
+          const page = await propsBrowseDeadline(child => fetchAllProps(s.id, limit, child), signal);
           // Persist the freshest snapshot so the next open is instant-from-cache.
           void savePropsSnapshot(s.id, page);
           return page;
         },
+        retry: false, // A page already owns its deadline; never stack automatic retry waits.
         staleTime: 2 * 60_000,
         // Keep data around long after the tab loses focus so returning to it is
         // instant (default gcTime would drop it after 5 min).
@@ -538,7 +575,7 @@ function PropsScreen() {
         // spinner), and on a cold start fall back to the persisted snapshot so the
         // last-known props paint immediately while fresh data arrives.
         placeholderData: (prev: GamePropsPage | undefined) => prev ?? snapshots[s.id],
-        enabled: s.id === sport || fetchAllSports,
+        enabled: propsMode === "player" && (s.id === sport || fetchAllSports),
       };
     }),
   });
@@ -586,6 +623,51 @@ function PropsScreen() {
       .filter((g) => isPickable(g.commenceTime))
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [browseOddsQ.data, isBrowseSport]);
+
+  // Team Props matchup list — odds feed ONLY (same cache key as TeamPropsSheet).
+  // Independent of the player-prop feed so games without player props still show.
+  const teamMode = propsMode === "team" && isTeamPropsSport(sport) && !isBrowseSport;
+  const teamOddsQ = useQuery({
+    queryKey: ["odds", sport],
+    enabled: teamMode || (propsMode === "team" && fetchAllSports),
+    staleTime: 60_000,
+    queryFn: ({ signal }) => getOdds(sport, signal),
+  });
+  const teamMatchups = useMemo(() => {
+    if (!teamMode) return [] as OddsGame[];
+    const HORIZON_H = sport === "soccer" ? 14 * 24 : 48;
+    const now = Date.now();
+    const inWindow = (iso?: string | null): boolean => {
+      if (!iso) return false;
+      const t = Date.parse(iso);
+      if (Number.isNaN(t)) return false;
+      return t > now - 4 * 3600_000 && t < now + HORIZON_H * 3600_000;
+    };
+    return oddsRowsFromQuery(teamOddsQ.data, sport)
+      .filter((g) => inWindow(g.commenceTime))
+      .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  }, [teamMode, teamOddsQ.data, sport]);
+
+  // Cross-sport Team Props search: reuse each sport's odds cache when searching.
+  const teamSearchOddsQueries = useQueries({
+    queries: propsSports.map((s) => ({
+      queryKey: ["odds", s.id],
+      queryFn: ({ signal }: { signal?: AbortSignal }) => getOdds(s.id, signal),
+      staleTime: 60_000,
+      gcTime: 30 * 60_000,
+      enabled: propsMode === "team" && fetchAllSports,
+    })),
+  });
+  const teamSearchStamp = teamSearchOddsQueries.map((q) => q.dataUpdatedAt).join(",");
+  const teamSearchPool = useMemo(() => {
+    if (propsMode !== "team") return [] as OddsGame[];
+    return teamSearchOddsQueries.flatMap((q, i) => {
+      const sid = propsSports[i]?.id;
+      if (!sid) return [];
+      return oddsRowsFromQuery(q.data, sid);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamSearchStamp, propsMode, propsSports]);
 
   // Candidate pool for the AI RECOMMENDED rail — built ONLY from the real props
   // feed: a real player, real posted line, and the value side (recommendSide).
@@ -666,7 +748,7 @@ function PropsScreen() {
     .join(",");
   const gradesQ = useQuery({
     queryKey: ["prop-grades", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) =>
       gradePropCands(
@@ -702,7 +784,7 @@ function PropsScreen() {
 
   const simRankQ = useQuery({
     queryKey: ["props-sim-rank", sport, gradeKey],
-    enabled: gradeCandidates.length > 0,
+    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
       const picks = gradeCandidates.map((c) => c.pick);
@@ -717,7 +799,7 @@ function PropsScreen() {
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
     queryKey: ["props-upsets", sport],
-    enabled: !isBrowseSport,
+    enabled: propsMode === "player" && !searching && !isBrowseSport,
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 5 * 60_000,
   });
@@ -947,10 +1029,9 @@ function PropsScreen() {
     [hasMoreGames, propsQ.isFetching],
   );
 
-  // While searching, also surface TEAMS whose name matches the query — parsed
-  // from the real game labels in the props window ("Away @ Home"). One row per
-  // team (deduped), each carrying its game context so the team sheet can fetch
-  // real history + posted markets. Players and teams are searched together.
+  // While searching, also surface TEAMS whose name matches the query. Player
+  // mode reads game labels from the player-prop window; Team mode reads the
+  // odds feed so matchups without player props still appear.
   const teamResults = useMemo(() => {
     type TeamHit = {
       team: string;
@@ -964,23 +1045,47 @@ function PropsScreen() {
     if (!q) return [] as TeamHit[];
     const seen = new Set<string>();
     const out: TeamHit[] = [];
-    for (const g of searchPool) {
-      const [away, home] = g.gameLabel.split(" @ ");
-      if (!away || !home) continue;
+    const pushSide = (
+      sportId: string,
+      away: string,
+      home: string,
+      startsAt: string,
+    ) => {
       const sides = [
-        { team: away.trim(), opp: home.trim(), isHome: false },
-        { team: home.trim(), opp: away.trim(), isHome: true },
+        { team: away, opp: home, isHome: false },
+        { team: home, opp: away, isHome: true },
       ];
       for (const s of sides) {
         if (!s.team.toLowerCase().includes(q)) continue;
-        const k = `${g.sport}|${s.team.toLowerCase()}`;
+        const k = `${sportId}|${s.team.toLowerCase()}`;
         if (seen.has(k)) continue;
         seen.add(k);
-        out.push({ ...s, sport: g.sport, gameLabel: g.gameLabel, startsAt: g.startsAt });
+        out.push({
+          ...s,
+          sport: sportId,
+          gameLabel: `${away} @ ${home}`,
+          startsAt,
+        });
+      }
+    };
+    if (propsMode === "team") {
+      for (const g of teamSearchPool) {
+        if (!g.awayTeam || !g.homeTeam) continue;
+        pushSide(g.sport, g.awayTeam, g.homeTeam, g.commenceTime);
+      }
+      // Also include the selected sport's live list when not yet in the search fan-out.
+      for (const g of teamMatchups) {
+        pushSide(g.sport, g.awayTeam, g.homeTeam, g.commenceTime);
+      }
+    } else {
+      for (const g of searchPool) {
+        const [away, home] = g.gameLabel.split(" @ ");
+        if (!away || !home) continue;
+        pushSide(g.sport, away.trim(), home.trim(), g.startsAt);
       }
     }
     return out;
-  }, [searchPool, query]);
+  }, [searchPool, query, propsMode, teamSearchPool, teamMatchups]);
 
   // While searching, collapse each game's matches to one row per player (with a
   // representative prop to seed the sheet + a market count), instead of listing
@@ -1093,59 +1198,156 @@ function PropsScreen() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={isBrowseSport ? browseOddsQ.isFetching : propsQ.isFetching}
-            onRefresh={() => (isBrowseSport ? browseOddsQ.refetch() : propsQ.refetch())}
+            refreshing={
+              isBrowseSport
+                ? browseOddsQ.isFetching
+                : propsMode === "team"
+                  ? teamOddsQ.isFetching
+                  : propsQ.isFetching
+            }
+            onRefresh={() =>
+              isBrowseSport
+                ? browseOddsQ.refetch()
+                : propsMode === "team"
+                  ? teamOddsQ.refetch()
+                  : propsQ.refetch()
+            }
             tintColor={colors.mutedForeground}
           />
         }
       >
-        {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
+        {/* Pinned header — Player Props / Team Props browse landing. */}
         <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
           <PageTitleRow
-            icon="user"
-            title="Player Props Only"
-            subtitle="Build from just player props."
+            icon={propsMode === "team" ? "users" : "user"}
+            title={propsMode === "team" ? "Team Props" : "Player Props"}
+            subtitle={
+              propsMode === "team"
+                ? "Posted team totals by matchup."
+                : "Build from posted player props."
+            }
           />
 
-          <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+          {/* Player | Team tab switch — preserves PremiumFeatureGate + sport rules. */}
+          <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
             <View
               style={{
                 flexDirection: "row",
-                alignItems: "center",
-                borderRadius: colors.radius,
+                borderRadius: 12,
                 borderWidth: 1,
-                borderColor: colors.primary,
+                borderColor: colors.border,
                 backgroundColor: colors.card,
-                padding: 14,
-                gap: 12,
+                overflow: "hidden",
               }}
             >
-              <View style={{ flex: 1, gap: 6 }}>
+              {(
+                [
+                  { id: "player" as const, label: "Player Props", icon: "user" as const },
+                  { id: "team" as const, label: "Team Props", icon: "users" as const },
+                ] as const
+              ).map((tab) => {
+                const active = propsMode === tab.id;
+                return (
+                  <Pressable
+                    key={tab.id}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      setPropsMode(tab.id);
+                      setShowFilters(false);
+                      setMarketFilter(null);
+                      setQuery("");
+                    }}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 7,
+                      paddingVertical: 11,
+                      backgroundColor: active ? colors.primary : "transparent",
+                    }}
+                  >
+                    <Feather name={tab.icon} size={14} color={active ? "#fff" : colors.foreground} />
+                    <Text
+                      style={{
+                        color: active ? "#fff" : colors.foreground,
+                        fontFamily: FONT.semibold,
+                        fontSize: 13,
+                      }}
+                    >
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {propsMode === "player" ? (
+            <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  borderRadius: colors.radius,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  backgroundColor: colors.card,
+                  padding: 14,
+                  gap: 12,
+                }}
+              >
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                    <Feather name="target" size={15} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.6 }}>
+                      FOCUSED & SIMPLE
+                    </Text>
+                  </View>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
+                    Search for players and pick from their available props.{"\n"}
+                    Switch to Team Props for posted team totals.
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 16,
+                    backgroundColor: "rgba(59,130,246,0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="bar-chart-2" size={28} color={colors.primary} />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+              <View
+                style={{
+                  borderRadius: colors.radius,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  padding: 14,
+                  gap: 6,
+                }}
+              >
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                  <Feather name="target" size={15} color={colors.primary} />
+                  <Feather name="shield" size={15} color={colors.primary} />
                   <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.6 }}>
-                    FOCUSED & SIMPLE
+                    TEAM TOTALS ONLY
                   </Text>
                 </View>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-                  Search for players and pick from their available props.{"\n"}
-                  No teams, no parlays — just player performance.
+                  Pick a matchup, then either team, to see posted team totals and matchup stats. Moneylines, spreads, and game totals are not team props.
                 </Text>
               </View>
-              <View
-                style={{
-                  width: 54,
-                  height: 54,
-                  borderRadius: 16,
-                  backgroundColor: "rgba(59,130,246,0.12)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Feather name="bar-chart-2" size={28} color={colors.primary} />
-              </View>
             </View>
-          </View>
+          )}
 
           {!searching ? (
             <ScrollView
@@ -1200,7 +1402,7 @@ function PropsScreen() {
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search players"
+                placeholder={propsMode === "team" ? "Search teams" : "Search players"}
                 placeholderTextColor={colors.mutedForeground}
                 style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
                 autoCorrect={false}
@@ -1214,9 +1416,13 @@ function PropsScreen() {
             </View>
             <Pressable
               onPress={() => setShowFilters((v) => !v)}
-              disabled={isBrowseSport}
+              disabled={isBrowseSport || propsMode === "team"}
               accessibilityRole="button"
-              accessibilityLabel={isBrowseSport ? "Player prop filters unavailable for this sport" : "Toggle player prop filters"}
+              accessibilityLabel={
+                isBrowseSport || propsMode === "team"
+                  ? "Player prop filters unavailable"
+                  : "Toggle player prop filters"
+              }
               accessibilityState={{ expanded: showFilters }}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -1227,7 +1433,7 @@ function PropsScreen() {
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.card,
-                opacity: isBrowseSport ? 0.45 : pressed ? 0.8 : 1,
+                opacity: isBrowseSport || propsMode === "team" ? 0.45 : pressed ? 0.8 : 1,
               })}
             >
               <Feather name="filter" size={15} color={colors.mutedForeground} />
@@ -1238,7 +1444,7 @@ function PropsScreen() {
           </View>
         </AppHeader>
 
-        {showFilters && !isBrowseSport ? (
+        {showFilters && !isBrowseSport && propsMode === "player" ? (
           <View style={{ marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
             <Text style={{ color: colors.mutedForeground, marginBottom: 8 }}>Filter posted {sport.toUpperCase()} markets</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
@@ -1408,7 +1614,7 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching && popularPlayers.length > 0 ? (
+        {!searching && propsMode === "player" && popularPlayers.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <Text
               style={{
@@ -1477,7 +1683,7 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching ? (
+        {!searching && propsMode === "player" ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
             <Text
               style={{
@@ -1520,7 +1726,153 @@ function PropsScreen() {
 
         {/* Props list */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
-          {!searching && isBrowseSport ? (
+          {!searching && propsMode === "team" && isBrowseSport ? (
+            <EmptyState
+              icon="users"
+              title="Team props unavailable"
+              subtitle={`${SPORTS.find((s) => s.id === sport)?.label ?? sport} has no team-total markets on the odds feed.`}
+            />
+          ) : !searching && propsMode === "team" ? (
+            teamOddsQ.isLoading ? (
+              <Loading label="Loading matchups…" />
+            ) : teamOddsQ.isError ? (
+              <ErrorState onRetry={() => teamOddsQ.refetch()} />
+            ) : teamMatchups.length === 0 ? (
+              <EmptyState
+                icon="calendar"
+                title="No matchups in the window"
+                subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games are posted in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
+              />
+            ) : (
+              <>
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 12,
+                    marginBottom: 2,
+                  }}
+                >
+                  Upcoming matchups from the odds feed — tap either team for posted team totals. Games without player props still appear here.
+                </Text>
+                {teamMatchups.map((g) => {
+                  const hasTeamProps = gameHasTeamPostedProps(g);
+                  const when = formatGameTime(g.commenceTime);
+                  return (
+                    <View
+                      key={g.id}
+                      style={{
+                        borderRadius: colors.radius,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.card,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <View
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.medium,
+                            fontSize: 11,
+                            flex: 1,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {when || "Time unavailable"}
+                        </Text>
+                        <Text
+                          style={{
+                            color: hasTeamProps ? colors.success : colors.mutedForeground,
+                            fontFamily: FONT.bold,
+                            fontSize: 10,
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          {hasTeamProps ? "TEAM TOTALS POSTED" : "NO TEAM PROPS YET"}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: "row" }}>
+                        {(
+                          [
+                            { team: g.awayTeam, opp: g.homeTeam, isHome: false, label: "AWAY" },
+                            { team: g.homeTeam, opp: g.awayTeam, isHome: true, label: "HOME" },
+                          ] as const
+                        ).map((side, idx) => (
+                          <Pressable
+                            key={side.team}
+                            onPress={() =>
+                              openTeam({
+                                team: side.team,
+                                opp: side.opp,
+                                isHome: side.isHome,
+                                sport: g.sport,
+                                gameLabel: `${g.awayTeam} @ ${g.homeTeam}`,
+                                startsAt: g.commenceTime,
+                                eventId: g.id,
+                                homeTeam: g.homeTeam,
+                                awayTeam: g.awayTeam,
+                              })
+                            }
+                            style={({ pressed }) => ({
+                              flex: 1,
+                              padding: 14,
+                              gap: 4,
+                              borderLeftWidth: idx === 1 ? 1 : 0,
+                              borderLeftColor: colors.border,
+                              opacity: pressed ? 0.75 : 1,
+                              backgroundColor: pressed ? colors.surface : "transparent",
+                            })}
+                          >
+                            <Text
+                              style={{
+                                color: colors.mutedForeground,
+                                fontFamily: FONT.bold,
+                                fontSize: 10,
+                                letterSpacing: 0.5,
+                              }}
+                            >
+                              {side.label}
+                            </Text>
+                            <Text
+                              style={{
+                                color: colors.foreground,
+                                fontFamily: FONT.semibold,
+                                fontSize: 14,
+                              }}
+                              numberOfLines={2}
+                            >
+                              {side.team}
+                            </Text>
+                            <Text
+                              style={{
+                                color: colors.primary,
+                                fontFamily: FONT.medium,
+                                fontSize: 11,
+                                marginTop: 4,
+                              }}
+                            >
+                              View team props →
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            )
+          ) : !searching && isBrowseSport ? (
             browseOddsQ.isLoading ? (
               <Loading label="Loading matches…" />
             ) : browseOddsQ.isError ? (
@@ -1558,6 +1910,31 @@ function PropsScreen() {
             <Loading label="Loading player props…" />
           ) : !searching && propsQ.isError ? (
             <ErrorState onRetry={() => propsQ.refetch()} />
+          ) : searching && propsMode === "team" ? (
+            teamResults.length === 0 ? (
+              teamOddsQ.isFetching || teamSearchOddsQueries.some((q) => q.isFetching) ? (
+                <Loading label="Searching teams…" />
+              ) : (
+                <EmptyState
+                  icon="search"
+                  title="No teams match"
+                  subtitle={`No teams match “${query.trim()}” on the odds feed.`}
+                />
+              )
+            ) : (
+              <View style={{ gap: 10 }}>
+                <SearchSectionLabel>Teams</SearchSectionLabel>
+                {teamResults.map((t) => (
+                  <TeamResultRow
+                    key={`team-${t.sport}-${t.team}`}
+                    team={t.team}
+                    opp={t.opp}
+                    isHome={t.isHome}
+                    onOpen={() => openTeam(t)}
+                  />
+                ))}
+              </View>
+            )
           ) : searching ? (
             // Searching → players AND teams across EVERY league at once. Show a
             // TEAMS section (if any team name matches) above one compact tappable
@@ -1661,7 +2038,7 @@ function PropsScreen() {
           {/* Load-more footer: only in the browse view, when more pickable games
               remain than we've loaded. Tapping (or scrolling near the bottom)
               pulls the next batch; a spinner shows while it's in flight. */}
-          {!searching && !isBrowseSport && (loadingMore || hasMoreGames) ? (
+          {!searching && propsMode === "player" && !isBrowseSport && (loadingMore || hasMoreGames) ? (
             <Pressable
               onPress={() => {
                 if (!propsQ.isFetching && hasMoreGames) setGamesLimit((g) => g + GAMES_STEP);
@@ -1688,7 +2065,11 @@ function PropsScreen() {
           setSheetHidden(false);
         }}
       />
-      <TeamPropsSheet data={teamSheet} onClose={() => setTeamSheet(null)} />
+      <TeamPropsSheet
+        data={teamSheet}
+        onClose={() => setTeamSheet(null)}
+        onOpenConsiderPick={openConsiderPick}
+      />
     </View>
   );
 }

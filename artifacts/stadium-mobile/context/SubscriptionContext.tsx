@@ -70,6 +70,11 @@ type SubscriptionContextValue = {
    * by EXPO_PUBLIC_APP_REVIEW_MODE.
    */
   coachPremiumUnlocked: boolean;
+  /**
+   * Server-verified RESEARCH_TESTER_EMAILS match. Research-only Coach unlock
+   * for NCAAF/NCAAB — never subscriber release approval.
+   */
+  researchTesterAccess: boolean;
   /** True when this native build can open Apple StoreKit billing. */
   storeKitReady: boolean;
   /** Why StoreKit is unavailable (null when ready). */
@@ -129,7 +134,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   /** Server-verified App Review / owner access — never from EXPO_PUBLIC emails. */
   const [serverAppReviewAccess, setServerAppReviewAccess] = useState(false);
   const [serverOwnerAccess, setServerOwnerAccess] = useState(false);
+  const [serverResearchTesterAccess, setServerResearchTesterAccess] =
+    useState(false);
   const loaded = useRef(false);
+  /** Latest Clerk userId — entitlement fetches ignore stale responses after switch. */
+  const activeUserIdRef = useRef<string | null | undefined>(userId);
+  activeUserIdRef.current = userId;
 
   const email =
     user?.primaryEmailAddress?.emailAddress ??
@@ -250,28 +260,39 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [hydrated, storeKitReady, isSignedIn, userId, applyVerifiedSnapshot]);
 
   // Server-verified privileged flags (fail closed when unsigned / error).
+  // Clear immediately on sign-out or account switch so research access cannot
+  // carry over to another user while the next entitlement fetch is in flight.
   useEffect(() => {
     if (!hydrated) return;
+    // Always drop prior account's research/owner/review flags first.
+    setServerAppReviewAccess(false);
+    setServerOwnerAccess(false);
+    setServerResearchTesterAccess(false);
     if (!isSignedIn || !userId) {
-      setServerAppReviewAccess(false);
-      setServerOwnerAccess(false);
       return;
     }
+    const fetchForUserId = userId;
     let cancelled = false;
     (async () => {
       const flags = await fetchServerAccessFlags();
       if (cancelled) return;
+      // Account changed mid-flight — never apply stale flags to the new session.
+      if (fetchForUserId !== activeUserIdRef.current) return;
       const appliedOwner = flags?.ownerAccess === true;
+      const appliedResearch = flags?.researchTesterAccess === true;
       setServerAppReviewAccess(flags?.appReviewAccess === true);
       setServerOwnerAccess(appliedOwner);
+      setServerResearchTesterAccess(appliedResearch);
       // Temporary sanitized Context probe — no email / userId / tokens.
       try {
         console.info(
           "[entitlement-diag]",
           JSON.stringify({
             contextAppliedOwnerAccess: appliedOwner,
+            contextAppliedResearchTesterAccess: appliedResearch,
             flagsReceived: flags != null,
             ownerAccessReceived: flags?.ownerAccess === true,
+            researchTesterAccessReceived: flags?.researchTesterAccess === true,
           }),
         );
       } catch {
@@ -280,6 +301,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     })();
     return () => {
       cancelled = true;
+      // Drop flags on cleanup (sign-out / userId change) before the next effect.
+      setServerAppReviewAccess(false);
+      setServerOwnerAccess(false);
+      setServerResearchTesterAccess(false);
     };
   }, [hydrated, isSignedIn, userId]);
 
@@ -295,16 +320,25 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         email: isSignedIn ? email : null,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
         serverOwnerAccess: isSignedIn && serverOwnerAccess,
+        serverResearchTesterAccess: isSignedIn && serverResearchTesterAccess,
         // Legacy flag ignored inside hasProAccess — proves old OTAs stay locked.
         appReviewMode:
           (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
+    [
+      state,
+      tick,
+      isSignedIn,
+      email,
+      serverAppReviewAccess,
+      serverOwnerAccess,
+      serverResearchTesterAccess,
+    ],
   );
 
-  /** Coach premium: StoreKit / server-verified owner or App Review only. */
+  /** Coach premium: StoreKit / server-verified owner, App Review, or research tester. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
@@ -312,10 +346,22 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         email: isSignedIn ? email : null,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
         serverOwnerAccess: isSignedIn && serverOwnerAccess,
+        serverResearchTesterAccess: isSignedIn && serverResearchTesterAccess,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
+    [
+      state,
+      tick,
+      isSignedIn,
+      email,
+      serverAppReviewAccess,
+      serverOwnerAccess,
+      serverResearchTesterAccess,
+    ],
   );
+
+  const researchTesterAccess =
+    !!isSignedIn && serverResearchTesterAccess === true;
 
   const selectPlan = useCallback(
     async (planId: PlanId): Promise<PurchaseActionResult> => {
@@ -500,6 +546,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       hydrated,
       entitlement,
       coachPremiumUnlocked,
+      researchTesterAccess,
       storeKitReady,
       storeKitBlockedReason,
       storeKitManagementUrl: state.storeKitManagementUrl,
@@ -515,6 +562,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       hydrated,
       entitlement,
       coachPremiumUnlocked,
+      researchTesterAccess,
       storeKitReady,
       storeKitBlockedReason,
       state.storeKitManagementUrl,

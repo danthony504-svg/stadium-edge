@@ -18,6 +18,7 @@ import {
   diagnoseOwnerTestAccess,
   isDesignatedOwnerTestUser,
 } from "../lib/ownerTestAccess";
+import { isDesignatedResearchTester } from "../lib/researchTesterAccess";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 import {
   planFromEntitlementIds,
@@ -400,11 +401,13 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
     // Never derived from client body / EXPO_PUBLIC email claims.
     // Diagnose in parallel with the real owner check (same inputs; no logic change).
     routeFailureStage = "clerk_parallel";
-    const [appReviewAccess, ownerAccess, diag] = await Promise.all([
-      isDesignatedAppReviewUser(userId),
-      isDesignatedOwnerTestUser(userId),
-      diagnoseOwnerTestAccess(userId),
-    ]);
+    const [appReviewAccess, ownerAccess, researchTesterAccess, diag] =
+      await Promise.all([
+        isDesignatedAppReviewUser(userId),
+        isDesignatedOwnerTestUser(userId),
+        isDesignatedResearchTester(userId),
+        diagnoseOwnerTestAccess(userId),
+      ]);
     ownerDiag = diag;
 
     routeFailureStage = "db_read";
@@ -422,6 +425,7 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       emailResolved: ownerDiag.emailResolved,
       allowlistMatched: ownerDiag.allowlistMatched,
       ownerAccess: ownerAccess === true,
+      researchTesterAccess: researchTesterAccess === true,
       responseStatus: 200,
       routeFailureStage: "none",
       clerkHttpStatus: ownerDiag.clerkHttpStatus,
@@ -430,7 +434,13 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       ...clerkEnvDiag,
     });
     if (!row) {
-      res.json({ ok: true, entitlement: null, appReviewAccess, ownerAccess });
+      res.json({
+        ok: true,
+        entitlement: null,
+        appReviewAccess,
+        ownerAccess,
+        researchTesterAccess: researchTesterAccess === true,
+      });
       return;
     }
     const active = isActivePaidEntitlement(row);
@@ -439,6 +449,8 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       // Orthogonal to paid plan — never fabricates Go/Pro StoreKit rows.
       appReviewAccess,
       ownerAccess,
+      // Research-only internal access — does not authorize subscriber Coach release.
+      researchTesterAccess: researchTesterAccess === true,
       entitlement: {
         planId: active && (row.planId === "go" || row.planId === "pro") ? row.planId : null,
         productId: row.productId,

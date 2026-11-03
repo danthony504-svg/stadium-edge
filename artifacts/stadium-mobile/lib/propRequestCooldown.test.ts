@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createPropRequestCooldown } from "./propRequestCooldown.ts";
-import { getProps, getPrizePicksProps } from "./api.ts";
+import { getProps, getPrizePicksProps, fetchPropSimulationsBatch } from "./api.ts";
 import { shouldSkipScannerPropExpand, propBoardGamesForScope } from "./coach/propPoolPolicy.ts";
 
 test("429 backpressure spans sports and event URLs, expires, and leaves other routes independent", () => {
@@ -60,4 +60,22 @@ test("real prop GET path sends one request on 429 instead of three per event", a
     await assert.rejects(getPrizePicksProps({sport:"nhl",home:"Home",away:"Away"}), /429/);
     assert.equal(calls, 2, "separate fallback route gets one attempt, then shares its own cooldown");
   } finally { globalThis.fetch = previous; }
+});
+
+test("simulation 429 shares the server bucket across games and props, without blocking odds",()=>{
+ let now=0;const gate=createPropRequestCooldown(()=>now);
+ gate.block("/sports/simulate/props","1");
+ assert.throws(()=>gate.assertAllowed("/sports/simulate/game-outcome"),/429/);
+ gate.assertAllowed("/sports/odds");now=1000;gate.assertAllowed("/sports/simulate/props");
+});
+
+test("actual simulation transport stops cross-sport follow-up POSTs after a 429",async()=>{
+ const old=globalThis.fetch;let calls=0;
+ globalThis.fetch=async()=>{calls++;return new Response('{}',{status:429});};
+ const props=[{player:"Fixture",market:"player_points",line:10.5,side:"Over" as const}];
+ try {
+  await assert.rejects(fetchPropSimulationsBatch("nba",props),/429/);
+  await assert.rejects(fetchPropSimulationsBatch("wnba",props),/429/);
+  assert.equal(calls,1);
+ } finally {globalThis.fetch=old;}
 });

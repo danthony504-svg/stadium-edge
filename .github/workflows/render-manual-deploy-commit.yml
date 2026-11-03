@@ -1,0 +1,119 @@
+name: Render Manual Deploy Commit
+
+# One-shot controlled deploy of an exact git SHA to the stadium-edge web service.
+# Does not use RENDER_DEPLOY_HOOK. Does not deploy main unless that SHA is passed.
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full git commit SHA to deploy
+        required: true
+        type: string
+      service_name:
+        description: Render service name contains match
+        required: false
+        default: stadium-edge
+        type: string
+      confirm:
+        description: Type DEPLOY_EXACT_COMMIT to proceed
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY_EXACT_COMMIT" ]; then
+            echo "FAIL: confirm must be DEPLOY_EXACT_COMMIT"
+            exit 1
+          fi
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! echo "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "FAIL: commit_sha must be full 40-char hex"
+            exit 1
+          fi
+          echo "Deploying commit=$SHA"
+
+      - name: Resolve service and trigger deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          SERVICE_NAME: ${{ github.event.inputs.service_name }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "FAIL: RENDER_API_KEY secret not set in GitHub Actions"
+            exit 1
+          fi
+
+          AUTH=(-H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json")
+
+          SERVICE_ID="${RENDER_SERVICE_ID:-}"
+          if [ -z "$SERVICE_ID" ]; then
+            echo "Listing Render services to find name containing: $SERVICE_NAME"
+            # paginate lightly
+            curl -sS --max-time 30 "${AUTH[@]}" \
+              "https://api.render.com/v1/services?limit=50" \
+              | tee /tmp/services.json >/dev/null
+            SERVICE_ID=$(python3 - <<'PY'
+import json,os,sys
+name=os.environ["SERVICE_NAME"].lower()
+data=json.load(open("/tmp/services.json"))
+# API may return list of {service: {...}} or list of services
+items=data if isinstance(data,list) else data.get("items") or data.get("services") or []
+cands=[]
+for it in items:
+    svc=it.get("service", it)
+    sid=svc.get("id") or ""
+    sname=(svc.get("name") or "")
+    stype=svc.get("type") or ""
+    repo=((svc.get("repo") or "") if isinstance(svc.get("repo"),str) else (svc.get("repo") or {}).get("url") or "")
+    service_details=svc.get("serviceDetails") or svc.get("service_details") or {}
+    url=service_details.get("url") or ""
+    blob=f"{sname} {url} {repo} {stype}".lower()
+    print(f"FOUND name={sname!r} id={sid} type={stype} url={url}", file=sys.stderr)
+    if name in blob and (stype in ("web_service","web","") or "web" in stype or not stype):
+        cands.append((sid,sname,url))
+# Prefer exact host match
+prefer=[c for c in cands if "stadium-edge.onrender.com" in (c[2] or "").lower() or c[1].lower()=="stadium-edge"]
+pick=(prefer or cands)
+if not pick:
+    sys.exit("FAIL: no matching Render service")
+if len(pick)>1:
+    print("Multiple candidates:", pick, file=sys.stderr)
+sid=pick[0][0]
+print(sid)
+PY
+)
+          fi
+          echo "service_id=$SERVICE_ID"
+
+          # Trigger deploy of exact commit
+          BODY=$(python3 - <<PY
+import json,os
+print(json.dumps({"commitId": os.environ["COMMIT_SHA"], "clearCache": "do_not_clear"}))
+PY
+)
+          echo "POST /v1/services/$SERVICE_ID/deploys body=$BODY"
+          CODE=$(curl -sS --max-time 60 -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST "${AUTH[@]}" -H "Content-Type: application/json" \
+            -d "$BODY" \
+            "https://api.render.com/v1/services/${SERVICE_ID}/deploys")
+          echo "http=$CODE"
+          head -c 2000 /tmp/deploy.json; echo
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "FAIL: deploy create non-2xx"
+            exit 1
+          fi
+          python3 - <<'PY'
+import json
+d=json.load(open("/tmp/deploy.json"))
+deploy=d.get("deploy", d)
+print("deploy_id=", deploy.get("id"))
+print("status=", deploy.get("status"))
+print("commit=", (deploy.get("commit") or {}).get("id") or deploy.get("commitId") or deploy.get("commit"))
+PY

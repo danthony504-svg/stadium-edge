@@ -14,6 +14,7 @@
 //
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
+import { isResearchTesterUnlockActive } from "./researchTesterSession.ts";
 
 /**
  * Flip only after ncaafGameLineSimValidation (+ human Phase E sign-off).
@@ -206,6 +207,9 @@ export function isP0UnvalidatedSimTotalMarket(pick: P0PickInput): boolean {
     return teamTotal || gameTotal;
   }
 
+  // Research testers may grade NCAAF team/FG totals for internal research only.
+  if (isResearchTesterUnlockActive() && sport === "ncaaf") return false;
+
   if (teamTotal && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) return true;
   if (gameTotal && !fullGame && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) {
     return true;
@@ -232,6 +236,14 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
   const sport = resolveCoachPickSport(pick);
   if (!sport) return true; // unknown sport + game line → fail closed
   if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
+    return false;
+  }
+  // Server-verified research testers may run college game-line research sims;
+  // subscriber release still requires NCAAF_GAME_LINE_SIM_VALIDATED + approval.
+  if (
+    isResearchTesterUnlockActive() &&
+    P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)
+  ) {
     return false;
   }
   return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
@@ -274,6 +286,7 @@ export function ncaafGameLineAskIsP0Blocked(opts: {
   lockedSports: readonly string[] | null | undefined;
 }): boolean {
   if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (isResearchTesterUnlockActive()) return false;
   if (!opts.gameLinesOnly) return false;
   const sports = (opts.lockedSports ?? [])
     .map((s) => String(s ?? "").toLowerCase().trim())

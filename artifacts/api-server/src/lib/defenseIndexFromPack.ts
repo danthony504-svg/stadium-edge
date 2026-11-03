@@ -51,6 +51,7 @@ export type DefenseIndexPackSlice = {
   goalsAgainstAvg?: number | null;
   savePct?: number | null;
   shotsAgainst?: number | null;
+  shotsAgainstSample?: number | null;
   blockedShots?: number | null;
   takeaways?: number | null;
   goalsConceded?: number | null;
@@ -530,12 +531,12 @@ function buildNhl(
   } else {
     out.skipped.push({ family: "goals", reason: "missing_stat" });
   }
-  if (pack.shotsAgainst != null && Number.isFinite(pack.shotsAgainst)) {
+  if (pack.shotsAgainst != null && Number.isFinite(pack.shotsAgainst) && (pack.shotsAgainstSample ?? 0) >= 3) {
     const raw = pack.shotsAgainst / bl.shotsAgainst;
     emitIndex(
       "shots_on_goal",
       raw,
-      gp,
+      pack.shotsAgainstSample!,
       `SA=${pack.shotsAgainst}`,
       bl.shotsAgainst,
       cfg,

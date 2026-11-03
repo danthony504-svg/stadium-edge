@@ -1,3 +1,4 @@
+import { runCoachBounded } from "./coachAbortable.ts";
 import { matchExplicitMarketLocks, canonicalExplicitMarketKey } from "./explicitMarketLock.ts";
 import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
@@ -249,6 +250,15 @@ async function getJsonUncached<T>(
   path: string,
   signal?: AbortSignal,
   timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  // Headers, body, retries and backoff share one deadline.
+  return runCoachBounded(child => getJsonAttempts<T>(path, child, timeoutMs), timeoutMs, signal);
+}
+
+async function getJsonAttempts<T>(
+  path: string,
+  signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
@@ -692,12 +702,16 @@ export type PlayerProp = {
   underPrice: number | null;
   // The sportsbook behind the best price on each side (for arbitrage "where to
   // bet"). REAL book name from props.ts or null/absent — never fabricated.
+  overSourceUpdatedAt?: string | null;
+  underSourceUpdatedAt?: string | null;
   overBook?: string | null;
   underBook?: string | null;
   alt: boolean;
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  /** ESPN roster role when verified server-side; never invent client-side. */
+  position?: string | null;
   /** Sport key from /sports/props (stamped server-side). */
   sport?: string | null;
   /** Odds API event id (canonical for seated-prop provenance). */
@@ -1451,6 +1465,9 @@ export function getFantasyNflPlayerHistory(
 // `avgPointsAgainst` is the only true "opponent allows" rate ESPN exposes per
 // team without box-score aggregation — it is TEAM-WIDE, not position-specific.
 export type TeamDefense = {
+  opponentMarkets?: Array<{games?:Array<{eventId:string;date:string;value:number}>;market:string;perGame:number;sampleSize:number;firstGame:string;lastGame:string;scope:"team_allowed"|"team_offensive_exposure";source:string}>;
+  shotAllowance?: {shotsAllowedPerGame:number;sampleSize:number;firstGame:string;lastGame:string;source:string} | null;
+  positionAllowances?: { thresholds?:Array<{position:string;market:string;games:Array<{eventId:string;date:string;values:number[]}>}>; source: string; receivedAt: string; rows: Array<{position:string;market:string;per36:number;games:number;appearances:number;minutes:number;firstGame:string;lastGame:string}> } | null;
   sport: string;
   teamId: string;
   teamName: string | null;
@@ -1483,8 +1500,10 @@ export function getTeamDefense(
   sport: string,
   teamId: string,
   signal?: AbortSignal,
+  includePositions = false,
 ): Promise<TeamDefense> {
   const q = new URLSearchParams({ sport, teamId });
+  if (includePositions) q.set("positions", "1");
   return getJson<TeamDefense>(`/sports/team-defense?${q.toString()}`, signal);
 }
 
@@ -2018,6 +2037,8 @@ export type RealPropEntry = {
   playerTeamId?: string | null;
   /** Odds API event id for this matchup — required for seated-prop provenance. */
   eventId?: string | null;
+  overSourceUpdatedAt?: string | null;
+  underSourceUpdatedAt?: string | null;
   overBook?: string | null;
   underBook?: string | null;
   market: string;
@@ -2077,6 +2098,8 @@ export type PropPoolEntry = {
   athleteId?: string | null;
   /** ESPN team id for the player's own side — used to derive isHome / opponentTeamId. */
   playerTeamId?: string | null;
+  /** Verified ESPN roster position, carried as evidence metadata only. */
+  position?: string | null;
   marketKey?: string;
   /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
   alt?: boolean;
@@ -2089,6 +2112,7 @@ export type PropPoolEntry = {
    * Best-price sportsbook for THIS side only (overBook / underBook). Never
    * inferred from the opposite side. Null when the feed omitted it.
    */
+  sourceUpdatedAt?: string | null;
   sportsbook?: string | null;
 };
 
@@ -2529,8 +2553,8 @@ export async function fetchGameOutcomeSimulation(
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
   const limiter = getActiveCoachSimulateLimiter();
-  const run = () => fetchGameOutcomeSimulationUnlim(opts, signal);
-  return limiter ? limiter.run("game", run) : run();
+  const run = () => runCoachBounded(child => fetchGameOutcomeSimulationUnlim(opts, child), REQUEST_TIMEOUT_MS * 2, signal);
+  return limiter ? limiter.run("game", run, signal) : run();
 }
 
 async function fetchGameOutcomeSimulationUnlim(
@@ -2548,6 +2572,7 @@ async function fetchGameOutcomeSimulationUnlim(
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
   const path = "/sports/simulate/game-outcome";
+  if (propRequestCooldown.isBlocked(path)) return null;
   const body: Record<string, unknown> = {
     sport: opts.sport,
     homeTeam: opts.homeTeam,
@@ -2571,6 +2596,7 @@ async function fetchGameOutcomeSimulationUnlim(
     REQUEST_TIMEOUT_MS * 2,
     path,
   );
+  if (res.status === 429) propRequestCooldown.block(path, res.headers.get("retry-after"));
   if (!res.ok) return null;
   return (await res.json()) as GameSimulationResult;
 }
@@ -2641,8 +2667,8 @@ export async function fetchPropSimulationsBatch(
 }> {
   if (!props.length) return { props: [], playerHistories: {} };
   const limiter = getActiveCoachSimulateLimiter();
-  const run = () => fetchPropSimulationsBatchUnlim(sport, props, opts, signal);
-  return limiter ? limiter.run("prop", run) : run();
+  const run = () => runCoachBounded(child => fetchPropSimulationsBatchUnlim(sport, props, opts, child), REQUEST_TIMEOUT_MS * 2, signal);
+  return limiter ? limiter.run("prop", run, signal) : run();
 }
 
 async function fetchPropSimulationsBatchUnlim(
@@ -2680,6 +2706,7 @@ async function fetchPropSimulationsBatchUnlim(
   historyCoalesced?: number;
 }> {
   const path = "/sports/simulate/props";
+  propRequestCooldown.assertAllowed(path);
   const tier = opts?.tier ?? "quick";
   const homeId = String(opts?.homeTeamId ?? "").trim();
   const awayId = String(opts?.awayTeamId ?? "").trim();
@@ -2716,6 +2743,10 @@ async function fetchPropSimulationsBatchUnlim(
     tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
+  if (res.status === 429) {
+    propRequestCooldown.block(path, res.headers.get("retry-after"));
+    throw new Error("HTTP 429 simulation route cooldown");
+  }
   if (!res.ok) return { props: [], playerHistories: {} };
   const json = (await res.json()) as {
     props?: PropSimulationResult[];
@@ -4207,6 +4238,7 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
@@ -4214,6 +4246,7 @@ async function buildLightParlayContext(
             eventId: p.eventId ?? g.id,
             // Side-specific book only — never invent from Under or aggregate list.
             sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
           });
         }
         if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.underPrice != null) {
@@ -4229,12 +4262,14 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
             marketKey: p.market,
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
             eventId: p.eventId ?? g.id,
             sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
           });
         }
       }
@@ -4927,12 +4962,14 @@ export async function buildChatContext(
                 teamAbbr,
                 athleteId,
                 playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Over" ? (p.edge ?? null) : null,
                 bookSpread: p.overSpread ?? null,
                 eventId: g.id,
                 sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
               });
             }
             if ((p.line != null || isBinaryNullLineMarket(p.market)) && underQ) {
@@ -4948,12 +4985,14 @@ export async function buildChatContext(
                 teamAbbr,
                 athleteId,
                 playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Under" ? (p.edge ?? null) : null,
                 bookSpread: p.underSpread ?? null,
                 eventId: g.id,
                 sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
               });
             }
           }
@@ -5336,6 +5375,7 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         alt: p.alt,
         eventId,
         sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
       });
     }
     if ((p.line != null || isBinaryNullLineMarket(p.market)) && p.under != null) {
@@ -5354,6 +5394,7 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
         alt: p.alt,
         eventId,
         sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
       });
     }
   }
@@ -5457,6 +5498,7 @@ export async function fetchFullBoardPropPool(
           line: p.line,
           athleteId,
           playerTeamId: p.playerTeamId ?? null,
+            position: p.position ?? null,
           marketKey: p.market,
           startsAt: g.commenceTime,
           alt: !!p.alt,
@@ -5472,6 +5514,7 @@ export async function fetchFullBoardPropPool(
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
             sportsbook: p.overBook ?? null,
+            sourceUpdatedAt: p.overSourceUpdatedAt ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {
@@ -5487,6 +5530,7 @@ export async function fetchFullBoardPropPool(
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
             sportsbook: p.underBook ?? null,
+            sourceUpdatedAt: p.underSourceUpdatedAt ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {

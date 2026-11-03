@@ -25,6 +25,7 @@ type Waiter = {
   priority: SimulatePriority;
   enqueuedAt: number;
   resolve: () => void;
+  cleanup: () => void;
 };
 
 /** Default in-flight cap for prop+game simulate HTTP (not unbounded). */
@@ -58,27 +59,43 @@ export class CoachSimulateLimiter {
     return this.gameQueueWaitMs;
   }
 
-  async run<T>(priority: SimulatePriority, fn: () => Promise<T>): Promise<T> {
+  async run<T>(priority: SimulatePriority, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const waitStart = Date.now();
-    await this.acquire(priority);
+    await this.acquire(priority, signal);
     const waited = Date.now() - waitStart;
     if (priority === "prop") this.propQueueWaitMs += waited;
     else this.gameQueueWaitMs += waited;
     try {
+      if (signal?.aborted) throw this.cancelledError();
       return await fn();
     } finally {
       this.release();
     }
   }
 
-  private acquire(priority: SimulatePriority): Promise<void> {
+  private cancelledError(): Error {
+    const error = new Error("Simulation cancelled");
+    error.name = "AbortError";
+    return error;
+  }
+
+  private acquire(priority: SimulatePriority, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(this.cancelledError());
     if (this.inFlight < this.maxInFlight) {
       this.inFlight += 1;
       this.peak = Math.max(this.peak, this.inFlight);
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      this.waiters.push({ priority, enqueuedAt: Date.now(), resolve });
+    return new Promise<void>((resolve, reject) => {
+      const waiter: Waiter = { priority, enqueuedAt: Date.now(), resolve,
+        cleanup: () => signal?.removeEventListener("abort", cancel) };
+      const cancel = () => {
+        this.waiters = this.waiters.filter(w => w !== waiter);
+        waiter.cleanup();
+        reject(this.cancelledError());
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
+      this.waiters.push(waiter);
       this.sortWaiters();
     });
   }
@@ -91,6 +108,7 @@ export class CoachSimulateLimiter {
     if (!next) return;
     this.inFlight += 1;
     this.peak = Math.max(this.peak, this.inFlight);
+    next.cleanup();
     next.resolve();
   }
 

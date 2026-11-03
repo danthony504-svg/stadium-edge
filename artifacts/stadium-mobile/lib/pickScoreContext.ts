@@ -478,6 +478,8 @@ export function propPoolFromPlayerProps(
         edge: p.evSide === "Over" ? (p.edge ?? null) : null,
         bookSpread: p.overSpread ?? null,
         athleteId: p.athleteId,
+        playerTeamId: p.playerTeamId,
+        position: p.position ?? null,
         marketKey: p.market,
         headshot: p.headshot,
         teamAbbr,
@@ -497,6 +499,8 @@ export function propPoolFromPlayerProps(
         edge: p.evSide === "Under" ? (p.edge ?? null) : null,
         bookSpread: p.underSpread ?? null,
         athleteId: p.athleteId,
+        playerTeamId: p.playerTeamId,
+        position: p.position ?? null,
         marketKey: p.market,
         headshot: p.headshot,
         teamAbbr,
@@ -831,7 +835,12 @@ export function attachPickScores(
     espnGames: opts.espnGames,
     teamIdMap: opts.teamIdMap,
   };
-  return picks.map((p) => {
+  return picks.map((inputPick) => {
+    const evidenceEntry = inputPick.isProp ? findPropEntry(inputPick) : undefined;
+    const p = evidenceEntry ? { ...inputPick,
+      playerTeamId: evidenceEntry.playerTeamId ?? inputPick.playerTeamId,
+      rosterPosition: evidenceEntry.position ?? null,
+    } : inputPick;
     const gameSim = gameSims?.get(p.game) ?? null;
     const propEntryEarly = p.isProp ? findPropEntry(p) : undefined;
     let raw = p.isProp

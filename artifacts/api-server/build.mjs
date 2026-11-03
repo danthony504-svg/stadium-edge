@@ -23,6 +23,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/ncaafFullGameBacktest.ts"),
       path.resolve(artifactDir, "src/ncaafForecastJournal.ts"),
       path.resolve(artifactDir, "src/ncaafResearchWorker.ts"),
+      path.resolve(artifactDir, "src/ncaabResearchWorker.ts"),
       path.resolve(artifactDir, "src/ncaafOvertimeTransferJournal.ts"),
       path.resolve(artifactDir, "src/ncaafOpponentDevelopment.ts"),
       path.resolve(artifactDir, "src/ncaafVenueMetadata.ts"),

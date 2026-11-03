@@ -1,3 +1,6 @@
+import {opponentMarketAllowance} from "../lib/loadOpponentMarketAllowance.js";
+import {loadNhlShotAllowance} from "../lib/loadNhlShotAllowance.js";
+import { basketballDefenseAllowed } from "../lib/basketballDefenseAllowed.js";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
 import { computeFootballDefenseAllowed } from "../lib/rushDefenseAllowed";
@@ -146,8 +149,9 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
+  const withPositions = req.query.positions === "1";
   try {
-    const key = `team-defense:${path}:${teamId}:v6`;
+    const key = `team-defense:${path}:${teamId}:v9:${withPositions ? "positions" : "team"}`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
@@ -214,7 +218,11 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         };
       }
 
+      const positionAllowances = withPositions ? await basketballDefenseAllowed(sportId, teamId) : null;
+      const shotAllowance = sportId === "nhl" ? await loadNhlShotAllowance(teamId) : null;
       return {
+        shotAllowance,
+        positionAllowances,
         sport: sportId,
         teamId,
         teamName: team?.team?.displayName ?? null,
@@ -227,7 +235,8 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         passDefense,
       };
     });
-    res.json(out);
+    const opponentMarkets = await opponentMarketAllowance(sportId, teamId, withPositions);
+    res.json({...out, opponentMarkets});
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team defense");
     res.json({

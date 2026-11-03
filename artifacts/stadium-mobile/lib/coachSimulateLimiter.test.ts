@@ -71,3 +71,19 @@ test("session overlap metrics capture prop∥game window", () => {
   assert.equal(m!.finalizationEndMs, 90);
   assert.equal(m!.totalScoringWallMs, 90);
 });
+
+test('cancelled queued simulations leave immediately and never start stale HTTP work', async () => {
+  const limiter = new CoachSimulateLimiter(1);
+  let release!: () => void;
+  const first = limiter.run('game', () => new Promise<void>(resolve => { release = resolve; }));
+  await Promise.resolve();
+  const parent = new AbortController();
+  let called = false;
+  const queued = limiter.run('prop', async () => { called = true; }, parent.signal);
+  parent.abort();
+  await assert.rejects(queued, { name: 'AbortError' });
+  release(); await first;
+  assert.equal(called, false);
+  assert.equal(limiter.inFlightCount, 0);
+  assert.equal(await limiter.run('game', async () => 42), 42);
+});

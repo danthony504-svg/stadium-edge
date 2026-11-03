@@ -34,6 +34,11 @@ export type ServerAccessFlags = {
    * Never trust EXPO_PUBLIC_ADMIN_EMAILS for this flag.
    */
   ownerAccess: boolean;
+  /**
+   * Server-verified research tester (Clerk userId → RESEARCH_TESTER_EMAILS).
+   * Never trust EXPO_PUBLIC_* for this flag. Research-only; not subscriber release.
+   */
+  researchTesterAccess: boolean;
 };
 
 type SubFetchResult = {
@@ -200,6 +205,7 @@ export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null
       entitlement?: ServerSubscriptionEntitlement | null;
       appReviewAccess?: boolean;
       ownerAccess?: boolean;
+      researchTesterAccess?: boolean;
     };
     const ownerAccessReceived = json.ownerAccess === true;
     logEntitlementFetchDiag({
@@ -216,6 +222,7 @@ export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null
       // Only server booleans grant privileged access — ignore client claims.
       appReviewAccess: json.appReviewAccess === true,
       ownerAccess: ownerAccessReceived,
+      researchTesterAccess: json.researchTesterAccess === true,
     };
   } catch {
     logEntitlementFetchDiag({

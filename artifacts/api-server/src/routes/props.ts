@@ -237,8 +237,10 @@ type RawEventOdds = {
   away_team?: string;
   bookmakers?: Array<{
     title?: string;
+    last_update?: string;
     markets?: Array<{
       key: string;
+      last_update?: string;
       outcomes?: Array<{ name: string; description?: string; price: number; point?: number }>;
     }>;
   }>;
@@ -345,9 +347,37 @@ export function buildPropsResponsePayload(args: {
   };
 }
 
-type RosterAthlete = { id?: string | number; fullName?: string; displayName?: string; headshot?: { href?: string } | string };
+type RosterAthlete = {
+  id?: string | number;
+  fullName?: string;
+  displayName?: string;
+  headshot?: { href?: string } | string;
+  /** Flat roster shape uses `{ abbreviation }`; group items may omit it. */
+  position?: { abbreviation?: string } | string;
+};
 type EspnRoster = { athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string }> };
-type RosterEntry = { headshot: string | null; athleteId: string | null; teamId: string };
+type RosterEntry = {
+  headshot: string | null;
+  athleteId: string | null;
+  teamId: string;
+  /** ESPN roster role abbreviation when present — never fabricated. */
+  position: string | null;
+};
+
+/** Real ESPN position abbreviation only — never invent from market or name. */
+export function rosterAthletePosition(
+  athlete: RosterAthlete,
+  groupPosition?: string | null,
+): string | null {
+  const raw = athlete.position;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (raw && typeof raw === "object" && typeof raw.abbreviation === "string" && raw.abbreviation.trim()) {
+    return raw.abbreviation.trim();
+  }
+  if (typeof groupPosition === "string" && groupPosition.trim()) return groupPosition.trim();
+  return null;
+}
+
 async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<string, RosterEntry>> {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`;
   const data = await cachedJson<EspnRoster>(`roster:${espnPath}:${teamId}`, 6 * 60 * 60 * 1000, async () => {
@@ -359,13 +389,16 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
   const ambiguous = new Set<string>();
   // ESPN ships rosters in two shapes depending on sport: a flat
   // `athletes` array, or a position-grouped array of `{position, items}`.
-  // Flatten both into one list so the lookup works across all sports.
-  const flat: RosterAthlete[] = [];
+  // Preserve group position when per-athlete abbreviation is missing.
+  type FlatAthlete = RosterAthlete & { _groupPos?: string | null };
+  const flat: FlatAthlete[] = [];
   for (const entry of data.athletes ?? []) {
     if (entry && typeof entry === "object" && "items" in entry && Array.isArray((entry as { items?: RosterAthlete[] }).items)) {
-      flat.push(...((entry as { items: RosterAthlete[] }).items));
+      const group = entry as { items: RosterAthlete[]; position?: string };
+      const groupPos = typeof group.position === "string" ? group.position : null;
+      for (const a of group.items) flat.push({ ...a, _groupPos: groupPos });
     } else {
-      flat.push(entry as RosterAthlete);
+      flat.push(entry as FlatAthlete);
     }
   }
   for (const a of flat) {
@@ -373,7 +406,12 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
     if (!name) continue;
     const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
     const athleteId = a.id != null ? String(a.id) : null;
-    setRosterKeys(m, ambiguous, name, { headshot: href ?? null, athleteId, teamId });
+    setRosterKeys(m, ambiguous, name, {
+      headshot: href ?? null,
+      athleteId,
+      teamId,
+      position: rosterAthletePosition(a, a._groupPos ?? null),
+    });
   }
   return m;
 }
@@ -784,6 +822,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       underPrice: number | null;
       // The sportsbook behind the best price on each side (for "where to bet"
       // arbitrage). Tracked in lockstep with overPrice/underPrice below.
+      overSourceUpdatedAt?: string | null;
+      underSourceUpdatedAt?: string | null;
       overBook: string | null;
       underBook: string | null;
       alt: boolean;
@@ -832,15 +872,17 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             const isOver = side === "over" || side === "yes";
             const isUnder = side === "under" || side === "no";
             const title = book.title ?? "?";
+            const sourceTime = m.last_update ?? book.last_update;
+            const sourceUpdatedAt = typeof sourceTime === "string" && Number.isFinite(Date.parse(sourceTime)) ? sourceTime : null;
             // Keep the BEST price per side AND the book that posts it. A new book
             // wins the slot whenever betterAmerican prefers its price (ties go to
             // the newer book, matching betterAmerican's bias).
             if (isOver) {
-              if (row.overPrice == null) { row.overPrice = price; row.overBook = title; }
-              else { const b = betterAmerican(row.overPrice, price); if (b !== row.overPrice) { row.overPrice = b; row.overBook = title; } }
+              if (row.overPrice == null) { row.overPrice = price; row.overBook = title; row.overSourceUpdatedAt = sourceUpdatedAt; }
+              else { const b = betterAmerican(row.overPrice, price); if (b !== row.overPrice) { row.overPrice = b; row.overBook = title; row.overSourceUpdatedAt = sourceUpdatedAt; } }
             } else if (isUnder) {
-              if (row.underPrice == null) { row.underPrice = price; row.underBook = title; }
-              else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; } }
+              if (row.underPrice == null) { row.underPrice = price; row.underBook = title; row.underSourceUpdatedAt = sourceUpdatedAt; }
+              else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; row.underSourceUpdatedAt = sourceUpdatedAt; } }
             }
             byKey.set(k, row);
             // Record this book's posted price per side (MAIN lines only) so we can
@@ -1078,6 +1120,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         headshot: w?.headshot ?? r?.headshot ?? null,
         athleteId: w?.athleteId ?? r?.athleteId ?? null,
         playerTeamId: w?.teamId ?? r?.teamId ?? null,
+        // Verified ESPN roster role only — never invent from market.
+        position: r?.position ?? null,
         teamLogo: w?.teamLogo ?? null,
       };
     });
@@ -1399,6 +1443,7 @@ async function fetchPrizePicksPropsForGame(
     headshot: string | null;
     athleteId: string | null;
     playerTeamId: string | null;
+    position: string | null;
     priceSource: "PrizePicks";
   }> = [];
   const seen = new Set<string>();
@@ -1440,6 +1485,7 @@ async function fetchPrizePicksPropsForGame(
       headshot: roster?.headshot ?? pl.image,
       athleteId: roster?.athleteId ?? null,
       playerTeamId: roster?.teamId ?? null,
+      position: roster?.position ?? null,
       priceSource: "PrizePicks",
     });
   }

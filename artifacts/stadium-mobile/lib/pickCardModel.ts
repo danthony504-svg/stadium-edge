@@ -81,6 +81,7 @@ export type ParsedPick = {
   // show the line/side. Never affects the slip leg key (game/market/pick do).
   athleteId?: string | null;
   playerTeamId?: string | null;
+  rosterPosition?: string | null;
   player?: string;
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
@@ -94,6 +95,7 @@ export type ParsedPick = {
    * Best-price sportsbook for THIS prop side (never inferred from the other
    * side). Required for final player-prop seats — see propProviderProvenance.
    */
+  sourceUpdatedAt?: string | null;
   sportsbook?: string | null;
   // True while a server-side Monte Carlo run is still refining this prop leg's
   // simulation sub-score. Picks render immediately; the grade updates when done.
@@ -611,6 +613,7 @@ function matchProp(
     // Provider identity for seated-prop provenance — copy from pool, never invent.
     eventId: best.eventId ?? null,
     sportsbook: best.sportsbook ?? null,
+    sourceUpdatedAt: best.sourceUpdatedAt ?? null,
   };
 }
 
@@ -1345,11 +1348,14 @@ export function backfillProps(
           teamAbbr: e.teamAbbr ?? null,
           player: e.player,
           athleteId: e.athleteId ?? null,
+          playerTeamId: e.playerTeamId ?? null,
+          rosterPosition: e.position ?? null,
           propMarketKey: e.marketKey,
           propLine: e.line,
           propSide: e.side,
           eventId: e.eventId ?? null,
           sportsbook: e.sportsbook ?? null,
+    sourceUpdatedAt: e.sourceUpdatedAt ?? null,
           edge: FILLER_BACKFILL_EDGE_NOTE,
         },
         gameMeta,

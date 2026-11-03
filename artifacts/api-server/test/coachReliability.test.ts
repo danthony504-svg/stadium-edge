@@ -221,7 +221,7 @@ test("telegram coach alert includes requestId/category without PII", () => {
     p95Ms: 8000,
     topFailureReasons: [{ reason: "legitimate_underfill", count: 6 }],
   });
-  assert.match(section, /fulfillment: 70%/);
+  assert.match(section, /full-ticket delivery rate: 70%/);
   assert.match(section, /legit 6/);
   assert.match(section, /grounding\/alt\/sim\/freeze: 1\/1\/2\/1/);
 
@@ -262,8 +262,8 @@ test("zero Coach requests in digest is coverage gap, not verified inactivity", (
     p95Ms: null,
     topFailureReasons: [],
   });
-  assert.match(section, /requests received: 0/);
-  assert.match(section, /0 received Coach events ≠ verified zero Coach usage/);
+  assert.match(section, /identified requests observed: 0/);
+  assert.match(section, /0 identified requests ≠ verified zero Coach usage/);
 });
 
 test("test fixtures never parse as alertable production events", () => {

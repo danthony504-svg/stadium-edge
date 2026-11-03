@@ -1,3 +1,7 @@
+import { propRequestCooldown } from "./propRequestCooldown.ts";
+import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
+import { runCoachBounded } from "./coachAbortable.ts";
+import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
 import type { CoachPropAudit } from "./coachPropAudit.ts";
 import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
@@ -64,6 +68,7 @@ import {
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import {
+  missingRequiredOpponentEvidence,
   shouldBlockRushOverVsDefense,
   shouldDropPropMissingOppDefense,
 } from "./footballRushDefense.ts";
@@ -426,12 +431,12 @@ function scoredFromPropPick(
   return { ...leg, rankScore: unifiedRankScore(leg) };
 }
 
-async function simPropBatch(
+export async function simPropBatch(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
-  batchOpts?: { enrichTimeoutMs?: number },
+  batchOpts?: { enrichTimeoutMs?: number; coverage?: ParsedPick[] },
 ): Promise<{
   hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
   timedOut: boolean;
@@ -442,24 +447,16 @@ async function simPropBatch(
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
   try {
-    const simResult = await Promise.race([
-      fetchPropSimulations(
-        batch,
-        pool,
-        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
-        signal,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
-      ),
-    ]);
+    const simResult = await runCoachBounded(
+      childSignal => fetchPropSimulations(batch, pool,
+        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined }, childSignal),
+      PROP_SIM_BATCH_TIMEOUT_MS, signal,
+    );
+    const postedCoverage = postedPropCoverageForBatch(batchOpts?.coverage ?? batch, batch);
     for (const [k, v] of simResult.hits) {
-      const batchPick = batch.find(
-        (p) =>
-          propSimKeyForPick(p, poolRowForPropPick(p, pool)) === k ||
-          propSimKey(p.player ?? "", p.propMarketKey ?? p.market ?? "", p.propLine, p.propSide ?? "") === k,
-      );
-      const poolRow = batchPick ? poolRowForPropPick(batchPick, pool) : undefined;
+      const batchPick = postedCoverage.get(k);
+      if (!batchPick) continue; // Never authorize unposted or ambiguous response keys.
+      const poolRow = poolRowForPropPick(batchPick, pool);
       const side =
         (v.side as "Over" | "Under" | undefined) ??
         (batchPick?.propSide === "Under" ? "Under" : batchPick?.propSide === "Over" ? "Over" : null);
@@ -479,36 +476,6 @@ async function simPropBatch(
         side,
         line,
       });
-      // Same deep draw's alternate lines — register trusted evidence per line
-      // (no extra API/MC). Enables provenance-aware ALT "10K" captions.
-      const bySide = v.lineHitRatesBySide;
-      if (
-        bySide &&
-        athleteId &&
-        eventId &&
-        marketKey &&
-        (v.simulations ?? 0) >= 10_000
-      ) {
-        for (const altSide of ["Over", "Under"] as const) {
-          const rates = bySide[altSide];
-          if (!rates) continue;
-          for (const [lineStr, hit] of Object.entries(rates)) {
-            const altLine = Number(lineStr);
-            if (!Number.isFinite(altLine) || hit == null || !Number.isFinite(hit)) continue;
-            if (altSide === side && altLine === line) continue;
-            exactMarket10kProvenance({
-              hitProbability: hit,
-              simulations: v.simulations,
-              sport,
-              marketKey,
-              athleteId,
-              eventId,
-              side: altSide,
-              line: altLine,
-            });
-          }
-        }
-      }
       out.set(k, {
         hitProbability: probabilityProvenance.hitProbability,
         nullReason: probabilityProvenance.nullReason,
@@ -518,6 +485,7 @@ async function simPropBatch(
     }
     sharedHistories = simResult.playerHistories ?? {};
   } catch {
+    if (propRequestCooldown.isBlocked("/sports/simulate/props")) return { hits: out, timedOut: false, playerHistory: {} };
     timedOut = true;
   }
   // Bound local history enrich — unbounded ESPN lookups were the hang that left
@@ -528,18 +496,10 @@ async function simPropBatch(
   const PROP_ENRICH_TIMEOUT_MS = batchOpts?.enrichTimeoutMs ?? 12_000;
   let enriched: Awaited<ReturnType<typeof enrichCoachPropSimHits>>;
   try {
-    enriched = await Promise.race([
-      enrichCoachPropSimHits(
-        batch,
-        pool,
-        aliasPropSimHitsForBatch(batch, out),
-        signal,
-        sharedHistories,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("prop-enrich-timeout")), PROP_ENRICH_TIMEOUT_MS),
-      ),
-    ]);
+    enriched = await runCoachBounded(
+      childSignal => enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), childSignal, sharedHistories),
+      PROP_ENRICH_TIMEOUT_MS, signal,
+    );
   } catch {
     timedOut = true;
     enriched = { hits: out, playerHistory: {}, historyReused: 0, historyFetched: 0 };
@@ -650,7 +610,12 @@ function appendPropScoredLegs(
         line: pick.propLine,
         pack,
         vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
-      }) ||
+      })
+    ) {
+      opts.propAudit?.observe(pick, "grading", "opponent_evidence_missing");
+      continue;
+    }
+    if (
       shouldBlockRushOverVsDefense({
         sport: sportKey,
         market: pick.propMarketKey ?? pick.market,
@@ -660,12 +625,12 @@ function appendPropScoredLegs(
         ownPack,
       })
     ) {
-      opts.propAudit?.observe(pick, "grading", "opponent_defense_gate");
+      opts.propAudit?.observe(pick, "grading", "rush_over_defense_block");
       continue;
     }
     const simHit = pick.finalAiScore?.simHit ?? null;
     let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
-    if (!leg) continue;
+    if (!leg) { opts.propAudit?.observe(pick, "grading", "simulation_or_grade_unavailable"); continue; }
     // Option C — unauthorized / missing provenance never enters the scored pool.
     const scoredProv =
       (pick as { propProbabilityProvenance?: PropProbabilityProvenance | null })
@@ -819,7 +784,7 @@ function prescorePropRank(pick: ParsedPick, opts?: { hrBoard?: boolean }): numbe
 }
 
 /** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
-async function simPropPoolUntilQualified(
+export async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
   mergedOdds: RealOddsEntry[],
   gameScored: BoardScoredLeg[],
@@ -837,7 +802,7 @@ async function simPropPoolUntilQualified(
     espnGames?: EspnGame[];
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
-    onWave?: (scored: BoardScoredLeg[]) => void;
+    onWave?: (scored: BoardScoredLeg[]) => FullBoardScanResult;
     onPropBatch?: (size: number, timedOut: boolean, batch?: ParsedPick[]) => void;
     propAudit?: CoachPropAudit;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
@@ -908,14 +873,30 @@ async function simPropPoolUntilQualified(
         prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
       );
     });
+  // Spend the existing simulation budget on candidates whose required opponent
+  // evidence is present first. Missing evidence remains blocked by the same gate.
+  const evidenceReady = (pick: ParsedPick) => {
+    const pack = oppDefensePackForOpponent({
+      sport: pick.sport,
+      opponentTeamId: opponentTeamIdForProp({ sport: pick.sport, game: pick.game,
+        teamAbbr: pick.teamAbbr, espnGames: opts.espnGames, teamIdMap: opts.teamIdsByGame }),
+      map: opts.oppRushDefense,
+    });
+    return !missingRequiredOpponentEvidence({ sport: pick.sport,
+      market: pick.propMarketKey ?? pick.market, pack });
+  };
+  const simReady = rankedAll.filter(evidenceReady);
+  for (const pick of rankedAll) {
+    if (!evidenceReady(pick)) opts.propAudit?.observe(pick, "grading", "opponent_evidence_missing");
+  }
   const maxToSim = footballSkill
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
   // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
   // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
   const { selected: rankedProps } = footballSkill
-    ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
-    : selectBoardPropSimCandidates(rankedAll, maxToSim);
+    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim)
+    : selectBoardPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim);
 
   const scoreOpts = {
     pool,
@@ -957,7 +938,7 @@ async function simPropPoolUntilQualified(
   const enrichTimeoutMs = footballSkill ? 22_000 : 12_000;
 
   while (simIndex < rankedProps.length) {
-    if (signal?.aborted) {
+    if (signal?.aborted || propRequestCooldown.isBlocked("/sports/simulate/props")) {
       stoppedEarly = true;
       break;
     }
@@ -966,10 +947,12 @@ async function simPropPoolUntilQualified(
       break;
     }
 
+    if (simIndex > 0) rankedProps.splice(simIndex, rankedProps.length - simIndex,
+      ...prioritizeUnscannedPropSeeds(rankedProps.slice(simIndex), rankedProps.slice(0, simIndex)));
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, {
-      enrichTimeoutMs,
+      enrichTimeoutMs, coverage: rankedAll,
     });
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
@@ -994,12 +977,13 @@ async function simPropPoolUntilQualified(
       }
     }
 
-    appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
-    opts.onWave?.(combinedScored());
+    appendPropScoredLegs(rankedAll, propHits, propScored, seenFp, scoreOpts);
+    const assembled = opts.onWave?.(combinedScored());
 
     if (
       shouldStopPropSimForTicketMix({
         scored: combinedScored(),
+        assembledTicket: assembled?.picks,
         target: opts.target,
         propsOnly: opts.propsOnly,
         exhaustPropBoard: opts.exhaustPropBoard,
@@ -1015,6 +999,17 @@ async function simPropPoolUntilQualified(
       : boardPropSimExpansionBatchSize(opts.target);
   }
 
+  const selectedDistributions = new Set(rankedProps.map(propDistributionIdentity));
+  const attemptedDistributions = new Set(rankedProps.slice(0, simIndex).map(propDistributionIdentity));
+  for (const pick of rankedAll) {
+    const key = propSimKeyForPick(pick, poolRowForPropPick(pick, pool));
+    if (key && propHits.has(key)) continue;
+    const distribution = propDistributionIdentity(pick);
+    const reason = !selectedDistributions.has(distribution) ? "scan_distribution_budget" :
+      !attemptedDistributions.has(distribution) ? (propRequestCooldown.isBlocked("/sports/simulate/props") ? "simulation_rate_limited" : signal?.aborted ? "scan_cancelled" : stoppedEarly ? "scan_deadline" : "scan_ticket_target_reached") :
+      "shared_draw_exact_line_response_missing";
+    opts.propAudit?.observe(pick, "not_evaluated", reason);
+  }
   return {
     propScored,
     propHits,
@@ -1027,6 +1022,7 @@ async function simPropPoolUntilQualified(
 export function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
+    propAudit?: CoachPropAudit;
     target: number;
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
@@ -1335,8 +1331,27 @@ export function buildScanResult(
     hrRankDiagnostics = hrSelectionDiagnostics(scored, picks, componentsByFp);
   }
 
+  if (opts.propAudit) {
+    const fingerprints = (legs: BoardScoredLeg[]) => new Set(legs.map(leg => pickLegFingerprint(leg.pick)));
+    const excludedSafeKeys = fingerprints(exclusionSafe), scopeSafeKeys = fingerprints(scopeSafe);
+    const ladderKeys = fingerprints(ladderCollapsed), stageKeys = fingerprints(stagePool);
+    for (const leg of scored) {
+      const key = pickLegFingerprint(leg.pick);
+      const reason = !excludedSafeKeys.has(key) ? "excluded_team"
+        : !scopeSafeKeys.has(key) ? "request_team_scope"
+        : !ladderKeys.has(key) ? "duplicate_market_ladder"
+        : !stageKeys.has(key) ? "request_market_type" : null;
+      if (reason) opts.propAudit.observe(leg.pick, "scope_excluded", reason);
+    }
+  }
   const qualifiedCandidates = stagePool
-    .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
+    .filter((leg) => {
+      const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore, {
+        onRejected: reason => opts.propAudit?.observe(leg.pick, "grading", reason),
+      });
+      if (role != null) opts.propAudit?.observe(leg.pick, "grading", "graded");
+      return role != null;
+    })
     .map((leg) => leg.pick);
 
   return {
@@ -1457,6 +1472,21 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  // Apply request/football period exclusions before any simulation queries.
+  // Final delivery repeats the same constraint; discarded markets never qualify.
+  const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
+  for (const [label, lines] of evalLinesByGame) {
+    const eligible = filterGameLinesForCoachSimulation(lines, simulationConstraint);
+    if (opts.propAudit) {
+      const allowed = new Set(eligible);
+      for (const line of lines) {
+        opts.propAudit.observe(line as ParsedPick, "posted", "posted");
+        opts.propAudit.observe(line as ParsedPick, allowed.has(line) ? "eligible" : "scope_excluded", allowed.has(line) ? "eligible" : "request_market_or_period_exclusion");
+      }
+    }
+    if (eligible.length) evalLinesByGame.set(label, eligible);
+    else evalLinesByGame.delete(label);
+  }
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.
@@ -1522,9 +1552,9 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   // game+prop combined legs — never emit from outer `scored` alone during props,
   // or onPartial stays empty until the final boardExhausted result.
   const emitBoardScanPartial = (legs: BoardScoredLeg[] = scored) => {
-    if (!opts.onPartial && !opts.stopWhenTargetQualified) return;
     manifestRecorder.recomputeQualificationFromScored(legs);
     const partial = buildScanResult(legs, {
+      propAudit: opts.propAudit,
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
@@ -1546,9 +1576,10 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     });
     if (canCompleteAutomaticSmallTicket({ enabled: opts.stopWhenTargetQualified, target: opts.target, picks: partial.picks, awaitingPropSlots: partial.awaitingPropSlots, propPhaseIncomplete: partial.propPhaseIncomplete })) {
       opts.onTargetSatisfied?.({ ...partial, scanComplete: true, note: "", manifest: manifestRecorder.finalize({ scanComplete: true, boardExhausted: false, deliveredLegs: partial.picks.length }) });
-      return;
+      return partial;
     }
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial?.(partial);
+    return partial;
   };
 
   /**
@@ -1580,14 +1611,18 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       });
       totalScanned += evaluated.length;
       for (const row of evaluated) {
+        opts.propAudit?.observe(row.pick, "posted", "posted");
+        opts.propAudit?.observe(row.pick, "simulation", sim ? "simulation_completed" : "simulation_unavailable");
         manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
+          opts.propAudit?.observe(leg.pick, "grading", "graded");
           scored.push(leg);
           if (!leg.pick.isProp) gameLegsScored += 1;
         } else {
+          opts.propAudit?.observe(row.pick, "grading", "simulation_or_grade_unavailable");
           // Always record — missing sims used to drop silently and look like a quality-bar miss.
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
@@ -1652,9 +1687,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         requirePropMix: opts.requirePropMix,
         exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
-        onWave: (combined) => {
-          emitBoardScanPartial(combined);
-        },
+        onWave: (combined) => emitBoardScanPartial(combined),
         onPropBatch: (size, timedOut, batch) => {
           // Fail-safe: batch football counters must never abort the prop sim loop.
           safeCoachManifestInstrument("onPropBatch-manifest", () => {
@@ -1794,10 +1827,9 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     }
   }
 
-  const expandedPool = await Promise.race([
-    poolExpandP ?? Promise.resolve(null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
-  ]);
+  const expandedPool = poolExpandP
+    ? await runCoachBounded(() => poolExpandP!, 25_000, opts.signal).catch(() => null)
+    : null;
   if (expandedPool?.length) pool = expandedPool;
 
   if (footballMixPath) {
@@ -1902,6 +1934,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     ...(gameSimMs != null ? { gameSimMs } : {}),
   };
   const result = buildScanResult(collapsed, {
+    propAudit: opts.propAudit,
     target: opts.target,
     evalLinesByGame,
     gameSimulations,

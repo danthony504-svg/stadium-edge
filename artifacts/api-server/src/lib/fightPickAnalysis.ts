@@ -140,6 +140,25 @@ function decFinishPct(f: Fighter): number | null {
   return Math.round((d / w) * 1000) / 10;
 }
 
+/** Calendar days since the latest dated completed fight in the loaded history.
+ * An undated completed fight prevents us from asserting which fight was latest.
+ * Descriptive only: does not infer injury, cardio or a prediction adjustment.
+ */
+export function daysSinceLatestLoggedFight(fights: readonly FighterRecentFight[], nowMs=Date.now()): number | null {
+  if (!Number.isFinite(nowMs)) return null;
+  const completed=fights.filter(f=>f.result === "W" || f.result === "L" || f.result === "D");
+  if (!completed.length) return null;
+  const day=86400000, today=Math.floor(nowMs/day), dates:number[]=[];
+  for(const fight of completed) {
+    const raw=fight.date?.trim();
+    if(!raw || !/(?:19|20)\d{2}/.test(raw)) return null;
+    const date=Date.parse(raw);
+    if(!Number.isFinite(date) || date>nowMs) return null;
+    dates.push(Math.floor(date/day));
+  }
+  return today-Math.max(...dates);
+}
+
 export function buildFighterPickFactors(f: Fighter): FighterPickFactors {
   const rec = f.record
     ? `${f.record.wins}-${f.record.losses}-${f.record.draws} (${f.record.winPct}% win)`
@@ -168,7 +187,7 @@ export function buildFighterPickFactors(f: Fighter): FighterPickFactors {
     recentFormLast5: factor(formLabel(f.recentForm, 5), f.recentForm.length > 0),
     strengthOfSchedule: { value: null, available: false },
     winLossStreak: { value: null, available: false },
-    daysSinceLastFight: { value: null, available: false },
+    daysSinceLastFight: factor(daysSinceLatestLoggedFight(f.recentForm)),
     weightMisses: { value: null, available: false },
     injuryHistory: { value: null, available: false },
     fiveRoundVsThreeRound: { value: null, available: false },

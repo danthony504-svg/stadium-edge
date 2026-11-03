@@ -1,3 +1,4 @@
+import { loadResearchLedger } from "../lib/ncaafResearchLedger.js";
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
 import { ncaafPipelineReadiness } from "../lib/ncaafPipelineReadiness.js";
@@ -143,4 +144,26 @@ router.get(
     }
   },
 );
+// Separate operator read path; never called by Coach or used to approve release.
+let ledgerCache: {expires:number; value:Awaited<ReturnType<typeof loadResearchLedger>>}|undefined;
+let pendingLedger: Promise<Awaited<ReturnType<typeof loadResearchLedger>>>|undefined;
+async function ledgerReport() {
+ if (ledgerCache && ledgerCache.expires>Date.now()) return ledgerCache.value;
+ if (pendingLedger) return pendingLedger;
+ pendingLedger=(async()=>{
+  const client=await pool.connect();
+  try {
+   await client.query("BEGIN READ ONLY");
+   await client.query("SET LOCAL statement_timeout='5s'");
+   const report=await loadResearchLedger(client);
+   await client.query("COMMIT");ledgerCache={expires:Date.now()+60_000,value:report};return report;
+  } catch(e) {await client.query("ROLLBACK").catch(()=>{});throw e;}
+  finally {client.release();}
+ })();
+ try {return await pendingLedger;} finally {pendingLedger=undefined;}
+}
+router.get("/research/ncaaf/ledger", async (_req,res) => {
+ try {res.json(await ledgerReport());}
+ catch {res.status(503).json({error:"research_ledger_unavailable",researchOnly:true,coachEnabled:false});}
+});
 export default router;

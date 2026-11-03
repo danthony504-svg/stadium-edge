@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {opponentThresholdHistory as count} from './opponentThresholdHistory.ts';
+const row={market:'player_pass_yds',perGame:251,sampleSize:3,firstGame:'2026-01-01',lastGame:'2026-01-03',scope:'team_allowed' as const,source:'observed',games:[250,251,252].map((value,i)=>({eventId:String(i+1),date:`2026-01-0${i+1}`,value}))};
+test('strict thresholds separate overs unders and pushes for all numeric markets',()=>{for(const market of ['player_pass_yds','player_threes','pitcher_strikeouts','player_shots_on_goal','player_shots_on_target']){const r=count([{...row,market}],market,251,Date.parse('2026-02-01'));assert.deepEqual(r,{total:3,over:1,under:1,pushes:1,scope:'team_allowed'});}});
+test('half and alternate lines use exact threshold',()=>assert.equal(count([row],'player_pass_yds_alternate',251.5,Date.parse('2026-02-01'))?.over,1));
+test('missing partial duplicate future or invalid samples cannot manufacture a rate',()=>{for(const r of [{...row,games:undefined},{...row,sampleSize:4},{...row,games:[row.games[0]!,row.games[0]!,row.games[2]!]},{...row,games:row.games.map(g=>({...g,value:NaN}))}])assert.equal(count([r],'player_pass_yds',251,Date.parse('2026-02-01')),null);assert.equal(count([row],'player_pass_yds',251,Date.parse('2025-01-01')),null);});

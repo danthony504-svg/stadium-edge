@@ -1125,6 +1125,10 @@ export function buildFinalCoachParlayNote(opts: {
     return sanitizeCoachUserNote(opts.emptyBoardScopeLead?.trim() ||
       "No usable odds were available for the requested sport and time window. No ticket was built. Try another date or sport.");
   }
+  // An unfinished scan cannot establish that the whole board failed quality.
+  if (opts.timedOut && opts.picks.length < opts.target) {
+    return sanitizeCoachUserNote(`Scoring reached its time limit before the scan finished. Returned ${opts.picks.length} of ${opts.target} requested picks that cleared all checks. No ungraded filler was added.`);
+  }
   const propLike = countPropLikePicks(opts.picks);
   const propsPendingLead =
     opts.propPoolSize > 0 && propLike === 0 && opts.propsPending

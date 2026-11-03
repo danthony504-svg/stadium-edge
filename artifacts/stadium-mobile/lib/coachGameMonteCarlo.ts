@@ -312,7 +312,8 @@ export async function fetchSlateGameSimulationsWithStatus(
     // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
     try {
       const sportKey = (ids.sport || sport || "mlb").toLowerCase();
-      const wantsPeriodStats = sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba";
+      const wantsPeriodStats = (sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba") &&
+        coverQueries.some(q => q.period != null && q.period !== "fg");
       const simOpts = {
         sport: ids.sport || sport || "mlb",
         homeTeamId: ids.homeTeamId || undefined,

@@ -78,8 +78,15 @@ export function shouldStopPropSimForTicketMix(opts: {
    * candidate — do not stop after the first N qualify.
    */
   exhaustPropBoard?: boolean;
+  /** Actual request-specific assembled ticket, including single-game constraints. */
+  assembledTicket?: readonly ParsedPick[];
 }): boolean {
   if (opts.exhaustPropBoard) return false;
+  if (opts.assembledTicket) {
+    if (opts.assembledTicket.length < opts.target) return false;
+    const props = opts.assembledTicket.filter(p => p.isProp).length;
+    return opts.propsOnly ? props >= opts.target : props >= boardPropSlotTarget(opts.target);
+  }
   const qualified = countQualifiedBoardLegs(opts.scored, opts.target);
   if (qualified < opts.target) return false;
   if (opts.propsOnly) return true;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
-import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type PropAuditReport } from "./coachPropAudit.ts";
+import { quoteTimeEvidence, beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type PropAuditReport } from "./coachPropAudit.ts";
 import { exactMarket10kProvenance } from "./coachPropProbabilityProvenance.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 function pick(patch: Partial<ParsedPick> = {}): ParsedPick {
@@ -81,4 +81,40 @@ test("deferred review yields whenever a new foreground Coach build is active", (
   const release = beginCoachPropAuditForeground();
   c.tasks.shift()!(); assert.equal(published, false); assert.equal(c.tasks.length, 1);
   release(); release(); c.flush(); assert.equal(published, true);
+});
+
+test("source quote time remains unknown when unavailable", () => {
+ const now=Date.parse("2026-10-25T12:00:00Z");
+ assert.equal(quoteTimeEvidence(null,now).sourceTimeState,"unknown");
+ assert.equal(quoteTimeEvidence("invalid",now).sourceAgeMs,null);
+ assert.equal(quoteTimeEvidence("2026-10-25T11:58:00Z",now).sourceAgeMs,120000);
+ assert.equal(quoteTimeEvidence("2026-10-25T12:01:00Z",now).sourceTimeState,"future_timestamp");
+});
+
+test("unevaluated candidates retain explicit scan exclusions instead of generic not-simulated labels", () => {
+  const c = collector();
+  const reasons = ["scan_distribution_budget", "scan_cancelled", "scan_deadline", "scan_ticket_target_reached", "shared_draw_exact_line_response_missing"];
+  for (const [i, reason] of reasons.entries()) {
+    const p = pick({ athleteId: `unscored-${i}` });
+    c.audit.observe(p, "eligible", "eligible");
+    c.audit.observe(p, "not_evaluated", reason);
+  }
+  let report: PropAuditReport | undefined;
+  c.audit.finish([], "completed", r => {report = r;}); c.flush();
+  for (const reason of reasons) assert.equal(report!.counts[reason], 1);
+  assert.equal(report!.counts.not_simulated_in_this_request, undefined);
+});
+
+test("generic unscanned reason cannot replace an authenticated simulation failure",()=>{
+ const c=collector();const p=pick();let report:PropAuditReport|undefined;
+ c.audit.observe(p,"posted","posted");
+ c.audit.observe(p,"simulation","simulation_unavailable",{nullReason:"insufficient_game_log"});
+ c.audit.observe(p,"not_evaluated","shared_draw_exact_line_response_missing");
+ c.audit.finish([],"completed",r=>{report=r});c.flush();
+ assert.equal(report?.rows[0]?.nullReason,"insufficient_game_log");
+});
+
+test("missing opponent evidence retains its reason instead of becoming generic not simulated",()=>{
+ const c=collector();const p=pick();c.audit.observe(p,"posted","posted");c.audit.observe(p,"eligible","missing_opponent_defense");let report:PropAuditReport|undefined;
+ c.audit.finish([],"completed",r=>report=r);c.flush();assert.equal(report?.counts.missing_opponent_defense,1);assert.equal(report?.counts.not_simulated_in_this_request,undefined);
 });

@@ -73,6 +73,9 @@ const NICK_TO_SPORT: Record<string, NickEntry> = {
   bengals: { sport: "nfl", tokens: ["bengals", "cincinnati"] },
   ravens: { sport: "nfl", tokens: ["ravens", "baltimore"] },
   cowboys: { sport: "nfl", tokens: ["cowboys", "dallas"] },
+  // Common singular ask ("7 leg cowboy games"). Keep canonical franchise
+  // tokens so existing board/refill/terminal filters still match Cowboys.
+  cowboy: { sport: "nfl", tokens: ["cowboys", "dallas"] },
   eagles: { sport: "nfl", tokens: ["eagles", "philadelphia"] },
   "49ers": { sport: "nfl", tokens: ["49ers", "niners", "san francisco"] },
   niners: { sport: "nfl", tokens: ["49ers", "niners", "san francisco"] },
@@ -812,7 +815,7 @@ function resolveNickEntryForPhrase(
     const entry = NICK_TO_SPORT[nick]!;
     if (nick === p) return { nick, entry };
     // "troy trojans" phrase ↔ nick "troy"
-    if (p.includes(nick) && nick.length >= 3) return { nick, entry };
+    if (nick.length >= 3 && nickPattern(nick).test(p)) return { nick, entry };
   }
   for (const nick of nickKeysLongestFirst()) {
     if (AMBIGUOUS_NICKNAMES.has(nick)) continue;
@@ -1045,9 +1048,9 @@ export function coachAskTeamShortfallNote(
   if (finalLegCount >= requestedLegs) return "";
   const nick = scope.displayName ?? scope.parsedTeam ?? scope.matchTokens[0] ?? "that team";
   if (finalLegCount <= 0) {
-    return `No eligible real markets cleared for ${nick} — won't fill a ${requestedLegs}-leg ticket with other games.`;
+    return `No qualifying selections were returned for the ${nick} matchup. Won't fill a ${requestedLegs}-leg ticket with other games.`;
   }
-  return `Only ${finalLegCount} eligible real-market selection${finalLegCount === 1 ? "" : "s"} for ${nick} — not enough for a ${requestedLegs}-leg ticket. Won't fill with other games.`;
+  return `Returned ${finalLegCount}/${requestedLegs} qualifying selections for the ${nick} matchup. Won't fill with other games.`;
 }
 
 /**

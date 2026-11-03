@@ -9,6 +9,7 @@ import {
   resolvePremiumApiAccess,
 } from "./appReviewAccess.js";
 import { isDesignatedOwnerTestUser } from "./ownerTestAccess.js";
+import { isDesignatedResearchTester } from "./researchTesterAccess.js";
 import { isActivePaidEntitlement } from "./subscriptionEntitlement.js";
 
 export { isActivePaidEntitlement } from "./subscriptionEntitlement.js";
@@ -18,21 +19,26 @@ export type { ServerEntitlementRow } from "./subscriptionEntitlement.js";
  * Coach / premium API access:
  *   - RevenueCat-backed paid entitlement, OR
  *   - server-verified App Review account, OR
- *   - server-verified owner test account (OWNER_TEST_EMAILS / ADMIN_EMAILS).
+ *   - server-verified owner test account (OWNER_TEST_EMAILS / ADMIN_EMAILS), OR
+ *   - server-verified research tester (RESEARCH_TESTER_EMAILS) for internal
+ *     NCAAF/NCAAB research Coach only — never subscriber release approval.
  * Never trusts client planId / email / premium flags / EXPO_PUBLIC allowlists.
  */
 export async function userHasCoachPremiumAccess(userId: string | null): Promise<boolean> {
   if (!userId) return false;
   try {
-    const [designatedAppReview, designatedOwnerTest] = await Promise.all([
-      isDesignatedAppReviewUser(userId),
-      isDesignatedOwnerTestUser(userId),
-    ]);
-    if (designatedAppReview || designatedOwnerTest) {
+    const [designatedAppReview, designatedOwnerTest, designatedResearchTester] =
+      await Promise.all([
+        isDesignatedAppReviewUser(userId),
+        isDesignatedOwnerTestUser(userId),
+        isDesignatedResearchTester(userId),
+      ]);
+    if (designatedAppReview || designatedOwnerTest || designatedResearchTester) {
       return resolvePremiumApiAccess({
         paidEntitlement: false,
         designatedAppReview,
         designatedOwnerTest,
+        designatedResearchTester,
       });
     }
     const rows = await db
@@ -44,6 +50,7 @@ export async function userHasCoachPremiumAccess(userId: string | null): Promise<
       paidEntitlement: isActivePaidEntitlement(rows[0]),
       designatedAppReview: false,
       designatedOwnerTest: false,
+      designatedResearchTester: false,
     });
   } catch {
     return false;

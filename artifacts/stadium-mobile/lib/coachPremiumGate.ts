@@ -54,6 +54,7 @@ export function hasVerifiedCoachEntitlement(
   void opts.email;
   if (opts.serverAppReviewAccess === true) return true;
   if (opts.serverOwnerAccess === true) return true;
+  if (opts.serverResearchTesterAccess === true) return true;
   return hasVerifiedStoreKitPaidPlan(state);
 }
 

@@ -126,6 +126,9 @@ export default function CoachScreen() {
   const { isSignedIn } = useAuth();
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
+  /** Server-verified research tester only — never a client email / EXPO_PUBLIC flag. */
+  const researchTesterUnlocked =
+    !!sub?.hydrated && !!sub.researchTesterAccess;
   const showComposer = !!isSignedIn && coachPremiumUnlocked;
   const showBuildDuration = String(Updates.channel ?? "").trim().toLowerCase() === "preview";
   const [messages, setMessages] = useState<CoachMessage[]>([
@@ -140,6 +143,7 @@ export default function CoachScreen() {
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  const followLatestRef = useRef(true);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
@@ -593,9 +597,7 @@ export default function CoachScreen() {
         abort.abort();
         finishSession(assistantId, {
           picks,
-          text: picks.length
-            ? ""
-            : "Hit the delivery budget before the board finished — composer unlocked.",
+          text: fullTicket ? "" : `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${requestedLegs} requested picks that cleared all checks. No ungraded filler was added.`,
           requestedLegs,
           // Full N/N after revalidation is a completed ticket — do not mark
           // props-pending shortfall when every seat already cleared.
@@ -736,6 +738,10 @@ export default function CoachScreen() {
             signal: abort.signal,
             requestStartedAtMs: sessionRef.current.startedAtMs,
             reliabilityRequestId,
+            researchTesterUnlocked,
+            onResolvedAsk: ask => {
+              if (sendGenRef.current === sendGen && !coachSessionIsTerminal(sessionRef.current)) sessionAskTextRef.current = ask;
+            },
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;
               patchAssistant(assistantId, { buildStatus: status });
@@ -1044,7 +1050,15 @@ export default function CoachScreen() {
         });
       }
     },
-    [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
+    [
+      attachedImages,
+      busy,
+      finishSession,
+      patchAssistant,
+      unlockComposer,
+      coachPremiumUnlocked,
+      researchTesterUnlocked,
+    ],
   );
 
   const autoPreviewOnFocusRef = useRef(false);
@@ -1116,7 +1130,13 @@ export default function CoachScreen() {
           data={messages}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ paddingBottom: 16, gap: 10 }}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) => {
+            followLatestRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 100;
+          }}
+          scrollEventThrottle={100}
+          onContentSizeChange={() => {
+            if (busy && followLatestRef.current) listRef.current?.scrollToEnd({ animated: true });
+          }}
           renderItem={({ item }) => {
             if (item.role === "user") {
               return (

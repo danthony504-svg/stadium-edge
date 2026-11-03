@@ -1,3 +1,9 @@
+import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
+import { createCandidateTracking, trackCandidateAudit } from "../coachCandidateTracking.ts";
+import { reportCoachCandidates } from "../coachCandidateReporter.ts";
+import { pendingPropPreview } from "../coachPendingPropPreview.ts";
+import { CoachWorkTimeout, runCoachBounded } from "../coachAbortable.ts";
+import { satisfiesExplicitGamePropMix } from "../slate.ts";
 import {resolveCoachFollowupAsk} from "../coachFollowupScope.ts";
 import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget.ts";
 import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
@@ -86,6 +92,10 @@ import {
   p0BlockedNcaafGameLineAskNote,
   P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
 } from "@/lib/coachP0UnvalidatedTotals";
+import {
+  RESEARCH_NOT_VALIDATED_LABEL,
+  runWithResearchTesterUnlockAsync,
+} from "@/lib/researchTesterSession";
 import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
@@ -318,11 +328,17 @@ async function buildCoachParlayImpl(opts: {
    * Fires after prop/alt board + context load. UI must NOT reset the absolute
    * clock here — the monotonic deadline already includes load time.
    */
+  onResolvedAsk?: (askText: string) => void;
   onReadyToScan?: (info: { propPoolSize: number }) => void;
   /** Shared request start (UI beginCoachSession). Defaults to now. */
   requestStartedAtMs?: number;
   /** Shared greenfield id for delivery-commit correlation. */
   reliabilityRequestId?: string;
+  /**
+   * Server-verified researchTesterAccess only. Opens NCAAF research sims
+   * while NCAAF_GAME_LINE_SIM_VALIDATED stays false for subscribers.
+   */
+  researchTesterUnlocked?: boolean;
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
   const budgetMs = coachTotalRequestBudgetMs(target);
@@ -474,6 +490,16 @@ async function buildCoachParlayImpl(opts: {
       timing,
       perf,
     };
+  }
+
+  const resolvedAsk = (target < 3 || shouldActivateSingleEventSeating(opts.askText)) ? opts.askText ?? "" : confirmedSingleGameAsk({
+    askText: opts.askText ?? "", sports: inputs.sports,
+    maxGames: parseCoachAskMarketConstraint(opts.askText).maxGames,
+    oddsGames: inputs.oddsGames, scheduleGames: inputs.espnGames,
+  });
+  if (resolvedAsk !== opts.askText) {
+    opts = { ...opts, askText: resolvedAsk };
+    opts.onResolvedAsk?.(resolvedAsk);
   }
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
@@ -662,6 +688,7 @@ async function buildCoachParlayImpl(opts: {
             ].includes(s),
           )
             ? loadFootballOppRushDefense({
+                priorityGames: inputs.propPool,
                 espnGames: inputs.espnGames,
                 signal: signal,
               }).catch(() => ({}))
@@ -898,6 +925,7 @@ async function buildCoachParlayImpl(opts: {
       ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys, marketConstraint)
       : filterPoolForFootballSkillRecovery(recoverySourcePool, recoverySportScope);
     if (
+      !opts.signal.aborted && !coachPastRequestDeadline(requestStartedAtMs, budgetMs) &&
       shouldRecoverPropsOnlyWithFootballSkillBoard({
         graded: built.propLegsScored,
         staged: picks.length,
@@ -973,7 +1001,7 @@ async function buildCoachParlayImpl(opts: {
               staged: picks.length,
               target,
             });
-      } else if (built.propLegsScored > 0 && picks.length === 0) {
+      } else if (!opts.signal.aborted && !coachPastRequestDeadline(requestStartedAtMs, budgetMs) && built.propLegsScored > 0 && picks.length === 0) {
         // Retry preferred (already allowlisted) pool with recovery slack.
         const softPreferred = await buildFootballPropsOnlyTicket({
       propAudit: opts.propAudit,
@@ -1155,7 +1183,9 @@ async function buildCoachParlayImpl(opts: {
           })
         : "";
     const body =
-      failDiagTerminalBody ||
+      picks.length < built.picks.length
+        ? `Returned ${picks.length} of ${target} requested player props after final player, event and exposure checks. Some qualified candidates could not be seated together; no filler was added.`
+        : failDiagTerminalBody ||
       recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({
@@ -1262,7 +1292,7 @@ async function buildCoachParlayImpl(opts: {
     prioritySports: inputs.prioritySports,
     propsOnly,
     exhaustPropBoard: hrBoardAsk,
-    legsPerGameCap: legsPerGameCap ?? undefined,
+    legsPerGameCap: terminalSeatCaps?.maxGameEventLines ?? legsPerGameCap ?? undefined,
     gameLinesOnly,
     collegeTeamMarketStacks: collegeTeamMarketStacks || undefined,
     requirePropMix,
@@ -1287,9 +1317,9 @@ async function buildCoachParlayImpl(opts: {
       // Carry include-scope so single-event seating activates and staging
       // cannot fall back to a multi-game / multi-sport board.
       askText: opts.askText ?? null,
-      singleEventSport: inputs.teamScope?.sport ?? null,
+      singleEventSport: inputs.teamScope?.sport ?? (terminalSeatCaps ? inputs.oddsGames[0]?.sport : null),
       singleEventKey:
-        inputs.teamScope && inputs.oddsGames[0]
+        terminalSeatCaps && inputs.oddsGames[0]
           ? `${inputs.oddsGames[0].awayTeam ?? ""} @ ${inputs.oddsGames[0].homeTeam ?? ""}`
           : null,
       // Rare multi-count lottery / 2+ / longshot path (#713).
@@ -1303,11 +1333,11 @@ async function buildCoachParlayImpl(opts: {
       if (deliveryTerminalized) return;
       latest = partial;
       // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
-      const scopedPartialPicks = filterPicksForCoachAskTeams(
+      const scopedPartialPicks = pendingPropPreview(filterPicksForCoachAskTeams(
         partial.picks ?? [],
         inputs.teamScope,
         inputs.excludedTeams,
-      );
+      ), target, !!partial.awaitingPropSlots, !propsOnly && !gameLinesOnly);
       const propLike = countPropLike(scopedPartialPicks);
       if (partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
@@ -1429,7 +1459,7 @@ async function buildCoachParlayImpl(opts: {
     // Coach on "Scoring ticket… 1 legs" with no terminal latch.
     const drainMs = Math.min(
       2_500,
-      coachRemainingBudgetMs(requestStartedAtMs, budgetMs) || 2_500,
+      coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
     );
     let drainTimeout: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -1685,12 +1715,27 @@ async function buildCoachParlayImpl(opts: {
   };
 }
 
+function appendResearchDisclaimer(note: string | null | undefined): string {
+  const base = String(note ?? "").trim();
+  if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) return base;
+  return base
+    ? `${base}\n\n${RESEARCH_NOT_VALIDATED_LABEL}`
+    : RESEARCH_NOT_VALIDATED_LABEL;
+}
+
 /** Preparation never extends the foreground deadline or competes with its queue. */
 export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayImpl>[0]): Promise<CoachParlayBuildResult> {
   opts = { ...opts, askText: resolveCoachFollowupAsk(opts.askText, opts.priorUserTexts) };
+  const researchUnlocked = opts.researchTesterUnlocked === true;
+  return runWithResearchTesterUnlockAsync(researchUnlocked, async () => {
   const release = coachContextWarmer.beginForeground();
   const releaseAudit = beginCoachPropAuditForeground();
-  const audit = createCoachPropAudit(opts.reliabilityRequestId || `prop-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `candidate-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+  const tracking = createCandidateTracking(opts.reliabilityRequestId!, Math.max(1, Math.min(opts.requestedLegs || 6, 15)));
+  const audit = trackCandidateAudit(createCoachPropAudit(opts.reliabilityRequestId!), tracking);
+  const reportCandidateTerminal = (picks: readonly ParsedPick[], terminal: "completed" | "timed_out" | "cancelled" | "error") => {
+    try { reportCoachCandidates(tracking.finish(picks, terminal)); } catch { /* Observability cannot break delivery. */ }
+  };
   const terminalTarget = Math.max(1, Math.min(opts.requestedLegs || 6, 15));
   const terminalConstraint = parseCoachAskMarketConstraint(opts.askText);
   const terminalGameCap = legsPerGameCapForAsk(terminalTarget, {
@@ -1698,12 +1743,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     maxGames: terminalConstraint.maxGames,
     collegeTeamMarketStacks: askAllowsCollegeTeamMarketStacks(opts.askText),
   });
-  const terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
+  let terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
   const safePicks = (picks: ParsedPick[]) => applyDeliveryGroundingGate({
     target: terminalTarget, legsPerGameCap: terminalCaps?.maxGameEventLines ?? terminalGameCap,
     maxPropsPerGameCap: terminalCaps?.maxProps,
     onRejected: (pick, reason) => audit.observe(pick, "delivery_blocked", `ticket_constraint:${reason}`),
-    picks: dedupePicksByMarketLadder(picks.filter(p => {
+    picks: dedupePicksByMarketLadder(filterPicksByAskMarketConstraint(picks, terminalConstraint).filter(p => {
     const issues = audit.deliveryIssues(p);
     // Early recovery and partial-return paths share the final quality authority.
     // Never trust an attached qualified stamp after the score/quote has changed.
@@ -1716,15 +1761,76 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     return false;
   })),
   }).picks;
+  const requestStartedAtMs = opts.requestStartedAtMs ?? Date.now();
+  const budgetMs = coachTotalRequestBudgetMs(terminalTarget);
+  opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}` };
+  let closed = false;
+  let lastQualified: ParsedPick[] = [];
+  let propPoolSize = 0;
   try {
-    const result = await buildCoachParlayImpl({ ...opts, propAudit: audit,
-      onPartialPicks: opts.onPartialPicks ? picks => opts.onPartialPicks?.(safePicks(picks)) : undefined });
-    const picks = safePicks(result.picks);
+    const result = await runCoachBounded(signal => buildCoachParlayImpl({
+      ...opts, signal, requestStartedAtMs, propAudit: audit,
+      onResolvedAsk: ask => {
+        if (closed || signal.aborted) return;
+        terminalCaps = shouldActivateSingleEventSeating(ask) ? singleEventCapsForTarget(terminalTarget) : null;
+        opts = { ...opts, askText: ask };
+        opts.onResolvedAsk?.(ask);
+      },
+      onStatus: status => { if (!closed) opts.onStatus?.(status); },
+      onReadyToScan: info => { if (!closed) { propPoolSize = info.propPoolSize; opts.onReadyToScan?.(info); } },
+      onPartialPicks: picks => {
+        if (closed || signal.aborted) return;
+        const scoped = safePicks(picks);
+        lastQualified = satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : [];
+        opts.onPartialPicks?.(lastQualified);
+      },
+    }), coachRemainingBudgetMs(requestStartedAtMs, budgetMs), opts.signal);
+    const scopedPicks = safePicks(result.picks);
+    const mixUnavailable = scopedPicks.length > 0 && !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
+    const picks = mixUnavailable ? [] : scopedPicks;
+    reportCandidateTerminal(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed");
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    return { ...result, picks, note: picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note };
+    const note = result.timedOut && picks.length < terminalTarget
+      ? `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`
+      : mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note;
+    return {
+      ...result,
+      picks,
+      note: researchUnlocked ? appendResearchDisclaimer(note) : note,
+    };
   } catch (e) {
+    closed = true;
+    if (e instanceof CoachWorkTimeout) {
+      const picks = safePicks(lastQualified);
+      const timing = createCoachRequestTiming({ requestStartedAtMs, budgetMs });
+      timing.timedOut = true;
+      timing.timeoutReason = "absolute_budget";
+      finalizeCoachRequestTiming(timing);
+      reportCandidateTerminal(picks, "timed_out");
+      audit.finish(picks, "timed_out", report => { void persistCoachPropAudit(report); });
+      reportCoachScanReliability({
+        requestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}`,
+        sportCategory: classifySportCategoryFromAsk(opts.askText ?? ""),
+        requestedLegCount: terminalTarget, returnedLegCount: picks.length,
+        picks, timedOut: true, deliveryCommitted: false,
+        durationMs: timing.totalMs, timeoutReason: "absolute_budget",
+        rootCause: "absolute_budget", realOddsAvailable: picks.length ? true : null,
+      });
+      const timeoutNote = `Scoring reached its time limit before the scan finished. Returned ${picks.length} of ${terminalTarget} requested picks that cleared all checks. No ungraded filler was added.`;
+      return {
+        picks,
+        note: researchUnlocked ? appendResearchDisclaimer(timeoutNote) : timeoutNote,
+        scan: null,
+        timedOut: true,
+        propPoolSize,
+        timing,
+        reliabilityRequestId: opts.reliabilityRequestId,
+      };
+    }
+    reportCandidateTerminal([], opts.signal.aborted ? "cancelled" : "error");
     audit.finish([], opts.signal.aborted ? "cancelled" : "error", report => { void persistCoachPropAudit(report); });
     throw e;
-  } finally { releaseAudit(); release(); }
+  } finally { closed = true; releaseAudit(); release(); }
+  });
 }
 

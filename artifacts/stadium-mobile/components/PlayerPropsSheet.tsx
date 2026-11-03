@@ -1,3 +1,5 @@
+import { historicalSides } from "@/lib/propHistoricalSides";
+import { PlayerMatchupEvidence } from "@/components/PlayerMatchupEvidence";
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
@@ -340,9 +342,8 @@ export function PlayerPropsSheet({
   // is the empirical clearance rate, not a projection.
   const aiSuggestion = useMemo(() => {
     if (!selectedProp || bookLine == null || bars.length === 0) return null;
-    const total = bars.length;
-    const overHits = bars.filter((b) => b.value >= bookLine).length;
-    const underHits = total - overHits;
+    const {total, over: overHits, under: underHits} = historicalSides(bars.map(b=>b.value), bookLine);
+    if (!total || overHits === underHits) return null;
     const side: "Over" | "Under" = overHits >= underHits ? "Over" : "Under";
     const price = side === "Over" ? selectedProp.overPrice ?? null : selectedProp.underPrice ?? null;
     if (price == null) return null; // no real price → don't suggest
@@ -654,6 +655,13 @@ export function PlayerPropsSheet({
             )}
           </View>
 
+          {aiSuggestion && <PlayerMatchupEvidence
+            key={`${data.athleteId}:${market}:${aiSuggestion.line}:${aiSuggestion.side}`}
+            position={selectedProp?.position} sport={data.sport} athleteId={data.athleteId} playerTeamId={data.playerTeamId}
+            game={data.gameLabel} startsAt={data.startsAt} market={market}
+            line={aiSuggestion.line} side={aiSuggestion.side}
+          />}
+
           {/* AI Suggested — real, fail-closed read of this market at the book line */}
           {aiSuggestion ? (
             (() => {
@@ -720,7 +728,7 @@ export function PlayerPropsSheet({
                     })}
                   >
                     <Feather name="zap" size={14} color={colors.accent} />
-                    <SectionLabel>AI Suggested</SectionLabel>
+                    <SectionLabel>Recent-form lean</SectionLabel>
                     <View style={{ flex: 1 }} />
                     <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
                       Full breakdown

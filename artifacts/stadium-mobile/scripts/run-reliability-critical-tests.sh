@@ -18,6 +18,7 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/crashReportingGate.test.ts \
     lib/crashDiagnostics.test.ts \
     lib/scoreBreakdownCrash.test.ts \
+    lib/propDetailMatchup.test.ts \
     lib/startupCrashPath.test.ts \
     lib/installGlobalCrashHandlers.test.ts \
     lib/backfillProps.test.ts \
@@ -28,6 +29,8 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/coachPropAudit.test.ts \
     lib/coachRequestIntegrity.test.ts \
     lib/coachUefaScope.test.ts \
+    lib/coachPendingPropPreview.test.ts \
+    lib/footballOppDefenseContext.test.ts \
     lib/coachSmallTicketCompletion.test.ts \
     lib/coach/boardLoadConcurrency.test.ts \
     lib/propRequestCooldown.test.ts \

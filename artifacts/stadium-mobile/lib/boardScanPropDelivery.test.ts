@@ -1282,13 +1282,10 @@ test("five-leg budget note: full ticket before / at / after deadline", () => {
     timedOut: true,
     budgetMs: 75_000,
   });
-  // Shortfall lead wins over bare budget copy when present.
-  assert.match(afterPartial, /only 3 cleared/i);
-  assert.doesNotMatch(
-    afterPartial,
-    /Stopped at the 75s delivery budget/i,
-    "shortfall lead preferred when both timedOut and short",
-  );
+  // A timed-out scan is incomplete, not evidence the board failed quality.
+  assert.match(afterPartial, /time limit before the scan finished/i);
+  assert.match(afterPartial, /Returned 3 of 5/);
+  assert.doesNotMatch(afterPartial, /only 3 cleared the AI quality bar/i);
 
   const afterEmpty = buildFinalCoachParlayNote({
     target: 5,
@@ -1299,8 +1296,8 @@ test("five-leg budget note: full ticket before / at / after deadline", () => {
     timedOut: true,
     budgetMs: 75_000,
   });
-  assert.match(afterEmpty, /Stopped at the 75s delivery budget/i);
-  assert.match(afterEmpty, /cleared so far/i);
+  assert.match(afterEmpty, /time limit before the scan finished/i);
+  assert.match(afterEmpty, /Returned 0 of 5/i);
 });
 
 

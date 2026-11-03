@@ -318,7 +318,7 @@ function scoreLineMovement(movementPct: number | null | undefined): number | nul
   return scoreLineValue(movementPct);
 }
 
-function scoreOpponentTendency(
+export function scoreOpponentTendency(
   ctx: PropHolisticContext,
 ): { score: number | null; display?: string } {
   const sport = (ctx.sport ?? "").toLowerCase();
@@ -561,7 +561,7 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
         score: authorized ? scoreSimulation(ctx.simHit) : null,
         display:
           authorized && ctx.simHit != null
-            ? `${Math.round(ctx.simHit * 100)}% hit`
+            ? `${Math.round(ctx.simHit * 100)}% simulated hit rate`
             : undefined,
         applicable: true,
         // No success label / present score for insufficient evidence.
