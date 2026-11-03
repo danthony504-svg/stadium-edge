@@ -10,6 +10,8 @@
 export type CoachScanFailureCode =
   | "SCAN_THREW"
   | "NO_ODDS_GAMES"
+  | "NO_UPCOMING_ODDS"
+  | "ODDS_BOARD_LOAD_FAILED"
   | "TEAM_ID_MAP_EMPTY"
   | "TEAM_IDS_UNRESOLVED"
   | "GAME_SIMS_TIMED_OUT"

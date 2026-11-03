@@ -540,9 +540,16 @@ export async function sendTestPush(): Promise<{ ok: boolean; sent: number }> {
   return (await res.json()) as { ok: boolean; sent: number };
 }
 
+/** Coach must distinguish a failed request from a successfully loaded empty slate. */
+export async function getCoachOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
+  const rows = await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
+  if (!Array.isArray(rows)) throw new Error("invalid_odds_board");
+  return rows;
+}
+
 export async function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
   try {
-    return await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
+    return await getCoachOdds(sport, signal);
   } catch {
     // Browse surfaces (Home / upcoming) must never hard-crash on a missing route or
     // transient 404 — return an empty slate and let the UI show an empty state.

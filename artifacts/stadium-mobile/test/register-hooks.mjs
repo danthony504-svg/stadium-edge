@@ -16,6 +16,9 @@ const SPORTS_STUB = new URL("./fakes/sportsStub.ts", import.meta.url).href;
 module.registerHooks({
   resolve(specifier, context, nextResolve) {
     const parent = context.parentURL || "";
+    if (specifier === "@react-native-async-storage/async-storage") {
+      return { url: new URL("./fakes/asyncStorage.ts", import.meta.url).href, shortCircuit: true };
+    }
 
     if (specifier === "expo/fetch" || specifier === "expo/fetch.js") {
       return { url: FAKE_EXPO_FETCH, shortCircuit: true };
