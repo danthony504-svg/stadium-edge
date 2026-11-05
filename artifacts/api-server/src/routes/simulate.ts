@@ -10,6 +10,12 @@ import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
 import { resolvePropAthleteIds } from "../lib/resolvePropAthleteIds.js";
+import { resolvePropSimWeatherImpact } from "../lib/mlbPreparedWeatherImpact.js";
+import { buildPropsResearchRuntimeSnapshot } from "../lib/propsResearchConnectivity.js";
+import {
+  archiveRecordsFromPropSimRows,
+  enqueuePropPregameArchive,
+} from "../lib/propPregameArchive.js";
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
 import { teamPace } from "../lib/statmuse.js";
@@ -346,10 +352,17 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
   const oppKeyInjuries = awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0;
   const ownKeyInjuries = homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0;
 
-  const weatherImpact =
-    sport === "mlb" && req.body?.weatherImpact != null
-      ? Number(req.body.weatherImpact)
-      : null;
+  // Subscriber default: do not apply provisional prepared-weather impact.
+  // Holdout research may opt in via applyPreparedWeatherImpact=true.
+  const { weatherImpact, weatherResearch } = resolvePropSimWeatherImpact({
+    sport,
+    bodyWeatherImpact:
+      sport === "mlb" && req.body?.weatherImpact != null
+        ? Number(req.body.weatherImpact)
+        : null,
+    prepared: preparedContext,
+    applyPreparedWeatherImpact: req.body?.applyPreparedWeatherImpact === true,
+  });
 
   // Opportunity Shift inputs — table built inside runPropSims after parallel
   // history load so beneficiary weights use grounded same-family usage.
@@ -377,7 +390,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
 
   // Optional defense indices supplied by the client (already fetched elsewhere).
   // Do not fetch defense on this hot path — missing keys stay null → matchup
-  // hierarchy falls back to vs-opp (n≥3) or 1.0.
+  // hierarchy falls back to vs-opp (n≥3) or 1.0. Stage-4 seating remains shadow.
   const defenseIndexByFamily =
     req.body?.defenseIndexByFamily &&
     typeof req.body.defenseIndexByFamily === "object" &&
@@ -411,11 +424,23 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     simulations,
   );
   const coachElapsedMs = Math.round(performance.now() - coachStartedAt);
+  const simCount = tierSimCount(tier, simulations);
+  const propsResearch = buildPropsResearchRuntimeSnapshot({
+    sport,
+    weatherImpactApplied: weatherImpact,
+    weatherResearchReason: weatherResearch.reason,
+    defenseIndexByFamily,
+    preparedWeatherPresent: !!preparedContext?.environment?.weather,
+    preparedDepthCharts: preparedContext?.depthCharts?.length ?? 0,
+    preparedLineupsComplete:
+      preparedContext?.lineups?.filter((l) => l.complete).length ?? 0,
+    opportunityShiftPresent: !!opportunityShiftInputs,
+  });
 
   res.json({
     sport,
     tier,
-    simulations: tierSimCount(tier, simulations),
+    simulations: simCount,
     deepPending: tier === "quick" ? deepPending : false,
     providerLinesEvaluated: rows.length,
     distributionCacheHits: distStats.distributionCacheHits,
@@ -436,7 +461,24 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     coachElapsedMs,
     props: rows,
     playerHistories,
+    weatherResearch,
+    propsResearch,
   });
+
+  // Research archive after response — never blocks Coach latency.
+  if (tier === "deep") {
+    const eventId =
+      String(req.body?.eventId ?? req.body?.espnEventId ?? "").trim() || null;
+    enqueuePropPregameArchive(
+      archiveRecordsFromPropSimRows({
+        sport,
+        eventId,
+        kickoff: req.body?.startsAt ? String(req.body.startsAt) : null,
+        simulations: simCount,
+        rows,
+      }),
+    );
+  }
 });
 
 // GET /sports/simulate/game?sport=nba&eventId=...&homeTeam=...&awayTeam=...
