@@ -1,3 +1,4 @@
+import { exactPropFixture } from "../test/exactPropFixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { canCompleteAutomaticSmallTicket, isAutomaticFreeCoachAsk, runScanUntilTargetSatisfied } from "./coachSmallTicketCompletion.ts";
@@ -30,4 +31,11 @@ test("no full ticket retains ordinary completion and failures; parent cancellati
   let observed=false;
   await runScanUntilTargetSatisfied(parent.signal,true,async(signal)=>{parent.abort();observed=signal!.aborted;return "cancelled";});
   assert.equal(observed,true);
+});
+
+test("two qualified posted props from distinct markets can complete the automatic ticket", () => {
+  const threePointers = exactPropFixture({ ...picks[0]!, isProp: true, market: "3-Pointers", propMarketKey: "player_threes" } as ParsedPick);
+  const rushYards = exactPropFixture({ ...picks[1]!, isProp: true, sport: "nfl", market: "Rush Yards", propMarketKey: "player_rush_yds" } as ParsedPick);
+  assert.equal(canCompleteAutomaticSmallTicket({ enabled: true, target: 2, picks: [threePointers, rushYards] }), true);
+  assert.equal(canCompleteAutomaticSmallTicket({ enabled: true, target: 2, picks: [threePointers, exactPropFixture({ ...threePointers, propMarketKey: "player_threes_alternate" })] }), false);
 });

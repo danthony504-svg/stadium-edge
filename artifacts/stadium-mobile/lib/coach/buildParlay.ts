@@ -306,10 +306,12 @@ export async function loadScanInputs(
   const constraint = parseCoachAskMarketConstraint(askText, priorUserTexts);
   const gameLinesOnly = constraint.gameLinesOnly && !constraint.propsOnly;
   const propOddsGames = propBoardGamesForScope(oddsGames, {
-    gameLinesOnly: openingPass || gameLinesOnly,
+    gameLinesOnly,
     allowNcaafPlayerProps: askAllowsNcaafPlayerProps(askText),
   });
-  let propPool = openingPass ? [] : await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
+  // The opening slate is already narrowed to uniquely matched upcoming games.
+  // Include its posted props so a qualified mixed-market ticket can finish here.
+  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
   );
   const liveFeed = await liveFeedPromise;
@@ -552,7 +554,7 @@ async function buildCoachParlayImpl(opts: {
     marketConstraint,
   );
   const propsOnly = marketConstraint.propsOnly;
-  const gameLinesOnly = (opts.openingPass || marketConstraint.gameLinesOnly) && !propsOnly;
+  const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
   const excludeTotals = marketConstraint.excludeTotals && !propsOnly;
   // Drop Over/Under totals from the odds board when the book/user has no O/U.
   const scanRealOdds = excludeTotals
@@ -713,7 +715,7 @@ async function buildCoachParlayImpl(opts: {
         fallback:
           {} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap,
         run: async (signal) =>
-          !opts.openingPass && boardSports.some((s) =>
+          (!opts.openingPass || activePropPool.length > 0) && boardSports.some((s) =>
             [
               "nfl",
               "ncaaf",
