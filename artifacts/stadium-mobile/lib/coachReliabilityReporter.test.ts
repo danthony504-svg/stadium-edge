@@ -28,16 +28,17 @@ test("1) props-only early return emits exactly one Coach reliability report", ()
   const end = src.indexOf("const skipPropExpand =");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);
-  const emits = block.match(/reportCoachScanReliability\s*\(/g) ?? [];
+  assert.match(src, /const reportPassReliability:[^=]+ = opts\.openingPass\s*\? \(\) => \{\}\s*:\s*reportCoachScanReliability;/);
+  const emits = block.match(/reportPassReliability\s*\(/g) ?? [];
   assert.equal(emits.length, 1, "exactly one reporter call in props-only path");
   assert.match(block, /Fire-and-forget reliability/);
   // Reporter must run before either early return.
-  const reportAt = block.indexOf("reportCoachScanReliability");
+  const reportAt = block.indexOf("reportPassReliability");
   const returnEmptyAt = block.indexOf("built.picks.length > 0 && picks.length === 0");
   const returnFinalAt = block.lastIndexOf("return {");
   assert.ok(reportAt >= 0 && returnEmptyAt > reportAt);
   assert.ok(returnFinalAt > reportAt);
-  assert.equal(/await\s+reportCoachScanReliability/.test(block), false);
+  assert.equal(/await\s+reportPassReliability/.test(block), false);
 });
 
 test("2) valid thin slate => legitimate underfill, no immediate Telegram page", () => {
