@@ -9,7 +9,8 @@ import { collectCoachContext, coachContextBudgetMs } from "../coachContextBudget
 import { beginCoachPropAuditForeground, createCoachPropAudit, propAuditKey, type CoachPropAudit } from "../coachPropAudit.ts";
 import { persistCoachPropAudit } from "../coachPropAuditStore.ts";
 import { parsedPickFromPoolEntry } from "../propSelection.ts";
-import { isAutomaticFreeCoachAsk } from "../coachSmallTicketCompletion.ts";
+import { pickOpeningCoachGames, runCoachOpeningPass } from "../coachOpeningPass.ts";
+import { isAutomaticFreeCoachAsk, canCompleteAutomaticSmallTicket } from "../coachSmallTicketCompletion.ts";
 import { preparedEnvironmentForGames, filterPreparedDeliveryPicks } from "@/lib/preparedGameContext";
 import { coachContextWarmer } from "@/lib/coachContextWarmup";
 import { filterUngroundedCoachPropPool } from "@/lib/coachPreSimGrounding";
@@ -210,12 +211,17 @@ function countPropLike(picks: ParsedPick[]): number {
   return picks.filter((p) => !!p.isProp).length;
 }
 
+type CoachSlateSnapshot = { espnGames: EspnGame[]; odds: OddsGame[] };
+type CoachSlateReuse = { snapshot?: CoachSlateSnapshot };
+
 export async function loadScanInputs(
   signal: AbortSignal,
   requestedLegs: number,
   askText: string | null | undefined,
   onStatus?: (status: string) => void,
   priorUserTexts: string[] = [],
+  openingPass = false,
+  slateReuse?: CoachSlateReuse,
 ): Promise<{
   espnGames: EspnGame[];
   oddsGames: OddsGame[];
@@ -247,9 +253,11 @@ export async function loadScanInputs(
       : "Loading tonight's board…",
   );
   // Live enrichment must not serialize the start of the full prop-board load.
-  const liveFeedPromise = getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] }));
+  const liveFeedPromise = openingPass ? Promise.resolve({ odds: [] as RealOddsEntry[] }) : getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] }));
   let failedOddsSports = 0;
-  const [espnGamesRaw, receivedOdds] = await Promise.all([
+  const [espnGamesRaw, receivedOdds] = slateReuse?.snapshot
+    ? [slateReuse.snapshot.espnGames, slateReuse.snapshot.odds]
+    : await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>
       rows.flat(),
     ),
@@ -258,6 +266,9 @@ export async function loadScanInputs(
       return [] as OddsGame[];
     }))).then(rows => rows.flat()),
   ]);
+  if (openingPass && slateReuse && !signal.aborted && failedOddsSports === 0 && espnGamesRaw.length > 0) {
+    slateReuse.snapshot = { espnGames: espnGamesRaw, odds: receivedOdds };
+  }
   const boardAvailability = summarizeCoachBoard(receivedOdds, failedOddsSports);
   const oddsRaw = filterBettableOddsGames(receivedOdds);
 
@@ -285,14 +296,20 @@ export async function loadScanInputs(
     sportsPresentOnSlate(oddsGames),
   );
 
-  onStatus?.("Loading player props and alt lines across the board…");
+  if (openingPass) {
+    const slate = pickOpeningCoachGames(oddsGames, espnGames);
+    oddsGames = slate.oddsGames;
+    espnGames = slate.espnGames;
+  } else {
+    onStatus?.("Loading player props and alt lines across the board…");
+  }
   const constraint = parseCoachAskMarketConstraint(askText, priorUserTexts);
   const gameLinesOnly = constraint.gameLinesOnly && !constraint.propsOnly;
   const propOddsGames = propBoardGamesForScope(oddsGames, {
-    gameLinesOnly,
+    gameLinesOnly: openingPass || gameLinesOnly,
     allowNcaafPlayerProps: askAllowsNcaafPlayerProps(askText),
   });
-  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
+  let propPool = openingPass ? [] : await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
   );
   const liveFeed = await liveFeedPromise;
@@ -328,6 +345,9 @@ export async function loadScanInputs(
 
 async function buildCoachParlayImpl(opts: {
   propAudit?: CoachPropAudit;
+  /** Short opening pass for the automatic free ticket; no prop or live-board fanout. */
+  openingPass?: boolean;
+  slateReuse?: CoachSlateReuse;
   requestedLegs: number;
   /** User ask — scopes sports (college football) and priority inject. */
   askText?: string | null;
@@ -358,6 +378,10 @@ async function buildCoachParlayImpl(opts: {
   const requestStartedAtMs = opts.requestStartedAtMs ?? Date.now();
   const timing = createCoachRequestTiming({ requestStartedAtMs, budgetMs });
   let deliveryTerminalized = false;
+  // A probe is not a separate user request. Its shortfall must not count as a freeze.
+  const reportPassReliability: typeof reportCoachScanReliability = opts.openingPass
+    ? () => {}
+    : reportCoachScanReliability;
 
   // Observe-only reliability markers — created before the P0 early exit /
   // loadScanInputs so the blocked path can emit without slate sims.
@@ -422,7 +446,7 @@ async function buildCoachParlayImpl(opts: {
       // Short fixed copy only — no long clarification / quality-bar wording.
       const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
       markCoachPhase(timing, "terminal");
-      reportCoachScanReliability({
+      reportPassReliability({
         requestId: coachRelRequestId,
         sportCategory: coachRelSport || "ncaaf",
         requestedLegCount: target,
@@ -463,6 +487,8 @@ async function buildCoachParlayImpl(opts: {
       opts.askText,
       opts.onStatus,
       opts.priorUserTexts ?? [],
+      opts.openingPass,
+      opts.slateReuse,
     );
   } finally {
     loadArm.dispose();
@@ -478,7 +504,7 @@ async function buildCoachParlayImpl(opts: {
       timing.timeoutReason = "load_deadline";
     }
     deliveryTerminalized = true;
-    reportCoachScanReliability({
+    reportPassReliability({
       requestId: coachRelRequestId,
       sportCategory: coachRelSport,
       requestedLegCount: target,
@@ -526,7 +552,7 @@ async function buildCoachParlayImpl(opts: {
     marketConstraint,
   );
   const propsOnly = marketConstraint.propsOnly;
-  const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
+  const gameLinesOnly = (opts.openingPass || marketConstraint.gameLinesOnly) && !propsOnly;
   const excludeTotals = marketConstraint.excludeTotals && !propsOnly;
   // Drop Over/Under totals from the odds board when the book/user has no O/U.
   const scanRealOdds = excludeTotals
@@ -599,7 +625,7 @@ async function buildCoachParlayImpl(opts: {
   const boardSports = [
     ...new Set(
       [
-        ...inputs.sports,
+        ...(opts.openingPass ? [] : inputs.sports),
         ...activePropPool.map((e) => String(e.sport ?? "").toLowerCase()),
         ...inputs.espnGames.map((g) => String(g.sport ?? "").toLowerCase()),
       ].filter(Boolean),
@@ -687,7 +713,7 @@ async function buildCoachParlayImpl(opts: {
         fallback:
           {} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap,
         run: async (signal) =>
-          boardSports.some((s) =>
+          !opts.openingPass && boardSports.some((s) =>
             [
               "nfl",
               "ncaaf",
@@ -729,7 +755,7 @@ async function buildCoachParlayImpl(opts: {
                 realOdds: scanRealOdds,
                 signal: signal,
                 focalText: opts.askText,
-                matchupCap: gameLinesOnly ? 20 : 12,
+                matchupCap: opts.openingPass ? 5 : gameLinesOnly ? 20 : 12,
               }).catch(() => ({}) as Record<string, MatchupHistoryEntry>)
             : Promise.resolve({} as Record<string, MatchupHistoryEntry>),
       },
@@ -761,7 +787,7 @@ async function buildCoachParlayImpl(opts: {
       timing.timeoutReason = "context_deadline";
     }
     deliveryTerminalized = true;
-    reportCoachScanReliability({
+    reportPassReliability({
       requestId: coachRelRequestId,
       sportCategory: coachRelSport,
       requestedLegCount: target,
@@ -1225,7 +1251,7 @@ async function buildCoachParlayImpl(opts: {
     deliveryTerminalized = true;
     // Fire-and-forget reliability — props-only early return must still emit.
     // Assembly reports deliveryCommitted:false; UI finishSession commits success.
-    reportCoachScanReliability({
+    reportPassReliability({
       requestId: coachRelRequestId,
       sportCategory: coachRelSport,
       requestedLegCount: target,
@@ -1623,7 +1649,7 @@ async function buildCoachParlayImpl(opts: {
     },
   });
   picks = filterPreparedDeliveryPicks(picks, inputs.espnGames);
-  if (picks.length) rememberParlayBuild(picks);
+  if (picks.length && !opts.openingPass && !opts.signal.aborted) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
     teamScope,
@@ -1703,7 +1729,7 @@ async function buildCoachParlayImpl(opts: {
   perf.qualifiedCount = picks.length;
   // Fire-and-forget reliability — after ticket is finalized; never awaits.
   // Assembly is not delivery success — UI finishSession sets deliveryCommitted.
-  reportCoachScanReliability({
+  reportPassReliability({
     requestId: coachRelRequestId,
     sportCategory: coachRelSport,
     requestedLegCount: target,
@@ -1784,23 +1810,47 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   let lastQualified: ParsedPick[] = [];
   let propPoolSize = 0;
   try {
-    const result = await runCoachBounded(signal => buildCoachParlayImpl({
-      ...opts, signal, requestStartedAtMs, propAudit: audit,
-      onResolvedAsk: ask => {
-        if (closed || signal.aborted) return;
-        terminalCaps = shouldActivateSingleEventSeating(ask) ? singleEventCapsForTarget(terminalTarget) : null;
-        opts = { ...opts, askText: ask };
-        opts.onResolvedAsk?.(ask);
-      },
-      onStatus: status => { if (!closed) opts.onStatus?.(status); },
-      onReadyToScan: info => { if (!closed) { propPoolSize = info.propPoolSize; opts.onReadyToScan?.(info); } },
-      onPartialPicks: picks => {
-        if (closed || signal.aborted) return;
-        const scoped = safePicks(picks);
-        lastQualified = satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : [];
-        opts.onPartialPicks?.(lastQualified);
-      },
-    }), coachRemainingBudgetMs(requestStartedAtMs, budgetMs), opts.signal);
+    const result = await runCoachBounded(async signal => {
+      const slateReuse: CoachSlateReuse = {};
+      if (!researchUnlocked && terminalTarget === 2 && isAutomaticFreeCoachAsk(opts.askText)) {
+        const opening = await runCoachOpeningPass({
+          signal,
+          remainingMs: coachRemainingBudgetMs(requestStartedAtMs, budgetMs),
+          work: openingSignal => buildCoachParlayImpl({
+            ...opts, signal: openingSignal, openingPass: true, slateReuse, requestStartedAtMs, propAudit: audit,
+            onStatus: status => { if (!closed && !openingSignal.aborted) opts.onStatus?.(status); },
+            onResolvedAsk: undefined, onReadyToScan: undefined, onPartialPicks: undefined,
+          }),
+          accept: probe => {
+            const picks = safePicks(probe.picks);
+            return canCompleteAutomaticSmallTicket({ enabled: true, target: terminalTarget, picks })
+              ? { ...probe, picks, timedOut: false }
+              : null;
+          },
+        });
+        if (opening) {
+          rememberParlayBuild(opening.picks);
+          return opening;
+        }
+      }
+      return buildCoachParlayImpl({
+        ...opts, signal, requestStartedAtMs, propAudit: audit, slateReuse,
+        onResolvedAsk: ask => {
+          if (closed || signal.aborted) return;
+          terminalCaps = shouldActivateSingleEventSeating(ask) ? singleEventCapsForTarget(terminalTarget) : null;
+          opts = { ...opts, askText: ask };
+          opts.onResolvedAsk?.(ask);
+        },
+        onStatus: status => { if (!closed) opts.onStatus?.(status); },
+        onReadyToScan: info => { if (!closed) { propPoolSize = info.propPoolSize; opts.onReadyToScan?.(info); } },
+        onPartialPicks: picks => {
+          if (closed || signal.aborted) return;
+          const scoped = safePicks(picks);
+          lastQualified = satisfiesExplicitGamePropMix(opts.askText, scoped) ? scoped : [];
+          opts.onPartialPicks?.(lastQualified);
+        },
+      });
+    }, coachRemainingBudgetMs(requestStartedAtMs, budgetMs), opts.signal);
     const scopedPicks = safePicks(result.picks);
     const mixUnavailable = scopedPicks.length > 0 && !satisfiesExplicitGamePropMix(opts.askText, scopedPicks);
     const picks = mixUnavailable ? [] : scopedPicks;
