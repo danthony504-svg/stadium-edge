@@ -19,6 +19,7 @@ import {
   isDesignatedOwnerTestUser,
 } from "../lib/ownerTestAccess";
 import { isDesignatedResearchTester } from "../lib/researchTesterAccess";
+import { readPaidEntitlementForOwner } from "../lib/ownerEntitlementRead";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 import {
   planFromEntitlementIds,
@@ -411,12 +412,14 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
     ownerDiag = diag;
 
     routeFailureStage = "db_read";
-    const rows = await db
-      .select()
-      .from(subscriptionEntitlementsTable)
-      .where(eq(subscriptionEntitlementsTable.userId, userId))
-      .limit(1);
-    const row = rows[0];
+    const { row, paidReadUnavailable } = await readPaidEntitlementForOwner(
+      ownerAccess === true,
+      async () => (await db
+        .select()
+        .from(subscriptionEntitlementsTable)
+        .where(eq(subscriptionEntitlementsTable.userId, userId))
+        .limit(1))[0],
+    );
 
     routeFailureStage = "response";
     logEntitlementDiag({
@@ -427,7 +430,7 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       ownerAccess: ownerAccess === true,
       researchTesterAccess: researchTesterAccess === true,
       responseStatus: 200,
-      routeFailureStage: "none",
+      routeFailureStage: paidReadUnavailable ? "db_read" : "none",
       clerkHttpStatus: ownerDiag.clerkHttpStatus,
       clerkErrorCode: ownerDiag.clerkErrorCode,
       clerkFailureCategory: ownerDiag.clerkFailureCategory,
