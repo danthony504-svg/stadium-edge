@@ -10,6 +10,11 @@ import type { SimTier } from "./simCache.js";
 import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
 import { teamPace } from "./statmuse.js";
+import { resolvePropSimWeatherImpact } from "./mlbPreparedWeatherImpact.js";
+import {
+  archiveRecordsFromPropSimRows,
+  enqueuePropPregameArchive,
+} from "./propPregameArchive.js";
 import { runSportGameMonteCarlo } from "./sportSim/registry.js";
 import { runTennisMonteCarlo } from "./tennisMonteCarlo.js";
 import { buildFightAnalysis } from "./ufc.js";
@@ -104,6 +109,10 @@ export async function runPropSimsInProcess(body: {
   awayTeam?: string;
   homeTeamId?: string;
   awayTeamId?: string;
+  eventId?: string | null;
+  weatherImpact?: number | null;
+  /** Holdout-only — never set for subscriber Coach slate jobs. */
+  applyPreparedWeatherImpact?: boolean;
   defenseIndex?: number | null;
   defenseIndexByFamily?: Record<string, number> | null;
   props: Array<{
@@ -182,13 +191,21 @@ export async function runPropSimsInProcess(body: {
           })),
         }
       : null;
+  const { weatherImpact } = resolvePropSimWeatherImpact({
+    sport,
+    bodyWeatherImpact: body.weatherImpact,
+    prepared: preparedContext,
+    // Subscriber slate path stays off unless an explicit holdout flag is set.
+    applyPreparedWeatherImpact: body.applyPreparedWeatherImpact === true,
+  });
+
   const gameCtx = {
     sport,
     oppPace,
     leaguePace,
     oppKeyInjuries: awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0,
     ownKeyInjuries: homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0,
-    weatherImpact: null as number | null,
+    weatherImpact,
     opportunityShiftInputs,
     preparedContext,
     defenseIndex: body.defenseIndex ?? null,
@@ -208,8 +225,20 @@ export async function runPropSimsInProcess(body: {
     isHomeByPlayer,
     body.simulations,
   );
+  const simulations = tierSimCount(tier, body.simulations);
+  if (tier === "deep") {
+    enqueuePropPregameArchive(
+      archiveRecordsFromPropSimRows({
+        sport,
+        eventId: body.eventId ?? null,
+        kickoff: body.startsAt ? String(body.startsAt) : null,
+        simulations,
+        rows,
+      }),
+    );
+  }
   return {
-    simulations: tierSimCount(tier, body.simulations),
+    simulations,
     props: rows.map((row) => ({
       player: row.player,
       market: row.market,
