@@ -1,5 +1,31 @@
 # Build 78 IPS crashes (2026-10-14) — ErrorRecovery SIGABRT
 
+## Updated device evidence — 2026-10-19 02:59 UTC
+
+This section supersedes historical statements below about the last production tip and missing post-recovery device identity.
+
+The owner supplied the full production device report:
+- Running update: `01a144bd-83bc-7ee4-8e43-3718b03c42b3`, created 2026-10-16T12:43:53.148Z.
+- Running commit: `b666165e8d21c85222ab2ff874b538394efac66a`; channel production; runtime/app version 1.1.0.
+- Embedded launch false; emergency launch false; recovery pending false; apply outcome applied_ok.
+- Native build number is unavailable: runtime compatibility alone does not independently identify binary Build 78.
+- Startup sequences completed at 02:36:40 and 02:53:59 UTC. Subsequent checks returned checkCompleteUnavailable.
+- One network-connection-lost check at 02:55:37 recovered on the 02:58:36 check. No fatal appears in this supplied one-hour window.
+- No staged update: downloading and pending false. Current missing UI fixes are a publication/channel issue, not evidence of an apply failure.
+- Preview update `01a15213-4bc2-7347-bb40-cc38791f1983` was separately shown running by the owner.
+
+### Fixes and limits
+
+Repository history includes the native-presence guard before Clerk passkey evaluation (commit `1cebd391`), startup import deferral, and score-breakdown normalization. These address reproduced crash classes. They do not identify the original October 14 exception retrospectively. Do not reintroduce the known-bad unguarded passkey import or repeat a speculative OTA fix.
+
+Local verification in this investigation: 52 mobile critical/crash tests passed, plus 25 startup/passkey/diagnostic/account checks. The complete critical script stopped in its API phase because server dependencies including pino and express are absent in the checkout; this is an environment limitation, not a full-suite pass.
+
+### Remaining release work
+
+Retain the production freeze until release requirements are satisfied or explicitly changed by the owner. Record device identity and the actual verification interval; do not claim a 24-hour test or create a verification marker without that evidence. The supplied logs establish healthy operation of the October 16 production update, not the complete test interval or safety of every subsequent change. Latest UI/access changes must be validated on the preview candidate before production publication.
+
+---
+
 ## Scope
 
 Two TestFlight Build 78 / `1.1.0` reports (`90811de5-15a8-3023-bb9e-1862263245ef`):
