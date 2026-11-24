@@ -269,6 +269,7 @@ export function fetchSimulatorProps(
     return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
   }
   const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
+  if (args.sport === "nba") q.set("includeFirstBasket", "1");
   if (args.home) q.set("home", args.home);
   if (args.away) q.set("away", args.away);
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);

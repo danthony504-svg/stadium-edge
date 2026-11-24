@@ -740,7 +740,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
     const altExtendedMarkets = ALT_MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
-    const extendedMainMarkets = MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
+    const includeFirstBasket = sport === "nba" && req.query["includeFirstBasket"] === "1";
+    const extendedMainMarkets = includeFirstBasket
+      ? ["player_first_basket"]
+      : MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
     const dstMarkets = MARKETS_DST_BY_SPORT[sport] ?? [];
     const [data, qhData, altData, altExtendedData, extendedMainData, dstData] = await Promise.all([
       loadBaseOdds(),
