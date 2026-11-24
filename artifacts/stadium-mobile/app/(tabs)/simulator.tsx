@@ -536,18 +536,37 @@ function SimulatorScreen() {
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
-  const deferredGameResult = useDeferredValue(gameResult);
-  const gameLineRecs = useMemo(() => {
-    if (gameResult !== deferredGameResult || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
-    return recommendBestLinesForGame({
+  const scoringInput = useMemo(() => {
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
       evalLines: gameOddsLines,
       gameSim: gameResult,
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
-    });
-  }, [deferredGameResult, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+    };
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  const [linePageSize, setLinePageSize] = useState(20);
+  const [scoredLines, setScoredLines] = useState<{
+    input: NonNullable<typeof scoringInput>;
+    recommendations: Awaited<ReturnType<typeof recommendBestLinesForGame>>;
+  } | null>(null);
+  useEffect(() => {
+    if (!scoringInput) return;
+    setLinePageSize(20);
+    const controller = new AbortController();
+    void recommendBestLinesForGame(scoringInput, controller.signal).then(
+      (recommendations) => {
+        if (!controller.signal.aborted) setScoredLines({ input: scoringInput, recommendations });
+      },
+      () => {
+        if (!controller.signal.aborted) setScoredLines({ input: scoringInput, recommendations: null });
+      },
+    );
+    return () => controller.abort();
+  }, [scoringInput]);
+  const gameLineRecs = scoredLines?.input === scoringInput ? scoredLines.recommendations : null;
 
   const gameSimRecommendation = useMemo(() => {
     if (!gameResult || !gameLineRecs) return null;
@@ -581,7 +600,7 @@ function SimulatorScreen() {
     });
   }, [deferredMode, gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
 
-  const bestLinesAnalyzing = gameResult ? gameResult !== deferredGameResult : running;
+  const bestLinesAnalyzing = gameResult ? !!scoringInput && scoredLines?.input !== scoringInput : running;
 
   useEffect(() => {
     if (!bestLinesAnalyzing) {
@@ -1634,9 +1653,20 @@ function SimulatorScreen() {
                         <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
                           Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — only lines with full sim hit, fair odds, EV, edge, grade, and confidence are shown.
                         </Text>
-                        {displayBestLines.map((row) => (
-                          <RecommendedLineRow key={`${row.entry.market}|${row.entry.pick}`} row={row} />
+                        {displayBestLines.slice(0, linePageSize).map((row, index) => (
+                          <RecommendedLineRow key={`${row.entry.market}|${row.entry.pick}|${index}`} row={row} />
                         ))}
+                        {linePageSize < displayBestLines.length ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => setLinePageSize((size) => size + 20)}
+                            style={{ minHeight: 44, justifyContent: "center" }}
+                          >
+                            <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                              Show more lines ({Math.min(linePageSize, displayBestLines.length)} of {displayBestLines.length})
+                            </Text>
+                          </Pressable>
+                        ) : null}
                       </Card>
                     ) : (
                       <Card style={{ marginBottom: 12 }}>
