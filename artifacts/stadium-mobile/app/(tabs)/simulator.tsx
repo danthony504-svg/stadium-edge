@@ -21,7 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { NflDriveReplay } from "@/components/NflDriveReplay";
+import { GameReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
@@ -1043,6 +1043,15 @@ function SimulatorScreen() {
     void runSimulation({ auto: true });
   }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
 
+  const replayAway = gameResult?.outcomes?.awayScores[0];
+  const replayHome = gameResult?.outcomes?.homeScores[0];
+  const replayData = sport === "nfl" && gameResult?.driveReplay?.length
+    ? { sport: "nfl" as const, drives: gameResult.driveReplay }
+    : sport === "nba" && replayAway != null && replayHome != null &&
+        Number.isFinite(replayAway) && Number.isFinite(replayHome)
+      ? { sport: "nba" as const, finalScore: { away: replayAway, home: replayHome } }
+      : null;
+
   const canRun =
     gameEligible &&
     !!game &&
@@ -1535,11 +1544,11 @@ function SimulatorScreen() {
               </LinearGradient>
             </Pressable>
 
-            {sport === "nfl" && mode !== "props" && game && gameResult?.driveReplay?.length ? (
+            {mode !== "props" && game && gameResult && replayData ? (
               <View style={{ paddingHorizontal: 16 }}>
-                <NflDriveReplay
+                <GameReplay
                   key={`${game.id}:${ranAt}`}
-                  drives={gameResult.driveReplay}
+                  {...replayData}
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
                   props={propResults}

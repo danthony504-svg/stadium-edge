@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Defs, LinearGradient as FieldGradient, Line, Path, Polygon, Stop, Text as FieldText } from "react-native-svg";
+import Svg, { Circle, Defs, LinearGradient as FieldGradient, Line, Path, Polygon, Rect, Stop, Text as FieldText } from "react-native-svg";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -13,7 +13,6 @@ import { propMarketLabel } from "@/lib/propMarketLabel";
 import type { GameSimulationResult, PropSimulationResult } from "@/lib/api";
 
 type Props = {
-  drives: NonNullable<GameSimulationResult["driveReplay"]>;
   simulations: number;
   away: string;
   home: string;
@@ -21,7 +20,10 @@ type Props = {
   homeLogo?: string | null;
   props: PropSimulationResult[];
   onSelectProps: () => void;
-};
+} & (
+  | { sport: "nfl"; drives: NonNullable<GameSimulationResult["driveReplay"]> }
+  | { sport: "nba"; finalScore: { away: number; home: number } }
+);
 
 const YARD_MARKETS = new Set([
   "player_pass_yds",
@@ -32,24 +34,26 @@ const YARD_MARKETS = new Set([
   "player_pass_rush_reception_yds",
 ]);
 
-export function NflDriveReplay({ drives, simulations, away, home, awayLogo, homeLogo, props, onSelectProps }: Props) {
+export function GameReplay(replay: Props) {
+  const { simulations, away, home, awayLogo, homeLogo, props, onSelectProps } = replay;
+  const stepCount = replay.sport === "nba" ? 4 : replay.drives.length;
   const colors = useColors();
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
-  const complete = cursor === drives.length;
+  const complete = cursor === stepCount;
   const trackWidth = useRef(0);
   const trackStart = useRef(0);
-  const position = cursor / drives.length;
+  const position = cursor / stepCount;
 
   function seek(next: number) {
     setPlaying(false);
-    setCursor(Math.max(0, Math.min(drives.length, next)));
+    setCursor(Math.max(0, Math.min(stepCount, next)));
   }
 
   function seekAt(pageX: number) {
     if (trackWidth.current > 0) {
-      seek(Math.round(((pageX - trackStart.current) / trackWidth.current) * drives.length));
+      seek(Math.round(((pageX - trackStart.current) / trackWidth.current) * stepCount));
     }
   }
 
@@ -57,16 +61,22 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
     if (!playing || complete) return;
     const timer = setTimeout(() => {
       setCursor(cursor + 1);
-      if (cursor + 1 === drives.length) setPlaying(false);
+      if (cursor + 1 === stepCount) setPlaying(false);
     }, 900);
     return () => clearTimeout(timer);
-  }, [complete, cursor, drives.length, playing]);
+  }, [complete, cursor, stepCount, playing]);
 
-  const shown = drives.slice(0, cursor);
   const score = { away: 0, home: 0 };
-  for (const drive of shown) score[drive.side] += drive.points;
-  const latest = shown.at(-1);
-  const yardProps = props.filter((prop) => YARD_MARKETS.has(prop.market) && propSimulationCount(prop) > 0);
+  if (replay.sport === "nba") {
+    score.away = Math.round(replay.finalScore.away * position);
+    score.home = Math.round(replay.finalScore.home * position);
+  } else {
+    for (const drive of replay.drives.slice(0, cursor)) score[drive.side] += drive.points;
+  }
+  const latest = replay.sport === "nfl" && cursor ? replay.drives[cursor - 1] : undefined;
+  const visibleProps = props.filter((prop) =>
+    (replay.sport === "nba" || YARD_MARKETS.has(prop.market)) && propSimulationCount(prop) > 0,
+  );
   const driveText = latest
     ? `${latest.side === "home" ? home : away} · ${latest.points ? `+${latest.points} points` : "No score"}`
     : "Kickoff";
@@ -83,7 +93,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
         <Feather name="film" color="#70d9ff" size={24} />
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Watch a Sim</Text>
-          <Text style={styles.subtitle}>1 of {simulations.toLocaleString()} simulations · NFL drive replay</Text>
+          <Text style={styles.subtitle}>1 of {simulations.toLocaleString()} simulations · {replay.sport === "nba" ? "NBA replay" : "NFL drive replay"}</Text>
         </View>
       </View>
       <View style={styles.scoreboard}>
@@ -99,7 +109,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="Replay position"
-          accessibilityValue={{ min: 0, max: drives.length, now: cursor }}
+          accessibilityValue={{ min: 0, max: stepCount, now: cursor }}
           accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
           onAccessibilityAction={({ nativeEvent }) => {
             if (nativeEvent.actionName === "increment") seek(cursor + 1);
@@ -121,10 +131,32 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
           </View>
         </View>
       </View>
-      <ReplayField away={away} home={home} activeSide={latest?.side} />
+      {replay.sport === "nba" ? (
+        <>
+          <View style={styles.quarterStops}>
+            {["Tipoff", "Q1", "Q2", "Q3", "Q4"].map((label, index) => (
+              <Pressable
+                key={label}
+                accessibilityRole="button"
+                accessibilityState={{ selected: cursor === index }}
+                onPress={() => seek(index)}
+                style={[styles.quarterStop, cursor === index && styles.primaryAction]}
+              >
+                <Text style={styles.actionText}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <ReplayCourt />
+          <Text style={styles.subtitle}>Illustrative quarter scores from one simulated final</Text>
+        </>
+      ) : <ReplayField away={away} home={home} activeSide={latest?.side} />}
       <View style={styles.status}>
-        <Text style={styles.statusText}>{complete ? "Final" : cursor ? `Drive ${cursor}/${drives.length}` : "Kickoff"}</Text>
-        {complete ? <Text style={styles.subtitle}>Drive {cursor}/{drives.length}</Text> : null}
+        <Text style={styles.statusText}>
+          {replay.sport === "nba"
+            ? cursor ? `End of Q${cursor} · ${cursor * 12}:00 elapsed` : "Tipoff"
+            : complete ? "Final" : cursor ? `Drive ${cursor}/${stepCount}` : "Kickoff"}
+        </Text>
+        {complete && replay.sport === "nfl" ? <Text style={styles.subtitle}>Drive {cursor}/{stepCount}</Text> : null}
         {latest ? (
           <Text accessibilityLiveRegion={playing ? "none" : "polite"} style={styles.driveText}>{driveText}</Text>
         ) : null}
@@ -140,7 +172,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
           onPress={() => seek(cursor + 1)}
           style={[styles.action, complete && { opacity: 0.45 }]}
         >
-          <Text style={styles.actionText}>Next drive</Text>
+          <Text style={styles.actionText}>{replay.sport === "nba" ? "Next quarter" : "Next drive"}</Text>
           <Feather name="skip-forward" size={15} color="#c4edff" />
         </Pressable>
         <Pressable
@@ -155,7 +187,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
       </View>
       {propsOpen ? <View style={{ backgroundColor: colors.card, borderRadius: 10, padding: 12, gap: 8 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Full-game projections</Text>
-        {yardProps.length ? yardProps.map((prop) => (
+        {visibleProps.length ? visibleProps.map((prop) => (
           <View key={prop.key} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{prop.player}</Text>
@@ -172,7 +204,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
           </View>
         )) : (
           <Pressable accessibilityRole="button" onPress={onSelectProps}>
-            <Text style={{ color: colors.primary }}>Select yardage props in Full Simulation</Text>
+            <Text style={{ color: colors.primary }}>{replay.sport === "nba" ? "Select player props in Full Simulation" : "Select yardage props in Full Simulation"}</Text>
           </Pressable>
         )}
       </View> : null}
@@ -248,6 +280,26 @@ function ReplayField({ away, home, activeSide }: {
   );
 }
 
+function ReplayCourt() {
+  const line = "#fff2d3";
+  return (
+    <View accessible accessibilityLabel="Basketball court illustration" style={styles.field}>
+      <Svg width="100%" height="100%" viewBox="0 0 360 104">
+        <Rect x={4} y={4} width={352} height={96} rx={5} fill="#b77941" stroke={line} strokeWidth={2} />
+        <Line x1={180} x2={180} y1={4} y2={100} stroke={line} />
+        <Circle cx={180} cy={52} r={15} fill="#92522d" stroke={line} />
+        <Rect x={4} y={34} width={56} height={36} fill="#92522d" stroke={line} />
+        <Rect x={300} y={34} width={56} height={36} fill="#92522d" stroke={line} />
+        <Circle cx={60} cy={52} r={12} fill="none" stroke={line} />
+        <Circle cx={300} cy={52} r={12} fill="none" stroke={line} />
+        <Path d="M4 12 H24 A48 40 0 0 1 24 92 H4 M356 12 H336 A48 40 0 0 0 336 92 H356" fill="none" stroke={line} />
+        <Circle cx={18} cy={52} r={4} fill="none" stroke={line} />
+        <Circle cx={342} cy={52} r={4} fill="none" stroke={line} />
+      </Svg>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: { marginBottom: 12, gap: 10, backgroundColor: "#09182a", borderColor: "#264866" },
   heading: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -263,6 +315,8 @@ const styles = StyleSheet.create({
   timeline: { flexDirection: "row", alignItems: "center", gap: 10 },
   play: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#497ba9", backgroundColor: "#12365b", alignItems: "center", justifyContent: "center" },
   scrubber: { flex: 1, height: 44, justifyContent: "center", marginHorizontal: 10 },
+  quarterStops: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
+  quarterStop: { flexGrow: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: "#345876", paddingHorizontal: 6 },
   field: { aspectRatio: 360 / 104, backgroundColor: "#0b2924", borderRadius: 12, padding: 3 },
   status: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "#12253b" },
   statusText: { color: "#f4f8ff", fontFamily: FONT.semibold, fontSize: 13 },
