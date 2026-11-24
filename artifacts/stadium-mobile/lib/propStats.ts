@@ -69,7 +69,6 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_receptions: ["receptions"],
   player_reception_longest: ["longReception"],
   player_reception_tds: ["receivingTouchdowns"],
-  player_field_goals: ["fieldGoalsMade", "FG"],
 };
 
 // Markets whose ESPN gamelog column is a "made-attempted" string rather than a
@@ -79,6 +78,7 @@ const MARKET_SINGLE: Record<string, string[]> = {
 // "3PM" is listed first for feeds that already give a bare made count.
 const MARKET_MADE: Record<string, string[]> = {
   player_threes: ["3PM", "3PT"],
+  player_field_goals: ["fieldGoalsMade", "fieldGoalsMade-fieldGoalAttempts", "FG"],
 };
 
 /**
@@ -331,16 +331,16 @@ export function gameValueForMarket(
       const n = num(stats, lab);
       if (n != null) return n;
     }
-    const fg = !ambiguous.has("fieldGoalsMade")
-      ? num(stats, "fieldGoalsMade")
-      : !ambiguous.has("FG")
-        ? num(stats, "FG")
-        : null;
-    const xp = !ambiguous.has("extraPointsMade")
-      ? num(stats, "extraPointsMade")
-      : !ambiguous.has("XP")
-        ? num(stats, "XP")
-        : null;
+    const firstMade = (labels: readonly string[]) => {
+      for (const label of labels) {
+        if (ambiguous.has(label)) continue;
+        const value = madeCount(stats, label);
+        if (value != null) return value;
+      }
+      return null;
+    };
+    const fg = firstMade(MARKET_MADE.player_field_goals!);
+    const xp = firstMade(["extraPointsMade", "extraPointsMade-extraPointAttempts", "XP"]);
     if (fg != null && xp != null) return fg * 3 + xp;
     return null;
   }
