@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -306,23 +306,22 @@ function SimulatorScreen() {
 
   const [sport, setSport] = useState<string>("mlb");
   const [gameIdx, setGameIdx] = useState(0);
-  const [mode, setMode] = useState<SimMode>("props");
+  const [mode, setMode] = useState<SimMode>("game");
   const [filter, setFilter] = useState("popular");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SelectedProp[]>([]);
   const [running, setRunning] = useState(false);
-  const [gameResult, setGameResult] = useState<GameSimulationResult | null>(null);
+  const [scopedGameResult, setScopedGameResult] = useState<{ scope: string; result: GameSimulationResult } | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
   const [simDeepPending, setSimDeepPending] = useState(false);
   const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [linesScanStep, setLinesScanStep] = useState(0);
-  const [linesRevealReady, setLinesRevealReady] = useState(false);
 
   const sportFilters = propFiltersForSport(sport);
   const warmedRef = useRef(false);
-  const runInFlightRef = useRef(false);
+  const runInFlightRef = useRef<AbortController | null>(null);
   const lastAutoRunKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
@@ -426,16 +425,31 @@ function SimulatorScreen() {
       ? ufcPhotosQ.data?.home ?? game.homeLogo ?? null
       : game?.homeLogo ?? null;
 
+  const gameScope = JSON.stringify([sport, game?.id]);
+  const gameResult = scopedGameResult?.scope === gameScope ? scopedGameResult.result : null;
+  const setGameResult = useCallback((result: GameSimulationResult | null) => {
+    setScopedGameResult((previous) => {
+      if (!result) return null;
+      if (previous?.scope === gameScope && previous.result === result) return previous;
+      return { scope: gameScope, result };
+    });
+  }, [gameScope]);
+
   // Switching games must drop prior prop selections (PP lines are per-matchup).
   useEffect(() => {
     setSelected([]);
     setPropResults([]);
     setPlayerHistory({});
     setSimDeepPending(false);
-    setGameResult(null);
+    setScopedGameResult(null);
     setRanAt(null);
+    setRunning(false);
     lastAutoRunKeyRef.current = null;
-  }, [game?.id, sport]);
+    return () => {
+      runInFlightRef.current?.abort();
+      runInFlightRef.current = null;
+    };
+  }, [gameScope]);
 
   const gameEligible = !!game && gameEligibleForSim(game);
   const gameLabel =
@@ -522,8 +536,9 @@ function SimulatorScreen() {
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
+  const deferredGameResult = useDeferredValue(gameResult);
   const gameLineRecs = useMemo(() => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (gameResult !== deferredGameResult || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return recommendBestLinesForGame({
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -532,7 +547,7 @@ function SimulatorScreen() {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     });
-  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [deferredGameResult, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
 
   const gameSimRecommendation = useMemo(() => {
     if (!gameResult || !gameLineRecs) return null;
@@ -554,8 +569,9 @@ function SimulatorScreen() {
     [displayBestLines, gameSimRecommendation],
   );
 
+  const deferredMode = useDeferredValue(mode);
   const fullSimAnalytics = useMemo(() => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
+    if (deferredMode !== "full" || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
     return analyzeFullSimulation({
       result: gameResult,
       evalLines: gameOddsLines,
@@ -563,26 +579,9 @@ function SimulatorScreen() {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
     });
-  }, [gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
+  }, [deferredMode, gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
 
-  const bestLinesAnalyzing =
-    running ||
-    (Boolean(gameResult) && (mode === "game" || mode === "full") && !linesRevealReady);
-
-  useEffect(() => {
-    if (running) {
-      setLinesRevealReady(false);
-      setLinesScanStep(0);
-      return;
-    }
-    if (!gameResult || mode === "props") {
-      setLinesRevealReady(false);
-      return;
-    }
-    setLinesRevealReady(false);
-    const reveal = setTimeout(() => setLinesRevealReady(true), 1400);
-    return () => clearTimeout(reveal);
-  }, [gameResult, running, mode]);
+  const bestLinesAnalyzing = gameResult ? gameResult !== deferredGameResult : running;
 
   useEffect(() => {
     if (!bestLinesAnalyzing) {
@@ -596,9 +595,10 @@ function SimulatorScreen() {
     return () => clearInterval(id);
   }, [bestLinesAnalyzing]);
 
+  const showPropPicker = mode !== "game" && deferredMode !== "game" && !isGameLinesOnly;
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
-    enabled: !!game?.id && gameEligible,
+    enabled: !!game?.id && gameEligible && showPropPicker,
     throwOnError: false,
     queryFn: async ({ signal }) => {
       if (!game?.id) return [] as PlayerProp[];
@@ -631,7 +631,7 @@ function SimulatorScreen() {
   const gamesBootstrapping =
     (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
     games.length === 0;
-  const propsLoading = gameEligible && propsQ.isPending;
+  const propsLoading = showPropPicker && gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
@@ -723,13 +723,13 @@ function SimulatorScreen() {
     (sport !== "mlb" || probablesQ.isFetched);
 
   const mains = useMemo(() => {
-    if (propsLoading) return [];
+    if (!showPropPicker || propsLoading) return [];
     let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null);
     if (sport === "soccer") {
       list = list.filter((p) => isSoccerPropMarket(p.market));
     }
     return list;
-  }, [propsQ.data, propsLoading, sport]);
+  }, [propsQ.data, propsLoading, showPropPicker, sport]);
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];
@@ -829,7 +829,9 @@ function SimulatorScreen() {
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      runInFlightRef.current = true;
+      const controller = new AbortController();
+      const { signal } = controller;
+      runInFlightRef.current = controller;
       setRunning(true);
       if (opts?.force) {
         setGameResult(null);
@@ -865,7 +867,8 @@ function SimulatorScreen() {
             coverQueries,
             retainOutcomes: true,
             includeDriveReplay: sport === "nfl",
-          });
+          }, signal);
+          if (signal.aborted) return;
           if (gr) {
             setGameResult(gr);
             const ran = Date.now();
@@ -888,7 +891,7 @@ function SimulatorScreen() {
               let athleteId = s.athleteId;
               if (!athleteId) {
                 try {
-                  const { results } = await searchSimulatorPlayer(s.player);
+                  const { results } = await searchSimulatorPlayer(s.player, signal);
                   const hit =
                     results.find(
                       (r) =>
@@ -911,6 +914,7 @@ function SimulatorScreen() {
             }),
           );
 
+          if (signal.aborted) return;
           const ph: Record<string, SimulatorPlayerHistorySlice> = {};
           const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> =
             {};
@@ -918,7 +922,7 @@ function SimulatorScreen() {
             simProps.map(async (s) => {
               if (!s.athleteId) return;
               try {
-                const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
+                const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId }, signal);
                 const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
                   date: g.date ?? undefined,
                   opp: g.opponentName ?? undefined,
@@ -936,6 +940,7 @@ function SimulatorScreen() {
               }
             }),
           );
+          if (signal.aborted) return;
           setPlayerHistory(ph);
           const prQuick = enrichPropSimResults(
             await fetchSimulatorPropSimulationsBatch(
@@ -949,9 +954,11 @@ function SimulatorScreen() {
                 weatherImpact: wx,
                 tier: "quick",
               },
+              signal,
             ),
             phForSim,
           );
+          if (signal.aborted) return;
           setPropResults(prQuick);
           setSimDeepPending(true);
           const prDeep = enrichPropSimResults(
@@ -966,16 +973,20 @@ function SimulatorScreen() {
                 weatherImpact: wx,
                 tier: "deep",
               },
+              signal,
             ),
             phForSim,
           );
+          if (signal.aborted) return;
           setPropResults(prDeep);
           setSimDeepPending(false);
         }
         if (!runGame) setRanAt(Date.now());
       } finally {
-        runInFlightRef.current = false;
-        setRunning(false);
+        if (runInFlightRef.current === controller) {
+          runInFlightRef.current = null;
+          setRunning(false);
+        }
       }
     },
     [
@@ -986,6 +997,7 @@ function SimulatorScreen() {
       mode,
       selected,
       gameOddsLines,
+      setGameResult,
       weatherImpact,
     ],
   );
@@ -1010,7 +1022,7 @@ function SimulatorScreen() {
     if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
-  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
+  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
 
   const canRun =
     gameEligible &&
@@ -1275,7 +1287,7 @@ function SimulatorScreen() {
             ) : null}
 
             {/* Player prop builder */}
-            {(mode === "props" || mode === "full") && !isGameLinesOnly && (
+            {showPropPicker && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
@@ -1504,6 +1516,20 @@ function SimulatorScreen() {
               </LinearGradient>
             </Pressable>
 
+            {sport === "nfl" && mode !== "props" && game && gameResult?.driveReplay?.length ? (
+              <View style={{ paddingHorizontal: 16 }}>
+                <NflDriveReplay
+                  key={`${game.id}:${ranAt}`}
+                  drives={gameResult.driveReplay}
+                  props={propResults}
+                  onSelectProps={() => setMode("full")}
+                  simulations={gameResult.simulations}
+                  away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                  home={game.homeAbbr ?? game.homeTeam ?? "Home"}
+                />
+              </View>
+            ) : null}
+
             {(running || gameResult) && mode !== "props" ? (
               <SimulationSummaryCard
                 analyzing={bestLinesAnalyzing}
@@ -1567,15 +1593,6 @@ function SimulatorScreen() {
                         ) : null}
                       </ResultCol>
                     </View>
-                    {sport === "nfl" && !!gameResult.driveReplay?.length ? (
-                      <NflDriveReplay
-                        key={`${game.id}:${ranAt}`}
-                        drives={gameResult.driveReplay}
-                        simulations={gameResult.simulations}
-                        away={game.awayAbbr ?? game.awayTeam}
-                        home={game.homeAbbr ?? game.homeTeam}
-                      />
-                    ) : null}
                     {sport === "ufc" && gameResult.methodRates ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>
