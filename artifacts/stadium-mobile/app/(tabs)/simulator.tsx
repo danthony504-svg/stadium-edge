@@ -536,8 +536,19 @@ function SimulatorScreen() {
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
+  const replayAway = gameResult?.outcomes?.awayScores[0];
+  const replayHome = gameResult?.outcomes?.homeScores[0];
+  const replayData = sport === "nfl" && gameResult?.driveReplay?.length
+    ? { sport: "nfl" as const, drives: gameResult.driveReplay }
+    : sport === "nba" && replayAway != null && replayHome != null &&
+        Number.isFinite(replayAway) && Number.isFinite(replayHome)
+      ? { sport: "nba" as const, finalScore: { away: replayAway, home: replayHome } }
+      : null;
+
+  const showReplay = mode !== "props" && replayData != null;
+
   const scoringInput = useMemo(() => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -546,7 +557,7 @@ function SimulatorScreen() {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     };
-  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
   const [linePageSize, setLinePageSize] = useState(20);
   const [scoredLines, setScoredLines] = useState<{
     input: NonNullable<typeof scoringInput>;
@@ -1042,15 +1053,6 @@ function SimulatorScreen() {
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
   }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
-
-  const replayAway = gameResult?.outcomes?.awayScores[0];
-  const replayHome = gameResult?.outcomes?.homeScores[0];
-  const replayData = sport === "nfl" && gameResult?.driveReplay?.length
-    ? { sport: "nfl" as const, drives: gameResult.driveReplay }
-    : sport === "nba" && replayAway != null && replayHome != null &&
-        Number.isFinite(replayAway) && Number.isFinite(replayHome)
-      ? { sport: "nba" as const, finalScore: { away: replayAway, home: replayHome } }
-      : null;
 
   const canRun =
     gameEligible &&
@@ -1552,6 +1554,8 @@ function SimulatorScreen() {
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
                   props={propResults}
+                  selectedProps={selected}
+                  propsRunning={mode === "full" && running}
                   onSelectProps={() => setMode("full")}
                   simulations={gameResult.simulations}
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
@@ -1560,7 +1564,7 @@ function SimulatorScreen() {
               </View>
             ) : null}
 
-            {(running || gameResult) && mode !== "props" ? (
+            {!showReplay && (running || gameResult) && mode !== "props" ? (
               <SimulationSummaryCard
                 analyzing={bestLinesAnalyzing}
                 linesScanStep={linesScanStep}
@@ -1648,7 +1652,7 @@ function SimulatorScreen() {
                         </Text>
                       </Card>
                     ) : null}
-                    {bestLinesAnalyzing ? (
+                    {showReplay ? null : bestLinesAnalyzing ? (
                       <BestLinesLoadingCard
                         step={linesScanStep}
                         postedLines={gameOddsLines.length}
