@@ -83,33 +83,45 @@ function mapPrizePicksProps(sport: string, props: unknown): PlayerProp[] {
     }));
 }
 
-/** Keep only players on either team's ESPN roster; attach athleteId for sims. */
+/** Bind Simulator-only rows to the selected event and an eligible roster. */
 async function applyGameRoster(
-  sport: string,
+  args: SimGetPropsArgs,
   props: PlayerProp[],
-  homeTeamId?: string | null,
-  awayTeamId?: string | null,
   signal?: AbortSignal,
 ): Promise<PlayerProp[]> {
-  if (!props.length || (!homeTeamId && !awayTeamId)) return props;
-  try {
-    const { players } = await fetchGameRoster(sport, homeTeamId, awayTeamId, signal);
-    if (!players.length) return props;
-    const byName = new Map(players.map((p) => [normPlayerName(p.name), p]));
-    return props
-      .filter((p) => byName.has(normPlayerName(p.player)))
-      .map((p) => {
-        const r = byName.get(normPlayerName(p.player));
-        return {
-          ...p,
-          athleteId: p.athleteId ?? r?.athleteId ?? null,
-          playerTeamId: p.playerTeamId ?? r?.teamId ?? null,
-          headshot: p.headshot ?? r?.headshot ?? null,
-        };
-      });
-  } catch {
-    return props;
+  const { sport, eventId, homeTeamId, awayTeamId } = args;
+  if (!props.length || !homeTeamId || !awayTeamId || homeTeamId === awayTeamId) return [];
+  const teamIds = new Set([homeTeamId, awayTeamId]);
+  const eligible = props.filter((p) =>
+    (!p.sport || p.sport === sport) &&
+    (!p.playerTeamId || teamIds.has(p.playerTeamId)) &&
+    (!p.espnEventId || !/^\d+$/.test(eventId) || p.espnEventId === eventId) &&
+    (!p.oddsEventId || !/^[a-f0-9]{32}$/i.test(eventId) || p.oddsEventId === eventId),
+  );
+  if (!eligible.length) return [];
+
+  const { players } = await fetchGameRoster(sport, homeTeamId, awayTeamId, signal)
+    .catch(() => ({ sport, players: [] }));
+  if (signal?.aborted) return [];
+  const roster = players.filter((player) => teamIds.has(player.teamId));
+  const byId = new Map(roster.filter((player) => player.athleteId).map((player) => [player.athleteId, player]));
+  const byName = new Map<string, (typeof roster)[number] | null>();
+  for (const player of roster) {
+    const key = normPlayerName(player.name);
+    byName.set(key, byName.has(key) ? null : player);
   }
+
+  return eligible.flatMap((p) => {
+    const player = p.athleteId ? byId.get(p.athleteId) : byName.get(normPlayerName(p.player));
+    if (player && (!p.playerTeamId || p.playerTeamId === player.teamId)) {
+      return [{ ...p, athleteId: player.athleteId, playerTeamId: player.teamId, headshot: p.headshot ?? player.headshot }];
+    }
+    // An exact event and team stamp can still bind a feed row when the roster
+    // source is unavailable. DFS rows must be bound by the roster lookup.
+    const boundEvent = p.espnEventId === eventId || p.oddsEventId === eventId || p.eventId === eventId;
+    return !roster.length && p.priceSource !== "PrizePicks" && boundEvent && p.playerTeamId && p.athleteId
+      ? [p] : [];
+  });
 }
 
 /** Odds-API props first; on empty/502 fall back to PrizePicks DFS lines. Never throws. */
@@ -123,7 +135,7 @@ export async function loadSimulatorProps(
     const props = Array.isArray(r.props) ? r.props : [];
     if (props.length > 0) {
       const mains = props.filter((p): p is PlayerProp => !!p && typeof p === "object");
-      return applyGameRoster(args.sport, mains, args.homeTeamId, args.awayTeamId, signal);
+      return applyGameRoster(args, mains, signal);
     }
   } catch {
     // Production often 502s ESPN ids — try PrizePicks below.
@@ -141,10 +153,8 @@ export async function loadSimulatorProps(
       signal,
     );
     return applyGameRoster(
-      args.sport,
+      args,
       mapPrizePicksProps(args.sport, pp.props),
-      args.homeTeamId,
-      args.awayTeamId,
       signal,
     );
   } catch {
