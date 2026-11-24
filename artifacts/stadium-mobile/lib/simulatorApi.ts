@@ -24,7 +24,8 @@ async function simGetJson<T>(path: string, signal?: AbortSignal, timeoutMs = 22_
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const onAbort = () => ctrl.abort();
-  if (signal) signal.addEventListener("abort", onAbort);
+  if (signal?.aborted) ctrl.abort();
+  else signal?.addEventListener("abort", onAbort);
   try {
     const res = await expoFetch(`${API_BASE}${path}`, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -44,7 +45,8 @@ async function simPostJson<T>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const onAbort = () => ctrl.abort();
-  if (signal) signal.addEventListener("abort", onAbort);
+  if (signal?.aborted) ctrl.abort();
+  else signal?.addEventListener("abort", onAbort);
   try {
     const res = await expoFetch(`${API_BASE}${path}`, {
       method: "POST",
