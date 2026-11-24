@@ -37,6 +37,7 @@ import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { isBinaryNullLineMarket } from "@/lib/binaryPropMarket";
 import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
 import {
+  fetchSimulatorFirstBasket,
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
   fetchSimulatorInjuries,
@@ -659,6 +660,15 @@ function SimulatorScreen() {
     placeholderData: undefined,
   });
 
+  const firstBasketQ = useQuery({
+    queryKey: ["sim-first-basket", game?.id, game?.homeTeamId, game?.awayTeamId],
+    enabled: showPropPicker && sport === "nba" && filter === "first_basket" && gameEligible &&
+      !!game?.id && !!game.homeTeamId && !!game.awayTeamId,
+    queryFn: ({ signal }) => fetchSimulatorFirstBasket(game!.id, game!.homeTeamId!, game!.awayTeamId!, signal),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
   const gamesBootstrapping =
     (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
     games.length === 0;
@@ -780,13 +790,14 @@ function SimulatorScreen() {
     return list;
   }, [mains, filter, search, sportFilters]);
 
-  const toggleProp = (p: PlayerProp, side: "Over" | "Under") => {
+  const toggleProp = (p: PlayerProp) => {
+    const side = p.overPrice != null || p.underPrice == null ? "Over" : "Under";
     if (Platform.OS !== "web") Haptics.selectionAsync();
     const isPp = p.priceSource === "PrizePicks";
     const price = side === "Over" ? p.overPrice : p.underPrice;
     if (!isPp && (price == null || p.line == null)) return;
     if (p.line == null) return;
-    const label = isBinaryNullLineMarket(p.market) ? `${side === "Over" ? "Yes" : "No"} ${propMarketLabel(p.market)}` : `${side} ${p.line} ${propMarketLabel(p.market)}`;
+    const label = isBinaryNullLineMarket(p.market) ? propMarketLabel(p.market) : `${p.line} ${propMarketLabel(p.market)}`;
     const key = `${p.player}|${p.market}|${p.line}|${side}`;
     const exists = selected.find(
       (s) => `${s.player}|${s.market}|${s.line}|${s.side}` === key,
@@ -1359,7 +1370,7 @@ function SimulatorScreen() {
                         <SimAvatar headshot={s.headshot} name={s.player} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {s.player.split(" ").slice(-1)[0]}: {s.label}
+                            {s.player} · {s.label}
                           </Text>
                         </View>
                         <Pressable
@@ -1422,16 +1433,29 @@ function SimulatorScreen() {
                   </View>
                 </ScrollView>
 
-                {sport === "nba" && filter === "first_basket" && gameEligible && !propsLoading ? (
+                {sport === "nba" && filter === "first_basket" && gameEligible ? (
                   <Card style={{ marginBottom: 12, gap: 8 }}>
                     <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
-                    <Text style={{ color: colors.mutedForeground }}>
-                      First Basket predictions aren’t available yet.
-                    </Text>
+                    {firstBasketQ.data?.pick ? (
+                      <>
+                        <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                          {firstBasketQ.data.pick.player} · History-based pick
+                        </Text>
+                        <Text style={{ color: colors.mutedForeground }}>
+                          Made the game's first field goal in {firstBasketQ.data.pick.hits} of {firstBasketQ.data.pick.starts} verified recent starts. Uses recent starters.
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={{ color: colors.mutedForeground }}>
+                        {firstBasketQ.isFetching ? "Checking recent opening baskets…" : firstBasketQ.isError
+                          ? "Couldn’t load opening basket history."
+                          : "No First Basket pick from the verified recent starts."}
+                      </Text>
+                    )}
                   </Card>
                 ) : null}
 
-                {propsLoading ? (
+                {filter === "first_basket" && gameEligible ? null : propsLoading ? (
                   <Loading label="Loading player props…" />
                 ) : !gameEligible ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
@@ -1446,7 +1470,12 @@ function SimulatorScreen() {
                 ) : (
                   <View style={{ gap: 8 }}>
                     {filteredProps.slice(0, visiblePropCount).map((p) => {
-                      const isPp = p.priceSource === "PrizePicks";
+                      const added = selected.some((pick) => pick.player === p.player &&
+                        pick.market === p.market && pick.line === p.line);
+                      const model = added ? propResults.find((result) =>
+                        result.player === p.player && result.market === p.market && result.line === p.line,
+                      ) : undefined;
+                      const modelPick = model ? simulatorPropPick(model) : null;
                       const binary = isBinaryNullLineMarket(p.market);
                       const playsAtHome = p.playerTeamId === game.homeTeamId;
                       const opponent = playsAtHome ? game.awayTeam : game.homeTeam;
@@ -1466,32 +1495,24 @@ function SimulatorScreen() {
                               </Text>
                             </View>
                           </View>
-                          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                            {(["Over", "Under"] as const).map((side) => {
-                              const price = side === "Over" ? p.overPrice : p.underPrice;
-                              if (!isPp && price == null) return null;
-                              const picked = selected.some((pick) =>
-                                pick.player === p.player && pick.market === p.market &&
-                                pick.line === p.line && pick.side === side,
-                              );
-                              const label = binary ? (side === "Over" ? "Yes" : "No") : `${side} ${p.line}`;
-                              return (
-                                <Pressable
-                                  key={side}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`${p.player}, ${propMarketLabel(p.market)}, ${label}`}
-                                  accessibilityState={{ selected: picked }}
-                                  onPress={() => toggleProp(p, side)}
-                                  style={{ minHeight: 44, flexGrow: 1, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1,
-                                    borderColor: picked ? colors.primary : colors.border, justifyContent: "center" }}
-                                >
-                                  <Text style={{ color: picked ? colors.primary : colors.foreground, fontFamily: FONT.semibold }}>
-                                    {label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`${added ? "Remove" : "Add"} ${p.player}, ${propMarketLabel(p.market)}${binary ? "" : `, ${p.line}`}`}
+                            accessibilityState={{ selected: added }}
+                            onPress={() => toggleProp(p)}
+                            style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
+                          >
+                            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>
+                              {added ? "Added ✓" : "Add prop"}{binary ? "" : ` · Line ${p.line}`}
+                            </Text>
+                          </Pressable>
+                          {modelPick ? (
+                            <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                              Simulator pick · {binary
+                                ? modelPick.side === "Over" ? "Yes" : "No"
+                                : `${modelPick.side} ${p.line}`} · {(modelPick.probability * 100).toFixed(1)}% sim hit
+                            </Text>
+                          ) : null}
                         </Card>
                       );
                     })}
@@ -1729,7 +1750,7 @@ function SimulatorScreen() {
                       const projected = formatPropProjectedStat(r);
                       return (
                         <View key={r.key} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border }}>
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
+                          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: pick ? colors.primary : colors.foreground }}>
                             {r.player} · {selection ?? "No simulator pick"}
                           </Text>
                           <Text style={{ color: colors.mutedForeground, marginTop: 4 }}>

@@ -17,6 +17,7 @@ export type NbaOpeningSummary = {
   header?: {
     id?: string;
     competitions?: {
+      date?: string;
       id?: string;
       status?: { type?: { completed?: boolean; name?: string } };
       competitors?: { id?: string; homeAway?: string }[];

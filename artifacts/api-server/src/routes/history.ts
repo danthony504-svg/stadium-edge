@@ -1,5 +1,6 @@
+import { nbaFirstBasketRecentStarter, type FirstBasketSummary } from "../lib/nbaFirstBasketHistory";
 import { Router, type IRouter } from "express";
-import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
+import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
 import { resolveProviderLeagueSport } from "../lib/currentFactAuthority.js";
 import { shouldBlockPlayerSearch } from "../lib/coachIntent.js";
@@ -256,6 +257,58 @@ function seasonRecord(results: Array<{ won: boolean | null; teamScore: number | 
 
 // Matchup history: pulls form for both teams + head-to-head meetings.
 // Returns honest empty buckets when a feed has no data (no fabrication).
+async function fetchNbaOpeningSummary(eventId: string) {
+  const response = await fetch(
+    `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${encodeURIComponent(eventId)}`,
+    { signal: AbortSignal.timeout(5000) },
+  );
+  if (!response.ok) throw new Error(`ESPN NBA summary ${response.status}`);
+  return await response.json() as FirstBasketSummary;
+}
+
+router.get("/sports/nba-first-basket-history",
+  rateLimit({ name: "nba-first-basket-history", windowMs: 60_000, max: 12 }),
+  async (req, res): Promise<void> => {
+    const { eventId, homeTeamId, awayTeamId } = req.query;
+    if (typeof eventId !== "string" || !/^\d{9}$/.test(eventId) ||
+        typeof homeTeamId !== "string" || !/^(?:[1-9]|[12]\d|30)$/.test(homeTeamId) ||
+        typeof awayTeamId !== "string" || !/^(?:[1-9]|[12]\d|30)$/.test(awayTeamId) || homeTeamId === awayTeamId) {
+      res.status(400).json({ error: "Invalid NBA matchup" });
+      return;
+    }
+    try {
+      const result = await cachedJson(`nba-first-basket:${eventId}:${homeTeamId}:${awayTeamId}`, 5 * 60_000, async () => {
+        const target = await fetchNbaOpeningSummary(eventId);
+        const competition = target.header?.competitions?.find((item) => item.id === eventId);
+        const startsAt = Date.parse(competition?.date ?? "");
+        if (target.header?.id !== eventId || !Number.isFinite(startsAt) ||
+            !competition?.competitors?.some((team) => team.homeAway === "home" && team.id === homeTeamId) ||
+            !competition.competitors.some((team) => team.homeAway === "away" && team.id === awayTeamId)) return null;
+        const cutoff = Math.min(startsAt, Date.now());
+        const teams = await Promise.all([homeTeamId, awayTeamId].map(async (teamId) => {
+          const { results } = await cachedJson(`nba-opening-schedule:${teamId}`, 5 * 60_000,
+            () => fetchTeamHistory("basketball/nba", teamId));
+          const recent = results.filter((game) => Date.parse(game.date) < cutoff).slice(0, 8);
+          const games = await Promise.all(recent.map(async ({ eventId: pastId }) => ({
+            eventId: pastId,
+            summary: await cachedJson(`nba-opening-summary:${pastId}`, 60 * 60_000,
+              () => fetchNbaOpeningSummary(pastId)).catch(() => ({})),
+          })));
+          return { teamId, games };
+        }));
+        return { pick: nbaFirstBasketRecentStarter(teams) };
+      });
+      if (!result) {
+        res.status(404).json({ error: "NBA matchup could not be verified" });
+        return;
+      }
+      res.json(result);
+    } catch {
+      res.status(503).json({ error: "Opening basket history is unavailable" });
+    }
+  },
+);
+
 router.get("/sports/matchup-history", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const homeTeamId = String(req.query.homeTeamId || "");
