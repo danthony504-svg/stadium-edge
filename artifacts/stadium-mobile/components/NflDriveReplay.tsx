@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Line, Polygon, Text as FieldText } from "react-native-svg";
+import Svg, { Defs, LinearGradient as FieldGradient, Line, Path, Polygon, Stop, Text as FieldText } from "react-native-svg";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -83,12 +83,13 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
         <Feather name="film" color="#70d9ff" size={24} />
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Watch a Sim</Text>
-          <Text style={styles.subtitle}>{simulations.toLocaleString()} simulations · 1 NFL replay</Text>
+          <Text style={styles.subtitle}>1 of {simulations.toLocaleString()} simulations · NFL drive replay</Text>
         </View>
       </View>
       <View style={styles.scoreboard}>
         <ReplayTeam name={away} logo={awayLogo} score={score.away} side="away" />
         <ReplayTeam name={home} logo={homeLogo} score={score.home} side="home" />
+        <View pointerEvents="none" style={styles.scoreDivider}><Text style={styles.scoreDot}>·</Text></View>
       </View>
       <View style={styles.timeline}>
         <Pressable accessibilityRole="button" accessibilityLabel={playbackLabel} onPress={togglePlayback} style={styles.play}>
@@ -148,7 +149,7 @@ export function NflDriveReplay({ drives, simulations, away, home, awayLogo, home
           onPress={() => setPropsOpen((open) => !open)}
           style={styles.action}
         >
-          <Text style={styles.actionText}>Player Props</Text>
+          <Text style={styles.actionText}>Full-game Props</Text>
           <Feather name={propsOpen ? "chevron-up" : "chevron-down"} size={15} color="#c4edff" />
         </Pressable>
       </View>
@@ -205,32 +206,43 @@ function ReplayField({ away, home, activeSide }: {
   home: string;
   activeSide?: "away" | "home";
 }) {
-  const fieldX = (yard: number, y: number) => 48 - y * 0.08 + yard * (2.62 + y * 0.0016);
+  const fieldX = (yard: number, y: number) => 43 - y * 0.105 + yard * (2.74 + y * 0.0021);
+  const hashPath = [29, 69].flatMap((y) => HASH_MARKS.map((mark) =>
+    `M${fieldX(mark * 2, y)},${y} L${fieldX(mark * 2, y + 4)},${y + 4}`,
+  )).join(" ");
 
   return (
     <View accessible accessibilityLabel="Football field illustration" style={styles.field}>
-      <Svg width="100%" height="100%" viewBox="0 0 360 138">
-        <Polygon points="21,5 339,5 355,133 5,133" fill="#164a36" />
-        <Polygon points="21,5 48,5 37,133 5,133" fill={activeSide === "away" ? "#287459" : "#123e36"} />
-        <Polygon points="310,5 339,5 355,133 321,133" fill={activeSide === "home" ? "#2058a8" : "#12396f"} />
+      <Svg width="100%" height="100%" viewBox="0 0 360 104">
+        <Defs>
+          <FieldGradient id="replayTurf" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#206844" />
+            <Stop offset="100%" stopColor="#103726" />
+          </FieldGradient>
+        </Defs>
+        <Polygon points="18,5 342,5 356,99 4,99" fill="url(#replayTurf)" />
+        <Polygon points="18,5 42.5,5 32.6,99 4,99" fill={activeSide === "away" ? "#177c57" : "#123e36"} />
+        <Polygon points="317.5,5 342,5 356,99 327.4,99" fill={activeSide === "home" ? "#225bc5" : "#12396f"} />
         {YARD_STRIPES.map((index) => {
           const yard = index * 10;
-          const label = Math.min(yard, 100 - yard);
           return (
-            <Line key={yard} x1={fieldX(yard, 5)} y1={5} x2={fieldX(yard, 133)} y2={133} stroke="#b4e7c8" strokeWidth={label === 50 ? 1.6 : 1} />
+            <Line key={yard} x1={fieldX(yard, 5)} y1={5} x2={fieldX(yard, 99)} y2={99} stroke="#deffec" strokeOpacity={index === 5 ? 0.9 : 0.55} />
           );
         })}
-        {HASH_MARKS.map((mark) => (
-          <Line key={mark} x1={fieldX(mark * 2, 64)} y1={64} x2={fieldX(mark * 2, 74)} y2={74} stroke="#a8dabc" strokeWidth={0.6} />
-        ))}
-        {YARD_STRIPES.slice(1, -1).map((index) => (
-          <FieldText key={index} x={fieldX(index * 10, 32)} y={32} fill="#f1fdf6" fontSize={10} fontWeight="bold" textAnchor="middle">
+        <Path d={hashPath} stroke="#ceffe0" strokeOpacity={0.75} strokeWidth={0.65} />
+        {[23, 89].flatMap((y) => YARD_STRIPES.slice(1, -1).map((index) => (
+          <FieldText key={`${y}:${index}`} x={fieldX(index * 10, y)} y={y} fill="#f1fdf6" fontSize={9} fontWeight="bold" textAnchor="middle">
             {Math.min(index, 10 - index) * 10}
           </FieldText>
-        ))}
-        <FieldText x={24} y={74} fill="#fff" fontSize={10} fontWeight="bold" textAnchor="middle">{away}</FieldText>
-        <FieldText x={336} y={74} fill="#fff" fontSize={10} fontWeight="bold" textAnchor="middle">{home}</FieldText>
-        <Polygon points="21,5 339,5 355,133 5,133" fill="none" stroke="#b4e7c8" strokeWidth={2} strokeLinejoin="round" />
+        )))}
+        <FieldText x={25} y={56} rotation={-90} originX={25} originY={52} fill="#fff" fontSize={13} fontWeight="bold" textAnchor="middle">{away}</FieldText>
+        <FieldText x={335} y={56} rotation={90} originX={335} originY={52} fill="#fff" fontSize={13} fontWeight="bold" textAnchor="middle">{home}</FieldText>
+        {activeSide ? (
+          <FieldText x={180} y={56} fill="#a5eaff" fontSize={10} fontWeight="bold" textAnchor="middle">
+            {activeSide === "away" ? away : home} DRIVE
+          </FieldText>
+        ) : null}
+        <Polygon points="18,5 342,5 356,99 4,99" fill="none" stroke="#defcf1" strokeWidth={1.8} strokeLinejoin="round" />
       </Svg>
     </View>
   );
@@ -242,14 +254,16 @@ const styles = StyleSheet.create({
   title: { color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 20 },
   subtitle: { color: "#a9bdd5", fontSize: 12 },
   scoreboard: { flexDirection: "row", borderWidth: 1, borderColor: "#345876", borderRadius: 12, overflow: "hidden" },
+  scoreDivider: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 16, marginLeft: -8, alignItems: "center", justifyContent: "center" },
+  scoreDot: { color: "#eff9ff", fontFamily: FONT.bold, fontSize: 22 },
   team: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, paddingHorizontal: 4, gap: 6 },
-  logo: { width: 30, height: 30 },
+  logo: { width: 30, height: 30, backgroundColor: "#e8f4fb", borderRadius: 6 },
   teamLabel: { color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 13, flexShrink: 1 },
   score: { color: "#fff", fontFamily: FONT.bold, fontSize: 25, fontVariant: ["tabular-nums"] },
   timeline: { flexDirection: "row", alignItems: "center", gap: 10 },
   play: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#497ba9", backgroundColor: "#12365b", alignItems: "center", justifyContent: "center" },
   scrubber: { flex: 1, height: 44, justifyContent: "center", marginHorizontal: 10 },
-  field: { aspectRatio: 360 / 138, backgroundColor: "#0b2924", borderRadius: 12, padding: 3 },
+  field: { aspectRatio: 360 / 104, backgroundColor: "#0b2924", borderRadius: 12, padding: 3 },
   status: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "#12253b" },
   statusText: { color: "#f4f8ff", fontFamily: FONT.semibold, fontSize: 13 },
   driveText: { color: "#79ddff", fontFamily: FONT.semibold, fontSize: 12 },
