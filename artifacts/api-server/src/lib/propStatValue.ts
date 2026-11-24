@@ -124,7 +124,7 @@ export function isFirstTdMarket(market: string | null | undefined): boolean {
 }
 
 export function isScoringOrderMarket(market: string | null | undefined): boolean {
-  return isFirstTdMarket(market) || /^(?:player_)?first_goal_scorer(?:_alternate)?$/i.test(String(market ?? ""));
+  return isFirstTdMarket(market) || /^(?:player_)?(?:first_goal_scorer|first_basket|first_basket_scorer)(?:_alternate)?$/i.test(String(market ?? ""));
 }
 
 /** True when Over settlement requires ≥2 scoring TDs (not Anytime yes/no). */
