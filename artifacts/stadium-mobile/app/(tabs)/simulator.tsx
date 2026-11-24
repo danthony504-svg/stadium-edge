@@ -754,9 +754,16 @@ function SimulatorScreen() {
     (sport !== "mlb" || parkQ.isFetched) &&
     (sport !== "mlb" || probablesQ.isFetched);
 
+  const firstBasketOdds = useMemo(() => {
+    if (!showPropPicker || sport !== "nba") return [];
+    return asPropList(propsQ.data).filter((prop) =>
+      prop?.market === "player_first_basket" && prop.overPrice != null && Number.isFinite(prop.overPrice),
+    ).sort((a, b) => (americanToImplied(b.overPrice) ?? 0) - (americanToImplied(a.overPrice) ?? 0));
+  }, [propsQ.data, showPropPicker, sport]);
+
   const mains = useMemo(() => {
     if (!showPropPicker || propsLoading) return [];
-    let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null);
+    let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null && p.market !== "player_first_basket");
     if (sport === "soccer") {
       list = list.filter((p) => isSoccerPropMarket(p.market));
     }
@@ -1432,6 +1439,24 @@ function SimulatorScreen() {
                     ))}
                   </View>
                 </ScrollView>
+
+                {sport === "nba" && gameEligible && !propsLoading ? (
+                  <Card style={{ marginBottom: 12, gap: 8 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
+                    <Text style={{ color: colors.mutedForeground }}>
+                      {firstBasketOdds.length ? "Posted sportsbook odds" : "No First Basket odds available from the feed."}
+                    </Text>
+                    {firstBasketOdds.map((prop) => (
+                      <View key={`${prop.athleteId ?? prop.player}:${prop.line ?? ""}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <Text style={{ color: colors.foreground, flex: 1 }}>{prop.player}</Text>
+                        {prop.overBook ? <Text style={{ color: colors.mutedForeground }}>{prop.overBook}</Text> : null}
+                        <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                          {prop.overPrice! > 0 ? "+" : ""}{prop.overPrice}
+                        </Text>
+                      </View>
+                    ))}
+                  </Card>
+                ) : null}
 
                 {propsLoading ? (
                   <Loading label="Loading player props…" />
