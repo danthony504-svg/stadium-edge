@@ -846,6 +846,10 @@ function SimulatorScreen() {
     ]);
   };
 
+  const simulatorScroll = useRef<ScrollView>(null);
+  const propPickerOffset = useRef(0);
+  const revealPropPicker = useRef(false);
+
   const runSimulation = useCallback(
     async (opts?: { force?: boolean; auto?: boolean }) => {
       if (
@@ -920,6 +924,10 @@ function SimulatorScreen() {
           if (signal.aborted) return;
           if (gr) {
             setGameResult(gr);
+            if (opts?.force && ((sport === "nfl" && gr.driveReplay?.length) ||
+                (sport === "nba" && gr.outcomes?.homeScores.length && gr.outcomes?.awayScores.length))) {
+              simulatorScroll.current?.scrollTo({ y: 0, animated: true });
+            }
             const ran = Date.now();
             setRanAt(ran);
             if (fp) {
@@ -1171,12 +1179,38 @@ function SimulatorScreen() {
         </View>
       </AppHeader>
       <ScrollView
+        ref={simulatorScroll}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 120 }}
         refreshControl={
           <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
         }
       >
+        {mode !== "props" && game && gameResult && replayData ? (
+          <View style={{ paddingHorizontal: 16 }}>
+            <GameReplay
+              key={`${game.id}:${ranAt}`}
+              {...replayData}
+              awayLogo={game.awayLogo}
+              homeLogo={game.homeLogo}
+              props={propResults}
+              selectedProps={selected}
+              propsRunning={mode === "full" && running}
+              onSelectProps={() => {
+                if (showPropPicker) {
+                  simulatorScroll.current?.scrollTo({ y: propPickerOffset.current, animated: true });
+                } else {
+                  revealPropPicker.current = true;
+                }
+                setMode("full");
+              }}
+              simulations={gameResult.simulations}
+              away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+              home={game.homeAbbr ?? game.homeTeam ?? "Home"}
+            />
+          </View>
+        ) : null}
+
         {/* Sport pills */}
         <ScrollView
           horizontal
@@ -1347,7 +1381,15 @@ function SimulatorScreen() {
 
             {/* Player prop builder */}
             {showPropPicker && (
-              <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+              <View
+                style={{ paddingHorizontal: 16, marginBottom: 16 }}
+                onLayout={({ nativeEvent }) => {
+                  propPickerOffset.current = nativeEvent.layout.y;
+                  if (!revealPropPicker.current) return;
+                  revealPropPicker.current = false;
+                  simulatorScroll.current?.scrollTo({ y: propPickerOffset.current, animated: true });
+                }}
+              >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}>
@@ -1594,24 +1636,6 @@ function SimulatorScreen() {
                 </Text>
               </LinearGradient>
             </Pressable>
-
-            {mode !== "props" && game && gameResult && replayData ? (
-              <View style={{ paddingHorizontal: 16 }}>
-                <GameReplay
-                  key={`${game.id}:${ranAt}`}
-                  {...replayData}
-                  awayLogo={game.awayLogo}
-                  homeLogo={game.homeLogo}
-                  props={propResults}
-                  selectedProps={selected}
-                  propsRunning={mode === "full" && running}
-                  onSelectProps={() => setMode("full")}
-                  simulations={gameResult.simulations}
-                  away={game.awayAbbr ?? game.awayTeam ?? "Away"}
-                  home={game.homeAbbr ?? game.homeTeam ?? "Home"}
-                />
-              </View>
-            ) : null}
 
             {!showReplay && (running || gameResult) && mode !== "props" ? (
               <SimulationSummaryCard
