@@ -87,3 +87,18 @@ test("D/ST props map to ESPN defensive / kicking fields", () => {
   assert.equal(isDiscreteCountMarket("player_tackles_assists"), true);
   assert.equal(isDiscreteCountMarket("player_kicking_points"), true);
 });
+
+test("NFL kicker made-attempted pairs supply makes, kicking points and alternate lines", () => {
+  const stats = {
+    "fieldGoalsMade-fieldGoalAttempts": "2-3",
+    "extraPointsMade-extraPointAttempts": "1-2",
+    FG: "2-3",
+    XP: "1-2",
+  };
+  assert.equal(gameValueForMarket("player_field_goals", stats, NONE), 2);
+  assert.equal(gameValueForMarket("player_field_goals_alternate", stats, NONE), 2);
+  assert.equal(gameValueForMarket("player_kicking_points", stats, NONE), 7);
+  assert.equal(gameValueForMarket("player_kicking_points", { FG: "0-0", XP: "0-0" }, NONE), 0);
+  assert.equal(gameValueForMarket("player_kicking_points", { FG: "2-3" }, NONE), null);
+  assert.equal(gameValueForMarket("player_field_goals", { FG: "2-3" }, new Set(["FG"])), null);
+});
