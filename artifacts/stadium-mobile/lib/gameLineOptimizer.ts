@@ -324,15 +324,20 @@ function rankEvaluated(a: EvaluatedGameLine, b: EvaluatedGameLine): number {
   return bw - aw;
 }
 
-export function evaluateGameLines(input: {
+type EvaluateGameLinesInput = {
   lines: RealOddsEntry[];
   gameSim: CoachGameSimEntry | null | undefined;
   realOdds: RealOddsEntry[];
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
-}): EvaluatedGameLine[] {
+};
+
+export function evaluateGameLines(input: EvaluateGameLinesInput): EvaluatedGameLine[] {
+  return [...evaluateGameLineRows(input)].sort(rankEvaluated);
+}
+
+function* evaluateGameLineRows(input: EvaluateGameLinesInput): Generator<EvaluatedGameLine> {
   const oddsForScore = mergeOddsEntries(input.realOdds, input.lines);
-  const out: EvaluatedGameLine[] = [];
   for (const entry of input.lines) {
     const pick = entryToPick(entry);
     if (!isGameLinePick(pick)) continue;
@@ -352,15 +357,14 @@ export function evaluateGameLines(input: {
       fairProb: entry.noVigFair ?? null,
       gameSim: input.gameSim,
     });
-    out.push({
+    yield {
       entry,
       pick,
       finalAiScore,
       winProb: finalAiScore.simHit,
       edgePct: finalAiScore.edgePct,
-    });
+    };
   }
-  return out.sort(rankEvaluated);
 }
 
 export function bestGameLine(evaluated: EvaluatedGameLine[]): EvaluatedGameLine | null {
@@ -374,7 +378,7 @@ export type GameLineRecommendations = {
 };
 
 /** Rank every posted rung; surface best Final AI Score per team after the 10k sim. */
-export function recommendBestLinesForGame(input: {
+export async function recommendBestLinesForGame(input: {
   awayTeam: string;
   homeTeam: string;
   evalLines: RealOddsEntry[];
@@ -382,16 +386,30 @@ export function recommendBestLinesForGame(input: {
   realOdds?: RealOddsEntry[];
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
-}): GameLineRecommendations {
+}, signal: AbortSignal): Promise<GameLineRecommendations | null> {
+  // Give the native screen a turn before scoring, including on cache hits.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  if (signal.aborted) return null;
   const odds = mergeOddsEntries(input.realOdds ?? [], input.evalLines);
   const evalLines = filterEvalLinesForProjectedMargin(input.evalLines, input.gameSim);
-  const ranked = evaluateGameLines({
+  const rows = evaluateGameLineRows({
     lines: evalLines,
     gameSim: input.gameSim,
     realOdds: odds,
     matchupHistory: input.matchupHistory,
     matchupInjuries: input.matchupInjuries,
   });
+
+  const ranked: EvaluatedGameLine[] = [];
+  let resumedAt = performance.now();
+  for (const row of rows) {
+    ranked.push(row);
+    if (performance.now() - resumedAt < 5) continue;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    if (signal.aborted) return null;
+    resumedAt = performance.now();
+  }
+  ranked.sort(rankEvaluated);
 
   const bestForTeam = (team: string): EvaluatedGameLine | null => {
     const pool = ranked.filter((row) => {
