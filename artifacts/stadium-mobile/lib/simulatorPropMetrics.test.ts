@@ -3,7 +3,7 @@ import test from "node:test";
 import { URL } from "node:url";
 import { readFileSync } from "node:fs";
 import type { PropSimulationResult } from "./api.ts";
-import { simulatorModelEdge, formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel } from "./simulatorPropMetrics.ts";
+import { simulatorModelEdge, formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel, simulatorPropPick } from "./simulatorPropMetrics.ts";
 import { gradeSimulatorProps } from "./simulatorPickPool.ts";
 import { enrichPropSimResults, localPropSimulation, mergePropSimWithLocal } from "./simulatorLocalSim.ts";
 
@@ -69,11 +69,21 @@ test("shared empirical fallbacks cannot retain a failed server's 10k count or de
   assert.deepEqual(enrichPropSimResults([row()],{Player:history})[0],row());
 });
 
-test("screen labels scores separately and binds draw count to each prop result", () => {
-  const source=readFileSync(new URL("../app/(tabs)/simulator.tsx",import.meta.url),"utf8");
-  assert.match(source,/label="Quality score"/);
-  assert.match(source,/label="Model score"/);
-  assert.match(source,/propSimulationEvidence\(r\)/);
-  assert.match(source,/propSimulationSummaryLabel\(propResults\)/);
-  assert.ok(!source.includes('label="Sim Conf"'));
+test("simulator picks require a simulated majority on the exact line", () => {
+  assert.equal(simulatorPropPick(row()), null);
+  assert.equal(simulatorPropPick(row({ simulations: 0, hitProbability: 0.8 })), null);
+  assert.equal(simulatorPropPick(row({ lineHitRatesBySide: { Over: {}, Under: { "1.5": 0.8 } } })), null);
+  assert.deepEqual(simulatorPropPick(row({ lineHitRatesBySide: { Over: {}, Under: { "0.5": 0.61 } } })), {
+    side: "Under", probability: 0.61,
+  });
+  assert.deepEqual(simulatorPropPick(row({ hitProbability: 0.62 })), { side: "Over", probability: 0.62 });
+});
+
+test("prop results show model reasons and evidence without price metrics", () => {
+  const source = readFileSync(new URL("../app/(tabs)/simulator.tsx", import.meta.url), "utf8");
+  assert.match(source, /Simulator Picks/);
+  assert.match(source, /simulatorPropPick\(r\)/);
+  assert.match(source, /propSimulationEvidence\(r\)/);
+  assert.match(source, /propSimulationSummaryLabel\(propResults\)/);
+  assert.doesNotMatch(source, /label="(?:Selected odds|Price break-even)"/);
 });

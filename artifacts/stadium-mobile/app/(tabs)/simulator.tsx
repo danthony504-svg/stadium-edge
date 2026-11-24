@@ -1,5 +1,4 @@
-import { americanToImplied } from "@/lib/pickScore";
-import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel } from "@/lib/simulatorPropMetrics";
+import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel, simulatorPropPick } from "@/lib/simulatorPropMetrics";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useFocusEffect } from "expo-router";
@@ -79,14 +78,7 @@ import {
   type SimulationSummary,
 } from "@/lib/gameSimDisplay";
 import { analyzeFullSimulation, type FullSimulationAnalytics } from "@/lib/fullSimulationAnalytics";
-import {
-  buildSimulatorPpPropPool,
-  buildSimulatorPropPool,
-  normalizeSimulatorPropLines,
-  gradeSimulatorProps,
-  type SimulatorPlayerHistorySlice,
-  type SimulatorPropGrade,
-} from "@/lib/simulatorPickPool";
+import { normalizeSimulatorPropLines } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
@@ -322,7 +314,6 @@ function SimulatorScreen() {
   const [scopedGameResult, setScopedGameResult] = useState<{ scope: string; result: GameSimulationResult } | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
   const [simDeepPending, setSimDeepPending] = useState(false);
-  const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [linesScanStep, setLinesScanStep] = useState(0);
@@ -448,7 +439,6 @@ function SimulatorScreen() {
   useEffect(() => {
     setSelected([]);
     setPropResults([]);
-    setPlayerHistory({});
     setSimDeepPending(false);
     setScopedGameResult(null);
     setRanAt(null);
@@ -763,14 +753,6 @@ function SimulatorScreen() {
     (sport !== "mlb" || parkQ.isFetched) &&
     (sport !== "mlb" || probablesQ.isFetched);
 
-  const firstBasketOdds = useMemo(() => {
-    if (!showPropPicker || sport !== "nba" || filter !== "first_basket") return [];
-    return asPropList(propsQ.data).filter((prop) =>
-      prop?.market === "player_first_basket" && prop.overPrice != null && Number.isFinite(prop.overPrice) &&
-      (!search.trim() || prop.player.toLowerCase().includes(search.trim().toLowerCase())),
-    ).sort((a, b) => (americanToImplied(b.overPrice) ?? 0) - (americanToImplied(a.overPrice) ?? 0));
-  }, [propsQ.data, showPropPicker, sport, filter, search]);
-
   const mains = useMemo(() => {
     if (!showPropPicker || propsLoading) return [];
     let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null && p.market !== "player_first_basket");
@@ -779,21 +761,6 @@ function SimulatorScreen() {
     }
     return list;
   }, [propsQ.data, propsLoading, showPropPicker, sport]);
-
-  const propPool = useMemo(() => {
-    if (!propResults.length || !gameLabel || !game) return [];
-    return buildSimulatorPropPool(mains, gameLabel, sport, {
-      homeTeamId: game.homeTeamId,
-      awayTeamId: game.awayTeamId,
-      homeAbbr: game.homeAbbr,
-      awayAbbr: game.awayAbbr,
-    });
-  }, [propResults.length, mains, gameLabel, game, sport]);
-
-  const ppPropPool = useMemo(() => {
-    if (!propResults.length || !gameLabel) return [];
-    return buildSimulatorPpPropPool(mains, gameLabel, sport);
-  }, [propResults.length, mains, gameLabel, sport]);
 
   const filteredProps = useMemo(() => {
     let list = mains;
@@ -889,11 +856,9 @@ function SimulatorScreen() {
       if (opts?.force) {
         setGameResult(null);
         setPropResults([]);
-        setPlayerHistory({});
       } else if (!opts?.auto) {
         setGameResult(null);
         setPropResults([]);
-        setPlayerHistory({});
       }
 
       try {
@@ -972,7 +937,6 @@ function SimulatorScreen() {
           );
 
           if (signal.aborted) return;
-          const ph: Record<string, SimulatorPlayerHistorySlice> = {};
           const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> =
             {};
           await Promise.all(
@@ -980,17 +944,9 @@ function SimulatorScreen() {
               if (!s.athleteId) return;
               try {
                 const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId }, signal);
-                const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
-                  date: g.date ?? undefined,
-                  opp: g.opponentName ?? undefined,
-                  stats: g.stats as Record<string, unknown>,
-                }));
+                const recent = (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats }));
                 if (recent.length) {
-                  ph[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
-                  phForSim[`${s.player}#${s.athleteId}`] = {
-                    labels: h.labels,
-                    recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
-                  };
+                  phForSim[`${s.player}#${s.athleteId}`] = { labels: h.labels, recent };
                 }
               } catch {
                 /* honest no-history skip */
@@ -998,7 +954,6 @@ function SimulatorScreen() {
             }),
           );
           if (signal.aborted) return;
-          setPlayerHistory(ph);
           const prQuick = enrichPropSimResults(
             await fetchSimulatorPropSimulationsBatch(
               sport,
@@ -1086,34 +1041,6 @@ function SimulatorScreen() {
     !!game &&
     !running &&
     (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
-
-  const propScores = useMemo(() => {
-    if (mode === "game" || !propResults.length || !gameLabel || !selected.length) {
-      return new Map<string, SimulatorPropGrade>();
-    }
-    const simMap = new Map(
-      propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
-    );
-    return gradeSimulatorProps(selected, gameLabel, sport, [...propPool, ...ppPropPool], {
-      matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
-      matchupInjuries,
-      playerHistory,
-      propSimulations: simMap,
-      injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
-    });
-  }, [
-    mode,
-    propResults,
-    selected,
-    gameLabel,
-    matchupQ.data,
-    matchupInjuries,
-    playerHistory,
-    propPool,
-    ppPropPool,
-    injuriesQ.data,
-    sport,
-  ]);
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -1499,18 +1426,8 @@ function SimulatorScreen() {
                   <Card style={{ marginBottom: 12, gap: 8 }}>
                     <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
                     <Text style={{ color: colors.mutedForeground }}>
-                      {firstBasketOdds.length ? "Posted sportsbook odds" : propsQ.isFetching ? "Checking First Basket odds…" :
-                        search.trim() ? "No First Basket odds match your search." : "No First Basket odds available from the feed."}
+                      First Basket predictions aren’t available yet.
                     </Text>
-                    {firstBasketOdds.map((prop) => (
-                      <View key={`${prop.athleteId ?? prop.player}:${prop.line ?? ""}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                        <Text style={{ color: colors.foreground, flex: 1 }}>{prop.player}</Text>
-                        {prop.overBook ? <Text style={{ color: colors.mutedForeground }}>{prop.overBook}</Text> : null}
-                        <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
-                          {prop.overPrice! > 0 ? "+" : ""}{prop.overPrice}
-                        </Text>
-                      </View>
-                    ))}
                   </Card>
                 ) : null}
 
@@ -1569,7 +1486,7 @@ function SimulatorScreen() {
                                     borderColor: picked ? colors.primary : colors.border, justifyContent: "center" }}
                                 >
                                   <Text style={{ color: picked ? colors.primary : colors.foreground, fontFamily: FONT.semibold }}>
-                                    {label} · {isPp ? "DFS" : formatAmerican(price!)}
+                                    {label}
                                   </Text>
                                 </Pressable>
                               );
@@ -1798,101 +1715,29 @@ function SimulatorScreen() {
                 {mode !== "game" && propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                      Player Prop Projections
+                      Simulator Picks
                     </Text>
-                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      Final AI Score (30% sim · 20% line value · 15% matchup · 10% injuries · 10% form · 5% each sharp/line move/shopping) rolls every grounded signal into one grade — simulation is the anchor, not the only input.
-                      {simDeepPending ? " Simulation updating…" : ""}
-                    </Text>
+                    {simDeepPending ? (
+                      <Text style={{ color: colors.mutedForeground }}>Simulation updating…</Text>
+                    ) : null}
                     {propResults.map((r) => {
-                      const graded = propScores.get(r.key);
-                      const quoted = selected.find(s => `${s.player}|${s.market}|${s.line}|${s.side}` === r.key);
-                      const breakEven = americanToImplied(quoted?.odds);
-                      const combined = graded?.rubric;
-                      const finalAi = graded?.finalAiScore;
-                      const simBadge = finalAiScoreLabel(finalAi);
-                      const gradeColor =
-                        combined?.composite == null
-                          ? colors.mutedForeground
-                          : combined.composite >= 7
-                            ? colors.success
-                            : combined.composite >= 5.5
-                              ? colors.primary
-                              : colors.mutedForeground;
-                      const edgeColor =
-                        combined?.edgePct == null
-                          ? colors.mutedForeground
-                          : combined.edgePct >= 0
-                            ? colors.success
-                            : colors.destructive;
+                      const pick = simulatorPropPick(r);
+                      const binary = isBinaryNullLineMarket(r.market);
+                      const selection = pick && (binary
+                        ? `${pick.side === "Over" ? "Yes" : "No"} · ${propMarketLabel(r.market)}`
+                        : `${pick.side} ${r.line} ${propMarketLabel(r.market)}`);
+                      const projected = formatPropProjectedStat(r);
                       return (
-                        <View
-                          key={r.key}
-                          style={{
-                            paddingVertical: 10,
-                            borderTopWidth: 1,
-                            borderTopColor: colors.border,
-                          }}
-                        >
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {r.player} — {isBinaryNullLineMarket(r.market) ? `${r.side === "Over" ? "Yes" : "No"} ${propMarketLabel(r.market)}` : `${r.side} ${r.line} ${propMarketLabel(r.market)}`}
+                        <View key={r.key} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border }}>
+                          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
+                            {r.player} · {selection ?? "No simulator pick"}
                           </Text>
-                          {simBadge ? (
-                            <View
-                              style={{
-                                alignSelf: "flex-start",
-                                marginTop: 6,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
-                                backgroundColor: finalAi?.highRiskValuePlay
-                                  ? "rgba(234,179,8,0.2)"
-                                  : "rgba(34,197,94,0.15)",
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontFamily: FONT.bold,
-                                  fontSize: 10,
-                                  color: finalAi?.highRiskValuePlay ? "#eab308" : colors.success,
-                                }}
-                              >
-                                {simBadge}
-                              </Text>
-                            </View>
-                          ) : null}
-                          {r.hitProbability == null && r.sampleGames < 3 ? (
-                            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
-                              Not enough recent game log to simulate this line.
-                            </Text>
-                          ) : null}
-                          <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                            <MiniStat label="Final AI Score" value={finalAi?.grade ?? combined?.grade ?? "—"} valueColor={gradeColor} />
-                            <MiniStat
-                              label="Quality score"
-                              value={finalAi?.confidencePct != null ? `${finalAi.confidencePct}/100` : combined?.confidencePct != null ? `${combined.confidencePct}/100` : "—"}
-                            />
-                            <MiniStat
-                              label={propSimulationCount(r) ? "Model edge (pp)" : "History edge (pp)"}
-                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct} pp` : "—"}
-                              valueColor={edgeColor}
-                            />
-                          </View>
-                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
-                            <MiniStat label={propSimulationCount(r) ? "Sim hit chance" : "History hit rate"} value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                            <MiniStat label={isBinaryNullLineMarket(r.market) ? "Typical outcome" : "Projected stat"} value={formatPropProjectedStat(r)} />
-                            <MiniStat
-                              label="Model score"
-                              value={r.confidenceScore != null && Number.isFinite(r.confidenceScore) ? `${Math.round(r.confidenceScore)}/100` : "—"}
-                            />
-                          </View>
-                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
-                            <MiniStat label="Selected odds" value={breakEven != null ? formatAmerican(quoted!.odds) : "—"} />
-                            <MiniStat label="Price break-even" value={breakEven != null ? `${(breakEven * 100).toFixed(1)}%` : "—"} />
-                          </View>
-                          <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 8 }}>
-                            {propSimulationEvidence(r)}
+                          <Text style={{ color: colors.mutedForeground, marginTop: 4 }}>
+                            {pick
+                              ? `Why: This side hit in ${(pick.probability * 100).toFixed(1)}% of simulations.${!binary && projected !== "—" ? ` Projected ${propMarketLabel(r.market).toLowerCase()}: ${projected}.` : ""}`
+                              : propSimulationCount(r) ? "The simulation didn’t establish a side above 50%." : "A simulation is unavailable for this prop."}
                           </Text>
+                          <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 4 }}>{propSimulationEvidence(r)}</Text>
                         </View>
                       );
                     })}

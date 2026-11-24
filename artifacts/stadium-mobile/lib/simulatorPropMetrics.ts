@@ -23,6 +23,19 @@ export function propSimulationCount(r: Pick<PropSimulationResult, "simulations" 
   return r.hitProbability != null && Number.isFinite(r.hitProbability) && r.hitProbability >= 0 && r.hitProbability <= 1 && Number.isSafeInteger(r.simulations) && r.simulations > 0 ? r.simulations : 0;
 }
 
+/** Compare the exact sides when both were scored. Pushes prevent using 1 - P(side). */
+export function simulatorPropPick(result: PropSimulationResult): { side: "Over" | "Under"; probability: number } | null {
+  if (!propSimulationCount(result)) return null;
+  const other = result.side === "Over" ? "Under" : "Over";
+  const otherProbability = result.lineHitRatesBySide?.[other]?.[String(result.line)];
+  const selectedProbability = result.hitProbability!;
+  if (otherProbability != null && Number.isFinite(otherProbability) &&
+      otherProbability <= 1 && otherProbability > Math.max(selectedProbability, 0.5)) {
+    return { side: other, probability: otherProbability };
+  }
+  return selectedProbability > 0.5 ? { side: result.side, probability: selectedProbability } : null;
+}
+
 export function propSimulationEvidence(r: PropSimulationResult): string {
   const count = propSimulationCount(r);
   const history = Number.isFinite(r.sampleGames) ? Math.max(0, Math.trunc(r.sampleGames)) : 0;
