@@ -1124,31 +1124,6 @@ function SimulatorScreen() {
           <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
         }
       >
-        {mode !== "props" && game && gameResult && replayData ? (
-          <View style={{ paddingHorizontal: 16 }}>
-            <GameReplay
-              key={`${game.id}:${ranAt}`}
-              {...replayData}
-              awayLogo={game.awayLogo}
-              homeLogo={game.homeLogo}
-              props={propResults}
-              selectedProps={selected}
-              propsRunning={mode === "full" && running}
-              onSelectProps={() => {
-                if (showPropPicker) {
-                  simulatorScroll.current?.scrollTo({ y: propPickerOffset.current, animated: true });
-                } else {
-                  revealPropPicker.current = true;
-                }
-                setMode("full");
-              }}
-              simulations={gameResult.simulations}
-              away={game.awayAbbr ?? game.awayTeam ?? "Away"}
-              home={game.homeAbbr ?? game.homeTeam ?? "Home"}
-            />
-          </View>
-        ) : null}
-
         {/* Sport pills */}
         <ScrollView
           horizontal
@@ -1223,6 +1198,31 @@ function SimulatorScreen() {
                   </Pressable>
                 ))}
               </ScrollView>
+            ) : null}
+
+            {mode !== "props" && gameResult && replayData ? (
+              <View style={{ paddingHorizontal: 16 }}>
+                <GameReplay
+                  key={`${game.id}:${ranAt}`}
+                  {...replayData}
+                  awayLogo={game.awayLogo}
+                  homeLogo={game.homeLogo}
+                  props={propResults}
+                  selectedProps={selected}
+                  propsRunning={mode === "full" && running}
+                  onSelectProps={() => {
+                    if (showPropPicker) {
+                      simulatorScroll.current?.scrollTo({ y: propPickerOffset.current, animated: true });
+                    } else {
+                      revealPropPicker.current = true;
+                    }
+                    setMode("full");
+                  }}
+                  simulations={gameResult.simulations}
+                  away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                  home={game.homeAbbr ?? game.homeTeam ?? "Home"}
+                />
+              </View>
             ) : null}
 
             {/* Matchup header */}
