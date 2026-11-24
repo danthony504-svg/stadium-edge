@@ -490,18 +490,6 @@ function SimulatorScreen() {
     return books.size > 0 ? books.size : 20;
   }, [matchedOddsGame]);
 
-  const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
-    const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
-    return buildGameFourQuestions({
-      gameLabel,
-      homeTeam: game.homeTeam,
-      awayTeam: game.awayTeam,
-      sim: gameResult,
-      oddsLines,
-    });
-  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
-
   const injuriesQ = useQuery({
     queryKey: ["sim-injuries", sport],
     queryFn: ({ signal }) => fetchSimulatorInjuries(sport, signal),
@@ -547,8 +535,20 @@ function SimulatorScreen() {
 
   const showReplay = mode !== "props" && replayData != null;
 
+  const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
+    if (mode === "props" || showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
+    return buildGameFourQuestions({
+      gameLabel,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      sim: gameResult,
+      oddsLines,
+    });
+  }, [mode, showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
+
   const scoringInput = useMemo(() => {
-    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (mode === "props" || showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -557,7 +557,7 @@ function SimulatorScreen() {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     };
-  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [mode, showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
   const [linePageSize, setLinePageSize] = useState(20);
   const [scoredLines, setScoredLines] = useState<{
     input: NonNullable<typeof scoringInput>;
@@ -600,8 +600,10 @@ function SimulatorScreen() {
   );
 
   const deferredMode = useDeferredValue(mode);
+  const [analyticsResult, setAnalyticsResult] = useState<GameSimulationResult | null>(null);
+  const analyticsOpen = mode === "full" && gameResult != null && analyticsResult === gameResult;
   const fullSimAnalytics = useMemo(() => {
-    if (deferredMode !== "full" || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
+    if (!analyticsOpen || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
     return analyzeFullSimulation({
       result: gameResult,
       evalLines: gameOddsLines,
@@ -609,7 +611,7 @@ function SimulatorScreen() {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
     });
-  }, [deferredMode, gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
+  }, [analyticsOpen, gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
 
   const bestLinesAnalyzing = gameResult ? !!scoringInput && scoredLines?.input !== scoringInput : running;
 
@@ -762,19 +764,19 @@ function SimulatorScreen() {
   }, [propsQ.data, propsLoading, showPropPicker, sport]);
 
   const propPool = useMemo(() => {
-    if (!gameLabel || !game) return [];
+    if (!propResults.length || !gameLabel || !game) return [];
     return buildSimulatorPropPool(mains, gameLabel, sport, {
       homeTeamId: game.homeTeamId,
       awayTeamId: game.awayTeamId,
       homeAbbr: game.homeAbbr,
       awayAbbr: game.awayAbbr,
     });
-  }, [mains, gameLabel, game, sport]);
+  }, [propResults.length, mains, gameLabel, game, sport]);
 
   const ppPropPool = useMemo(() => {
-    if (!gameLabel) return [];
+    if (!propResults.length || !gameLabel) return [];
     return buildSimulatorPpPropPool(mains, gameLabel, sport);
-  }, [mains, gameLabel, sport]);
+  }, [propResults.length, mains, gameLabel, sport]);
 
   const filteredProps = useMemo(() => {
     let list = mains;
@@ -1061,7 +1063,7 @@ function SimulatorScreen() {
     (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
 
   const propScores = useMemo(() => {
-    if (!propResults.length || !gameLabel || !selected.length) {
+    if (mode === "game" || !propResults.length || !gameLabel || !selected.length) {
       return new Map<string, SimulatorPropGrade>();
     }
     const simMap = new Map(
@@ -1075,6 +1077,7 @@ function SimulatorScreen() {
       injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
     });
   }, [
+    mode,
     propResults,
     selected,
     gameLabel,
@@ -1151,6 +1154,7 @@ function SimulatorScreen() {
         </View>
       </AppHeader>
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 120 }}
         refreshControl={
           <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
@@ -1293,8 +1297,13 @@ function SimulatorScreen() {
                 return (
                   <Pressable
                     key={m.id}
-                    onPress={() => setMode(m.id)}
-                    style={{ flex: 1, borderRadius: 10, overflow: "hidden" }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      setMode(m.id);
+                      setAnalyticsResult(null);
+                    }}
+                    style={{ flex: 1, minHeight: 44, justifyContent: "center", borderRadius: 10, overflow: "hidden" }}
                   >
                     {active ? (
                       <LinearGradient
@@ -1575,7 +1584,7 @@ function SimulatorScreen() {
             ) : null}
 
             {/* Results */}
-            {(gameResult || propResults.length > 0) && (
+            {((mode !== "props" && gameResult) || (mode !== "game" && propResults.length > 0)) && (
               <View style={{ paddingHorizontal: 16 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <Text style={{ fontFamily: FONT.semibold, fontSize: 17, color: colors.foreground }}>
@@ -1602,7 +1611,7 @@ function SimulatorScreen() {
                   </View>
                 </View>
 
-                {gameResult && game.homeTeam && game.awayTeam ? (
+                {mode !== "props" && gameResult && game.homeTeam && game.awayTeam ? (
                   <>
                     <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
                       {!isGameLinesOnlySport(sport) || sport === "tennis" ? (
@@ -1691,8 +1700,20 @@ function SimulatorScreen() {
                         </Text>
                       </Card>
                     )}
-                    {mode === "full" && fullSimAnalytics ? (
-                      <FullSimulationPanel analytics={fullSimAnalytics} />
+                    {mode === "full" && gameResult.outcomes ? (
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: analyticsOpen }}
+                          onPress={() => setAnalyticsResult(analyticsOpen ? null : gameResult)}
+                          style={{ minHeight: 44, justifyContent: "center", marginBottom: 12 }}
+                        >
+                          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                            {analyticsOpen ? "Hide game analytics" : "Show game analytics"}
+                          </Text>
+                        </Pressable>
+                        {fullSimAnalytics ? <FullSimulationPanel analytics={fullSimAnalytics} /> : null}
+                      </>
                     ) : null}
                     {gameFourQuestions.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
@@ -1710,7 +1731,7 @@ function SimulatorScreen() {
                   </>
                 ) : null}
 
-                {propResults.length > 0 ? (
+                {mode !== "game" && propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
                       Player Prop Projections
