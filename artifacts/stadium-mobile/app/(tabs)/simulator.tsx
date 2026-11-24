@@ -161,6 +161,12 @@ const BASKETBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "triple_double", label: "Triple-Double", markets: ["player_triple_double"] },
 ];
 
+const NBA_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
+  BASKETBALL_PROP_FILTERS[0]!,
+  { id: "first_basket", label: "First Basket", markets: ["player_first_basket"] },
+  ...BASKETBALL_PROP_FILTERS.slice(1),
+];
+
 const NHL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "popular", label: "Popular", icon: "zap" },
   { id: "goals", label: "Goals", markets: ["player_goals"] },
@@ -193,7 +199,8 @@ const FOOTBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
 ];
 
 function propFiltersForSport(sport: string) {
-  if (sport === "nba" || sport === "wnba") return BASKETBALL_PROP_FILTERS;
+  if (sport === "nba") return NBA_PROP_FILTERS;
+  if (sport === "wnba" || sport === "ncaab") return BASKETBALL_PROP_FILTERS;
   if (sport === "nhl") return NHL_PROP_FILTERS;
   if (sport === "soccer") return SOCCER_PROP_FILTERS;
   if (sport === "nfl" || sport === "ncaaf") return FOOTBALL_PROP_FILTERS;
@@ -308,6 +315,7 @@ function SimulatorScreen() {
   const [gameIdx, setGameIdx] = useState(0);
   const [mode, setMode] = useState<SimMode>("game");
   const [filter, setFilter] = useState("popular");
+  const [visiblePropCount, setVisiblePropCount] = useState(6);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SelectedProp[]>([]);
   const [running, setRunning] = useState(false);
@@ -426,6 +434,7 @@ function SimulatorScreen() {
       : game?.homeLogo ?? null;
 
   const gameScope = JSON.stringify([sport, game?.id]);
+  useEffect(() => setVisiblePropCount(6), [gameScope, filter, search]);
   const gameResult = scopedGameResult?.scope === gameScope ? scopedGameResult.result : null;
   const setGameResult = useCallback((result: GameSimulationResult | null) => {
     setScopedGameResult((previous) => {
@@ -755,11 +764,12 @@ function SimulatorScreen() {
     (sport !== "mlb" || probablesQ.isFetched);
 
   const firstBasketOdds = useMemo(() => {
-    if (!showPropPicker || sport !== "nba") return [];
+    if (!showPropPicker || sport !== "nba" || filter !== "first_basket") return [];
     return asPropList(propsQ.data).filter((prop) =>
-      prop?.market === "player_first_basket" && prop.overPrice != null && Number.isFinite(prop.overPrice),
+      prop?.market === "player_first_basket" && prop.overPrice != null && Number.isFinite(prop.overPrice) &&
+      (!search.trim() || prop.player.toLowerCase().includes(search.trim().toLowerCase())),
     ).sort((a, b) => (americanToImplied(b.overPrice) ?? 0) - (americanToImplied(a.overPrice) ?? 0));
-  }, [propsQ.data, showPropPicker, sport]);
+  }, [propsQ.data, showPropPicker, sport, filter, search]);
 
   const mains = useMemo(() => {
     if (!showPropPicker || propsLoading) return [];
@@ -800,7 +810,7 @@ function SimulatorScreen() {
     if (filter === "popular") {
       list = [...list].sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0));
     }
-    return list.slice(0, 40);
+    return list;
   }, [mains, filter, search, sportFilters]);
 
   const toggleProp = (p: PlayerProp, side: "Over" | "Under") => {
@@ -1212,6 +1222,9 @@ function SimulatorScreen() {
           />
         ) : (
           <>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, marginHorizontal: 16, marginBottom: 8 }}>
+              1. Pick Game
+            </Text>
             {/* Game picker strip */}
             {games.length > 1 ? (
               <ScrollView
@@ -1338,7 +1351,7 @@ function SimulatorScreen() {
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}>
-                      Player Prop Builder
+                      2. Add Player Props
                     </Text>
                     <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}>
                       Add up to {MAX_PROPS} players
@@ -1440,11 +1453,12 @@ function SimulatorScreen() {
                   </View>
                 </ScrollView>
 
-                {sport === "nba" && gameEligible && !propsLoading ? (
+                {sport === "nba" && filter === "first_basket" && gameEligible && !propsLoading ? (
                   <Card style={{ marginBottom: 12, gap: 8 }}>
                     <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
                     <Text style={{ color: colors.mutedForeground }}>
-                      {firstBasketOdds.length ? "Posted sportsbook odds" : "No First Basket odds available from the feed."}
+                      {firstBasketOdds.length ? "Posted sportsbook odds" : propsQ.isFetching ? "Checking First Basket odds…" :
+                        search.trim() ? "No First Basket odds match your search." : "No First Basket odds available from the feed."}
                     </Text>
                     {firstBasketOdds.map((prop) => (
                       <View key={`${prop.athleteId ?? prop.player}:${prop.line ?? ""}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -1464,7 +1478,7 @@ function SimulatorScreen() {
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
                     This game has already started — pick an upcoming matchup to simulate props.
                   </Text>
-                ) : filteredProps.length === 0 ? (
+                ) : filter === "first_basket" ? null : filteredProps.length === 0 ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
                     {propsQ.isFetching
                       ? "Loading player props…"
@@ -1472,61 +1486,62 @@ function SimulatorScreen() {
                   </Text>
                 ) : (
                   <View style={{ gap: 8 }}>
-                    {filteredProps.map((p) => {
-                      const side: "Over" | "Under" =
-                        p.evSide === "Under" ? "Under" : "Over";
+                    {filteredProps.slice(0, visiblePropCount).map((p) => {
                       const isPp = p.priceSource === "PrizePicks";
-                      const price = side === "Over" ? p.overPrice : p.underPrice;
-                      if (!isPp && price == null) return null;
-                      const picked = selected.some(
-                        (s) =>
-                          s.player === p.player &&
-                          s.market === p.market &&
-                          s.line === p.line &&
-                          s.side === side,
-                      );
+                      const binary = isBinaryNullLineMarket(p.market);
+                      const playsAtHome = p.playerTeamId === game.homeTeamId;
+                      const opponent = playsAtHome ? game.awayTeam : game.homeTeam;
+                      const opponentPace = playsAtHome ? matchupQ.data?.awayPace : matchupQ.data?.homePace;
+                      const matchupNote = sport === "nba" && opponentPace != null &&
+                        Number.isFinite(opponentPace)
+                        ? ` · Opp. pace ${opponentPace.toFixed(1)} possessions per 48 min`
+                        : p.position ? ` · ${p.position}` : "";
                       return (
-                        <View
-                          key={`${p.player}|${p.market}|${p.line}`}
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 10,
-                            padding: 12,
-                            borderRadius: 14,
-                            backgroundColor: colors.card,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                          }}
-                        >
-                          <SimAvatar headshot={p.headshot} name={p.player} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
-                              {p.player}
-                            </Text>
-                            <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}>
-                              {isBinaryNullLineMarket(p.market) ? `${side === "Over" ? "Yes" : "No"} ${propMarketLabel(p.market)}` : `${side} ${p.line} ${propMarketLabel(p.market)}`}
-                            </Text>
+                        <Card key={`${p.player}|${p.market}|${p.line}`} style={{ gap: 8, padding: 10 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <SimAvatar headshot={p.headshot} name={p.player} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontFamily: FONT.semibold, color: colors.foreground }}>{p.player}</Text>
+                              <Text style={{ color: colors.mutedForeground }}>
+                                {propMarketLabel(p.market)} · vs {opponent ?? "selected opponent"}{matchupNote}
+                              </Text>
+                            </View>
                           </View>
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {isPp ? "DFS line" : formatAmerican(price!)}
-                          </Text>
-                          <Pressable
-                            onPress={() => toggleProp(p, side)}
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              backgroundColor: picked ? colors.primary : "rgba(59,130,246,0.15)",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <Feather name={picked ? "check" : "plus"} size={18} color={picked ? "#0f172a" : colors.primary} />
-                          </Pressable>
-                        </View>
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                            {(["Over", "Under"] as const).map((side) => {
+                              const price = side === "Over" ? p.overPrice : p.underPrice;
+                              if (!isPp && price == null) return null;
+                              const picked = selected.some((pick) =>
+                                pick.player === p.player && pick.market === p.market &&
+                                pick.line === p.line && pick.side === side,
+                              );
+                              const label = binary ? (side === "Over" ? "Yes" : "No") : `${side} ${p.line}`;
+                              return (
+                                <Pressable
+                                  key={side}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`${p.player}, ${propMarketLabel(p.market)}, ${label}`}
+                                  accessibilityState={{ selected: picked }}
+                                  onPress={() => toggleProp(p, side)}
+                                  style={{ minHeight: 44, flexGrow: 1, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1,
+                                    borderColor: picked ? colors.primary : colors.border, justifyContent: "center" }}
+                                >
+                                  <Text style={{ color: picked ? colors.primary : colors.foreground, fontFamily: FONT.semibold }}>
+                                    {label} · {isPp ? "DFS" : formatAmerican(price!)}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </Card>
                       );
                     })}
+                    {visiblePropCount < filteredProps.length ? (
+                      <Pressable accessibilityRole="button" onPress={() => setVisiblePropCount((count) => count + 6)}
+                        style={{ minHeight: 44, justifyContent: "center" }}>
+                        <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Show more props</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 )}
               </View>
@@ -1575,7 +1590,7 @@ function SimulatorScreen() {
                   <Feather name="play" size={20} color="#fff" />
                 )}
                 <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 16 }}>
-                  {running ? "Running…" : "Run Simulation"}
+                  {running ? "Running…" : showPropPicker ? "3. Run Simulation" : "Run Simulation"}
                 </Text>
               </LinearGradient>
             </Pressable>
