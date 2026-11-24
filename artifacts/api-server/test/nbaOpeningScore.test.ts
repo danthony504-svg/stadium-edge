@@ -39,3 +39,30 @@ test("first basket cannot use the generic full-game stat projection", () => {
   assert.equal(isScoringOrderMarket("player_first_basket_scorer_alternate"), true);
   assert.equal(isScoringOrderMarket("player_points"), false);
 });
+
+test("First Basket history counts verified starts and excludes a former starter", async () => {
+  const { nbaFirstBasketRecentStarter } = await import("../src/lib/nbaFirstBasketHistory.ts");
+  const makeTeam = (teamId: string, ids: string[], latestIds = ids) => ({
+    teamId,
+    games: Array.from({ length: 4 }, (_, index) => ({
+      eventId: "123",
+      summary: {
+        ...summary,
+        boxscore: { players: [{
+          team: { id: teamId },
+          statistics: [{ athletes: (index === 0 ? latestIds : ids).map((id) => ({
+            starter: true, athlete: { id, displayName: `Player ${id}` },
+          })) }],
+        }] },
+      },
+    })),
+  });
+  const home = makeTeam("1", ["10", "11", "12", "13", "14"]);
+  const away = makeTeam("2", ["20", "21", "22", "23", "24"]);
+  assert.deepEqual(nbaFirstBasketRecentStarter([home, away]), {
+    player: "Player 20", hits: 4, starts: 4,
+  });
+  assert.equal(nbaFirstBasketRecentStarter([home, makeTeam("2",
+    ["20", "21", "22", "23", "24"], ["25", "21", "22", "23", "24"],
+  )]), null);
+});

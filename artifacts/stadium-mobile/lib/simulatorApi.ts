@@ -534,6 +534,15 @@ function computeMlLean(
   return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
 }
 
+export function fetchSimulatorFirstBasket(
+  eventId: string, homeTeamId: string, awayTeamId: string, signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ eventId, homeTeamId, awayTeamId });
+  return simGetJson<{ pick: { player: string; hits: number; starts: number } | null }>(
+    `/sports/nba-first-basket-history?${params}`, signal,
+  );
+}
+
 export async function fetchSimulatorMatchupHistory(
   opts: {
     sport: string;
