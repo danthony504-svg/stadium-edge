@@ -353,6 +353,7 @@ export async function fetchSimulatorGameOutcome(
       totalSide?: "over" | "under";
     }>;
     retainOutcomes?: boolean;
+    includeDriveReplay?: boolean;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

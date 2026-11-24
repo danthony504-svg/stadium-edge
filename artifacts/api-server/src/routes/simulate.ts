@@ -262,6 +262,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     weatherImpact,
     coverQueries,
     retainOutcomes,
+    includeDriveReplay: sport === "nfl" && req.body?.includeDriveReplay === true,
     home: {
       ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
       ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,

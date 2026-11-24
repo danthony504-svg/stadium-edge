@@ -49,25 +49,33 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const awayDrives = Math.round(10 + (homeOff + awayOff) / 55);
   const homeScores: number[] = [];
   const awayScores: number[] = [];
+  // Interleave each team's drive results for display while preserving the draw order.
+  const driveReplay: GameSimResult["driveReplay"] =
+    ctx.sport.toLowerCase() === "nfl" && ctx.includeDriveReplay ? [] : undefined;
 
   for (let i = 0; i < n; i++) {
     let h = 0;
     let a = 0;
     for (let d = 0; d < homeDrives; d++) {
+      const before = h;
       h += driveOutcome(homeOff);
       // Clock management — trailing team passes more (slightly higher variance).
       if (d > homeDrives * 0.7 && h < a) h += Math.random() < 0.08 ? 7 : 0;
+      if (driveReplay && i === 0) driveReplay[2 * d + 1] = { side: "home", points: h - before };
     }
     for (let d = 0; d < awayDrives; d++) {
+      const before = a;
       a += driveOutcome(awayOff);
       if (d > awayDrives * 0.7 && a < h) a += Math.random() < 0.08 ? 7 : 0;
+      if (driveReplay && i === 0) driveReplay[2 * d] = { side: "away", points: a - before };
     }
     homeScores.push(h);
     awayScores.push(a);
   }
 
-  return finalizeFromScores(ctx, homeScores, awayScores, {
+  const result = finalizeFromScores(ctx, homeScores, awayScores, {
     simModel: "nfl-drive",
     simModelLabel: "NFL drive-by-drive",
   }, 48);
+  return driveReplay?.length ? { ...result, driveReplay } : result;
 }

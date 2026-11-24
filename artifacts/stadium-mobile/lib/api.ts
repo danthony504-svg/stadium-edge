@@ -2463,6 +2463,7 @@ export async function fetchPropSimulations(
 }
 
 export type GameSimulationResult = {
+  driveReplay?: { side: "home" | "away"; points: number }[];
   sport: string;
   simulations: number;
   homeWinProbability: number;

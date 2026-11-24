@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { NflDriveReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
@@ -863,6 +864,7 @@ function SimulatorScreen() {
             weatherImpact: wx,
             coverQueries,
             retainOutcomes: true,
+            includeDriveReplay: sport === "nfl",
           });
           if (gr) {
             setGameResult(gr);
@@ -1565,6 +1567,15 @@ function SimulatorScreen() {
                         ) : null}
                       </ResultCol>
                     </View>
+                    {sport === "nfl" && !!gameResult.driveReplay?.length ? (
+                      <NflDriveReplay
+                        key={`${game.id}:${ranAt}`}
+                        drives={gameResult.driveReplay}
+                        simulations={gameResult.simulations}
+                        away={game.awayAbbr ?? game.awayTeam}
+                        home={game.homeAbbr ?? game.homeTeam}
+                      />
+                    ) : null}
                     {sport === "ufc" && gameResult.methodRates ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>

@@ -49,6 +49,7 @@ export type GameSimInput = {
 };
 
 export type GameSimResult = {
+  driveReplay?: { side: "home" | "away"; points: number }[];
   simulations: number;
   homeWinProbability: number;
   awayWinProbability: number;

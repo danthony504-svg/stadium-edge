@@ -113,3 +113,28 @@ test("rush/pass defense yards never enter runNflDriveSim inputs", () => {
   assert.equal(a!.simModel, "nfl-drive");
   assert.equal(b!.simModel, "nfl-drive");
 });
+
+test("NFL drive replay reproduces the first outcome without changing the simulation batch", (t) => {
+  const draws = [0.01, 0.6, 0.9, 0.05, 0.8, 0.7, 0.2, 0.97];
+  let index = 0;
+  t.mock.method(Math, "random", () => draws[index++ % draws.length]!);
+  const team = { ptsFor: 23, ptsAgainst: 21 };
+  const ctx = { sport: "nfl", simulations: 10, home: team, away: team };
+
+  const baseline = runNflDriveSim(ctx);
+  index = 0;
+  const result = runNflDriveSim({ ...ctx, includeDriveReplay: true });
+  assert.ok(baseline && result?.driveReplay && result.outcomes);
+  const { driveReplay, ...projection } = result;
+  assert.deepEqual(projection, baseline);
+  assert.equal(driveReplay.length, 22);
+
+  const score = { away: 0, home: 0 };
+  driveReplay.forEach((drive, i) => {
+    assert.equal(drive.side, i % 2 === 0 ? "away" : "home");
+    score[drive.side] += drive.points;
+  });
+  assert.equal(score.home, result.outcomes.homeScores[0]);
+  assert.equal(score.away, result.outcomes.awayScores[0]);
+  assert.equal(runNflDriveSim({ ...ctx, sport: "ncaaf", includeDriveReplay: true })?.driveReplay, undefined);
+});

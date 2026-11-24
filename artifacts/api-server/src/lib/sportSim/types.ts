@@ -10,6 +10,7 @@ export type SportSimContext = {
   weatherImpact?: number | null;
   coverQueries?: GameCoverQuery[];
   retainOutcomes?: boolean;
+  includeDriveReplay?: boolean;
 };
 
 export type SportSimModelId =
