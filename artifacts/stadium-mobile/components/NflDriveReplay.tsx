@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+
+import Feather from "@expo/vector-icons/Feather";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Line, Polygon, Text as FieldText } from "react-native-svg";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -12,6 +17,8 @@ type Props = {
   simulations: number;
   away: string;
   home: string;
+  awayLogo?: string | null;
+  homeLogo?: string | null;
   props: PropSimulationResult[];
   onSelectProps: () => void;
 };
@@ -25,10 +32,11 @@ const YARD_MARKETS = new Set([
   "player_pass_rush_reception_yds",
 ]);
 
-export function NflDriveReplay({ drives, simulations, away, home, props, onSelectProps }: Props) {
+export function NflDriveReplay({ drives, simulations, away, home, awayLogo, homeLogo, props, onSelectProps }: Props) {
   const colors = useColors();
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [propsOpen, setPropsOpen] = useState(false);
   const complete = cursor === drives.length;
   const trackWidth = useRef(0);
   const trackStart = useRef(0);
@@ -63,18 +71,29 @@ export function NflDriveReplay({ drives, simulations, away, home, props, onSelec
     ? `${latest.side === "home" ? home : away} · ${latest.points ? `+${latest.points} points` : "No score"}`
     : "Kickoff";
 
+  const playbackLabel = playing ? "Pause" : complete ? "Replay" : cursor ? "Resume" : "Play";
+  function togglePlayback() {
+    if (complete) setCursor(0);
+    setPlaying(!playing);
+  }
+
   return (
-    <Card style={{ marginBottom: 12, gap: 10 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}>
-        Watch a Sim
-      </Text>
-      <Text style={{ color: colors.foreground }}>
-        1 of {simulations.toLocaleString()} simulations · NFL drive replay
-      </Text>
-      <View style={{ backgroundColor: "#164533", borderRadius: 10, padding: 14, gap: 8 }}>
-        <Text style={{ color: "#fff", fontFamily: FONT.semibold, fontSize: 20 }}>
-          {away} {score.away} · {score.home} {home}
-        </Text>
+    <Card style={styles.card}>
+      <View style={styles.heading}>
+        <Feather name="film" color="#70d9ff" size={24} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Watch a Sim</Text>
+          <Text style={styles.subtitle}>{simulations.toLocaleString()} simulations · 1 NFL replay</Text>
+        </View>
+      </View>
+      <View style={styles.scoreboard}>
+        <ReplayTeam name={away} logo={awayLogo} score={score.away} side="away" />
+        <ReplayTeam name={home} logo={homeLogo} score={score.home} side="home" />
+      </View>
+      <View style={styles.timeline}>
+        <Pressable accessibilityRole="button" accessibilityLabel={playbackLabel} onPress={togglePlayback} style={styles.play}>
+          <Feather name={playing ? "pause" : complete ? "rotate-ccw" : "play"} size={17} color="#c4edff" />
+        </Pressable>
         <View
           accessible
           accessibilityRole="adjustable"
@@ -93,69 +112,48 @@ export function NflDriveReplay({ drives, simulations, away, home, props, onSelec
           }}
           onResponderMove={({ nativeEvent }) => seekAt(nativeEvent.pageX)}
           onResponderTerminationRequest={() => false}
-          style={{ height: 44, justifyContent: "center", marginHorizontal: 10 }}
+          style={styles.scrubber}
         >
-          <View pointerEvents="none" style={{ height: 6, backgroundColor: "#547c69", borderRadius: 3 }}>
-            <View style={{ width: `${position * 100}%`, height: 6, borderRadius: 3, backgroundColor: "#b9f5c8" }} />
+          <View pointerEvents="none" style={{ height: 6, backgroundColor: "#27435e", borderRadius: 3 }}>
+            <View style={{ width: `${position * 100}%`, height: 6, borderRadius: 3, backgroundColor: "#61d6ff" }} />
             <View style={{ position: "absolute", left: `${position * 100}%`, top: -7, marginLeft: -10, width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff" }} />
           </View>
         </View>
-        <View
-          accessible
-          accessibilityLabel="Football field illustration"
-          style={{ height: 118, borderRadius: 6, overflow: "hidden", flexDirection: "row", borderWidth: 1, borderColor: "#b9f5c8" }}
-        >
-          {[away, ...Array.from({ length: 10 }, () => null), home].map((team, index) => (
-            <View
-              key={index}
-              style={{
-                flex: 1,
-                backgroundColor: team ? "#18335d" : index % 2 ? "#245c40" : "#1c5036",
-                borderLeftWidth: index ? 1 : 0,
-                borderLeftColor: "#b9f5c8",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {team ? (
-                <Text numberOfLines={1} style={{ color: "#fff", fontSize: 9, fontFamily: FONT.bold }}>{team}</Text>
-              ) : index === 5 || index === 6 ? (
-                <Text style={{ color: "#e3ffe9", fontSize: 9 }}>50</Text>
-              ) : null}
-            </View>
-          ))}
-        </View>
-        <Text accessibilityLiveRegion={playing ? "none" : "polite"} style={{ color: "#fff" }}>
-          {complete ? "Final · " : ""}Drive {cursor}/{drives.length} · {driveText}
-        </Text>
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 18 }}>
-        <Pressable
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={() => {
-            if (complete) setCursor(0);
-            setPlaying(!playing);
-          }}
-        >
-          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>
-            {playing ? "Pause" : complete ? "Replay" : cursor ? "Resume" : "Play"}
-          </Text>
+      <ReplayField away={away} home={home} activeSide={latest?.side} />
+      <View style={styles.status}>
+        <Text style={styles.statusText}>{complete ? "Final" : cursor ? `Drive ${cursor}/${drives.length}` : "Kickoff"}</Text>
+        {complete ? <Text style={styles.subtitle}>Drive {cursor}/{drives.length}</Text> : null}
+        {latest ? (
+          <Text accessibilityLiveRegion={playing ? "none" : "polite"} style={styles.driveText}>{driveText}</Text>
+        ) : null}
+      </View>
+      <View style={styles.actions}>
+        <Pressable accessibilityRole="button" onPress={togglePlayback} style={[styles.action, styles.primaryAction]}>
+          <Text style={styles.actionText}>{playbackLabel}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ disabled: complete }}
           disabled={complete}
-          hitSlop={8}
           onPress={() => seek(cursor + 1)}
+          style={[styles.action, complete && { opacity: 0.45 }]}
         >
-          <Text style={{ color: colors.foreground, opacity: complete ? 0.45 : 1 }}>
-            Next drive
-          </Text>
+          <Text style={styles.actionText}>Next drive</Text>
+          <Feather name="skip-forward" size={15} color="#c4edff" />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: propsOpen }}
+          onPress={() => setPropsOpen((open) => !open)}
+          style={styles.action}
+        >
+          <Text style={styles.actionText}>Player Props</Text>
+          <Feather name={propsOpen ? "chevron-up" : "chevron-down"} size={15} color="#c4edff" />
         </Pressable>
       </View>
-      <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, gap: 8 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Player Props · Full Game</Text>
+      {propsOpen ? <View style={{ backgroundColor: colors.card, borderRadius: 10, padding: 12, gap: 8 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Full-game projections</Text>
         {yardProps.length ? yardProps.map((prop) => (
           <View key={prop.key} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
             <View style={{ flex: 1 }}>
@@ -176,7 +174,87 @@ export function NflDriveReplay({ drives, simulations, away, home, props, onSelec
             <Text style={{ color: colors.primary }}>Select yardage props in Full Simulation</Text>
           </Pressable>
         )}
-      </View>
+      </View> : null}
     </Card>
   );
 }
+
+function ReplayTeam({ name, logo, score, side }: {
+  name: string;
+  logo?: string | null;
+  score: number;
+  side: "away" | "home";
+}) {
+  return (
+    <LinearGradient
+      colors={side === "away" ? ["#164a3e", "#0c272e"] : ["#123462", "#102746"]}
+      style={[styles.team, side === "home" && { flexDirection: "row-reverse" }]}
+    >
+      {logo ? <Image source={logo} contentFit="contain" style={styles.logo} /> : null}
+      <Text numberOfLines={1} style={styles.teamLabel}>{name}</Text>
+      <Text style={styles.score}>{score}</Text>
+    </LinearGradient>
+  );
+}
+
+const YARD_STRIPES = Array.from({ length: 11 }, (_, index) => index);
+const HASH_MARKS = Array.from({ length: 49 }, (_, index) => index + 1);
+
+function ReplayField({ away, home, activeSide }: {
+  away: string;
+  home: string;
+  activeSide?: "away" | "home";
+}) {
+  const fieldX = (yard: number, y: number) => 48 - y * 0.08 + yard * (2.62 + y * 0.0016);
+
+  return (
+    <View accessible accessibilityLabel="Football field illustration" style={styles.field}>
+      <Svg width="100%" height="100%" viewBox="0 0 360 138">
+        <Polygon points="21,5 339,5 355,133 5,133" fill="#164a36" />
+        <Polygon points="21,5 48,5 37,133 5,133" fill={activeSide === "away" ? "#287459" : "#123e36"} />
+        <Polygon points="310,5 339,5 355,133 321,133" fill={activeSide === "home" ? "#2058a8" : "#12396f"} />
+        {YARD_STRIPES.map((index) => {
+          const yard = index * 10;
+          const label = Math.min(yard, 100 - yard);
+          return (
+            <Line key={yard} x1={fieldX(yard, 5)} y1={5} x2={fieldX(yard, 133)} y2={133} stroke="#b4e7c8" strokeWidth={label === 50 ? 1.6 : 1} />
+          );
+        })}
+        {HASH_MARKS.map((mark) => (
+          <Line key={mark} x1={fieldX(mark * 2, 64)} y1={64} x2={fieldX(mark * 2, 74)} y2={74} stroke="#a8dabc" strokeWidth={0.6} />
+        ))}
+        {YARD_STRIPES.slice(1, -1).map((index) => (
+          <FieldText key={index} x={fieldX(index * 10, 32)} y={32} fill="#f1fdf6" fontSize={10} fontWeight="bold" textAnchor="middle">
+            {Math.min(index, 10 - index) * 10}
+          </FieldText>
+        ))}
+        <FieldText x={24} y={74} fill="#fff" fontSize={10} fontWeight="bold" textAnchor="middle">{away}</FieldText>
+        <FieldText x={336} y={74} fill="#fff" fontSize={10} fontWeight="bold" textAnchor="middle">{home}</FieldText>
+        <Polygon points="21,5 339,5 355,133 5,133" fill="none" stroke="#b4e7c8" strokeWidth={2} strokeLinejoin="round" />
+      </Svg>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: { marginBottom: 12, gap: 10, backgroundColor: "#09182a", borderColor: "#264866" },
+  heading: { flexDirection: "row", alignItems: "center", gap: 10 },
+  title: { color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 20 },
+  subtitle: { color: "#a9bdd5", fontSize: 12 },
+  scoreboard: { flexDirection: "row", borderWidth: 1, borderColor: "#345876", borderRadius: 12, overflow: "hidden" },
+  team: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, paddingHorizontal: 4, gap: 6 },
+  logo: { width: 30, height: 30 },
+  teamLabel: { color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 13, flexShrink: 1 },
+  score: { color: "#fff", fontFamily: FONT.bold, fontSize: 25, fontVariant: ["tabular-nums"] },
+  timeline: { flexDirection: "row", alignItems: "center", gap: 10 },
+  play: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#497ba9", backgroundColor: "#12365b", alignItems: "center", justifyContent: "center" },
+  scrubber: { flex: 1, height: 44, justifyContent: "center", marginHorizontal: 10 },
+  field: { aspectRatio: 360 / 138, backgroundColor: "#0b2924", borderRadius: 12, padding: 3 },
+  status: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "#12253b" },
+  statusText: { color: "#f4f8ff", fontFamily: FONT.semibold, fontSize: 13 },
+  driveText: { color: "#79ddff", fontFamily: FONT.semibold, fontSize: 12 },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  action: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: "#345876", backgroundColor: "#12253b" },
+  primaryAction: { backgroundColor: "#144879", borderColor: "#5497d0" },
+  actionText: { color: "#e6f4ff", fontFamily: FONT.semibold, fontSize: 12 },
+});

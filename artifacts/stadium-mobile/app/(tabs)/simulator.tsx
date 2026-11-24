@@ -1521,6 +1521,8 @@ function SimulatorScreen() {
                 <NflDriveReplay
                   key={`${game.id}:${ranAt}`}
                   drives={gameResult.driveReplay}
+                  awayLogo={game.awayLogo}
+                  homeLogo={game.homeLogo}
                   props={propResults}
                   onSelectProps={() => setMode("full")}
                   simulations={gameResult.simulations}
