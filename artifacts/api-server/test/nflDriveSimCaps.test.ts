@@ -138,3 +138,24 @@ test("NFL drive replay reproduces the first outcome without changing the simulat
   assert.equal(score.away, result.outcomes.awayScores[0]);
   assert.equal(runNflDriveSim({ ...ctx, sport: "ncaaf", includeDriveReplay: true })?.driveReplay, undefined);
 });
+
+test("NFL expected scores use team points per game across all drives", (t) => {
+  let seed = 41;
+  t.mock.method(Math, "random", () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  });
+
+  const result = runNflDriveSim({
+    sport: "nfl",
+    simulations: 10_000,
+    home: { ptsFor: 25, ptsAgainst: 20 },
+    away: { ptsFor: 22, ptsAgainst: 23 },
+    coverQueries: [{ id: "over", kind: "total", totalSide: "over", line: 44.5 }],
+  });
+  assert.ok(result);
+  assert.ok(Math.abs(result.homeProjectedScore - 24) < 0.4, `home mean ${result.homeProjectedScore}`);
+  assert.ok(Math.abs(result.awayProjectedScore - 21) < 0.4, `away mean ${result.awayProjectedScore}`);
+  const over = result.coverHitRates?.over ?? 0;
+  assert.ok(over > 0.4 && over < 0.6, `over hit rate ${over}`);
+});

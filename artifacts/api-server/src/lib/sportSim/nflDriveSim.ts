@@ -1,7 +1,7 @@
-// NFL / NCAAF — drive-by-drive simulation with red-zone efficiency and clock management.
+// NFL / NCAAF — drive-by-drive scoring simulation.
 //
-// IMPORTANT (integrity): per-drive TD/FG rates hard-cap at 0.42 / 0.28 once
-// points-per-drive (teamMean of ptsFor + opp ptsAgainst) reaches ~11.8 / ~11.2.
+// The legacy NCAAF path passes game-level points into rates that hard-cap at 0.42 / 0.28 once
+// their scoring input at ~11.8 / ~11.2.
 // Above those floors, large offensive / defensive / QB shocks do not change
 // scoring rates — cover probabilities become insensitive. NCAAF game-line
 // grades fail closed on the client until this engine is recalibrated.
@@ -17,7 +17,7 @@ export const NFL_DRIVE_FG_RATE_CAP = 0.28;
 export const NFL_DRIVE_TD_PPD_DIVISOR = 28;
 export const NFL_DRIVE_FG_PPD_DIVISOR = 40;
 
-/** Pure scoring-rate map used by every drive draw (exported for deterministic audits). */
+/** Scoring-rate map shared by the NFL and legacy NCAAF drive samplers. */
 export function nflDriveScoringRates(ppd: number): { tdRate: number; fgRate: number } {
   return {
     tdRate: Math.min(NFL_DRIVE_TD_RATE_CAP, ppd / NFL_DRIVE_TD_PPD_DIVISOR),
@@ -31,9 +31,11 @@ export function nflDriveRatesSaturated(ppd: number): boolean {
   return tdRate >= NFL_DRIVE_TD_RATE_CAP && fgRate >= NFL_DRIVE_FG_RATE_CAP;
 }
 
-function driveOutcome(ppd: number): number {
+// Below the caps, each unit of input contributes this many expected drive points.
+const POINTS_PER_RATE_INPUT = 7 / NFL_DRIVE_TD_PPD_DIVISOR + 3 / NFL_DRIVE_FG_PPD_DIVISOR;
+
+function driveOutcome({ tdRate, fgRate }: ReturnType<typeof nflDriveScoringRates>): number {
   const r = Math.random();
-  const { tdRate, fgRate } = nflDriveScoringRates(ppd);
   if (r < tdRate) return 7;
   if (r < tdRate + fgRate) return 3;
   return 0;
@@ -45,28 +47,32 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const awayOff = teamMean(ctx.away.ptsFor, ctx.home.ptsAgainst, 22);
   if (!Number.isFinite(homeOff) || !Number.isFinite(awayOff)) return null;
 
-  const homeDrives = Math.round(10 + (homeOff + awayOff) / 55);
-  const awayDrives = Math.round(10 + (homeOff + awayOff) / 55);
+  const isNfl = ctx.sport.toLowerCase() === "nfl";
+  const drivesPerTeam = Math.max(1, Math.round(10 + (homeOff + awayOff) / 55));
+  // Convert each NFL team's expected game points to a drive scoring rate.
+  const rateScale = isNfl ? drivesPerTeam * POINTS_PER_RATE_INPUT : 1;
+  const homeRates = nflDriveScoringRates(Math.max(0, homeOff) / rateScale);
+  const awayRates = nflDriveScoringRates(Math.max(0, awayOff) / rateScale);
   const homeScores: number[] = [];
   const awayScores: number[] = [];
   // Interleave each team's drive results for display while preserving the draw order.
   const driveReplay: GameSimResult["driveReplay"] =
-    ctx.sport.toLowerCase() === "nfl" && ctx.includeDriveReplay ? [] : undefined;
+    isNfl && ctx.includeDriveReplay ? [] : undefined;
 
   for (let i = 0; i < n; i++) {
     let h = 0;
     let a = 0;
-    for (let d = 0; d < homeDrives; d++) {
+    for (let d = 0; d < drivesPerTeam; d++) {
       const before = h;
-      h += driveOutcome(homeOff);
+      h += driveOutcome(homeRates);
       // Clock management — trailing team passes more (slightly higher variance).
-      if (d > homeDrives * 0.7 && h < a) h += Math.random() < 0.08 ? 7 : 0;
+      if (!isNfl && d > drivesPerTeam * 0.7 && h < a) h += Math.random() < 0.08 ? 7 : 0;
       if (driveReplay && i === 0) driveReplay[2 * d + 1] = { side: "home", points: h - before };
     }
-    for (let d = 0; d < awayDrives; d++) {
+    for (let d = 0; d < drivesPerTeam; d++) {
       const before = a;
-      a += driveOutcome(awayOff);
-      if (d > awayDrives * 0.7 && a < h) a += Math.random() < 0.08 ? 7 : 0;
+      a += driveOutcome(awayRates);
+      if (!isNfl && d > drivesPerTeam * 0.7 && a < h) a += Math.random() < 0.08 ? 7 : 0;
       if (driveReplay && i === 0) driveReplay[2 * d] = { side: "away", points: a - before };
     }
     homeScores.push(h);
