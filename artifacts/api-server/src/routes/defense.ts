@@ -149,6 +149,14 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
+  if (req.query.simulatorMatchup === "1") {
+    const [allowed, production] = await Promise.all([
+      opponentMarketAllowance(sportId, teamId, true),
+      opponentMarketAllowance(sportId, teamId, true, true),
+    ]);
+    res.json({ allowed, production });
+    return;
+  }
   const withPositions = req.query.positions === "1";
   try {
     const key = `team-defense:${path}:${teamId}:v9:${withPositions ? "positions" : "team"}`;

@@ -11,14 +11,15 @@ export function opponentMarketRules(sport:string):Rule[]{
  if(sport==='soccer')return [rule('player_shots',[['totalShots']]),rule('player_shots_on_target',[['shotsOnTarget']]),rule('player_assists',[['goalAssists','assists']])];
  return [];
 }
-export function aggregateOpponentMarkets(sport:string,teamId:string,boxes:MarketAllowanceBox[],cutoff=Date.now()):MarketAllowanceRow[]{
+export function aggregateOpponentMarkets(sport:string,teamId:string,boxes:MarketAllowanceBox[],cutoff=Date.now(), ownProduction=false):MarketAllowanceRow[]{
  const bins=new Map<string,Array<{eventId:string;date:string;value:number}>>(),seen=new Set<string>();
  for(const b of boxes){const c=b.header?.competitions?.[0],id=b.header?.id,date=c?.date;
   if(!id||seen.has(id)||!date||!c?.status?.type?.completed||!Number.isFinite(Date.parse(date))||Date.parse(date)>=cutoff)continue;
   const ids=c.competitors?.map(t=>t.team?.id)??[];if(ids.length!==2||!ids.includes(teamId)||ids[0]===ids[1])continue;
   seen.add(id);
   for(const r of opponentMarketRules(sport)){
-   const target=r.scope==='team_allowed'?ids.find(x=>x!==teamId):teamId;
+   if (ownProduction && r.scope !== 'team_allowed') continue;
+   const target=ownProduction ? teamId : r.scope==='team_allowed'?ids.find(x=>x!==teamId):teamId;
    const teams=b.boxscore?.teams?.filter(t=>t.team?.id===target)??[];if(teams.length!==1)continue;
    let statRows=teams[0]!.statistics??[];
    if(sport==='mlb'){
