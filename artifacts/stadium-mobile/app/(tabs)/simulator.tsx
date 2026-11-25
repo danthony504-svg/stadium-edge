@@ -28,7 +28,6 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import {
-  fetchSimulatorFirstBasket,
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
   fetchSimulatorInjuries,
@@ -159,7 +158,6 @@ function SimulatorScreen() {
 
   const [sport, setSport] = useState<string>("mlb");
   const [gameIdx, setGameIdx] = useState(0);
-  const [firstBasketOpen, setFirstBasketOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [scopedGameResult, setScopedGameResult] = useState<{ scope: string; result: GameSimulationResult } | null>(null);
   const [ranAt, setRanAt] = useState<number | null>(null);
@@ -448,15 +446,6 @@ function SimulatorScreen() {
     return () => clearInterval(id);
   }, [bestLinesAnalyzing]);
 
-  const firstBasketQ = useQuery({
-    queryKey: ["sim-first-basket", game?.id, game?.homeTeamId, game?.awayTeamId],
-    enabled: sport === "nba" && firstBasketOpen && gameEligible &&
-      !!game?.id && !!game.homeTeamId && !!game.awayTeamId,
-    queryFn: ({ signal }) => fetchSimulatorFirstBasket(game!.id, game!.homeTeamId!, game!.awayTeamId!, signal),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-
   const gamesBootstrapping =
     (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
     games.length === 0;
@@ -660,6 +649,7 @@ function SimulatorScreen() {
     game.startsAt && supportsSimulatorBoxScore(sport) ? (
     <SimulatorPlayerBoxScore
       key={gameScope}
+      eventId={game.id}
       sport={sport}
       homeTeamId={game.homeTeamId}
       awayTeamId={game.awayTeamId}
@@ -744,7 +734,7 @@ function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setFirstBasketOpen(false); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); }} />
             );
           })}
         </ScrollView>
@@ -793,7 +783,7 @@ function SimulatorScreen() {
                 {games.map((g, i) => (
                   <Pressable
                     key={g.id}
-                    onPress={() => { setGameIdx(i); setFirstBasketOpen(false); }}
+                    onPress={() => { setGameIdx(i); }}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 8,
@@ -1016,34 +1006,6 @@ function SimulatorScreen() {
                   </>
                 ) : null}
 
-                {sport === "nba" && gameEligible ? (
-                  <Card style={{ marginBottom: 12, gap: 8 }}>
-                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: firstBasketOpen }}
-                      onPress={() => setFirstBasketOpen((open) => !open)}
-                      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
-                      <Feather name={firstBasketOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
-                    </Pressable>
-                    {firstBasketOpen ? (
-                      firstBasketQ.data?.pick ? (
-                        <>
-                          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
-                            {firstBasketQ.data.pick.player} · History-based pick
-                          </Text>
-                          <Text style={{ color: colors.mutedForeground }}>
-                            Made the game's first field goal in {firstBasketQ.data.pick.hits} of {firstBasketQ.data.pick.starts} verified recent starts. Uses recent starters.
-                          </Text>
-                        </>
-                      ) : (
-                        <Text style={{ color: colors.mutedForeground }}>
-                          {firstBasketQ.isFetching ? "Checking recent opening baskets…" : firstBasketQ.isError
-                            ? "Couldn’t load opening basket history."
-                            : "No First Basket pick from the verified recent starts."}
-                        </Text>
-                      )
-                    ) : null}
-                  </Card>
-                ) : null}
               </View>
             )}
           </>

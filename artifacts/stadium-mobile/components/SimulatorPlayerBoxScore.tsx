@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Pressable, Text, View } from "react-native";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { fetchGameRoster, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
+import { refreshSimulatorAccuracy, trackSimulatorProjections } from "@/lib/simulatorAccuracy";
+import { fetchGameRoster, fetchSimulatorFirstBasket, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
 
 type Stat = readonly [label: string, ...keys: string[]];
 
@@ -32,7 +33,7 @@ export function supportsSimulatorBoxScore(sport: string) {
 
 function readStat(stats: Record<string, string>, keys: string[]) {
   for (const key of keys) {
-    const raw = stats[key]?.trim();
+    const raw = String(stats[key] ?? "").trim();
     if (!raw) continue;
     const madeAttempts = key === "3PT" ? raw.match(/^(\d+)-\d+$/) : null;
     const value = Number(madeAttempts ? madeAttempts[1] : raw);
@@ -41,26 +42,25 @@ function readStat(stats: Record<string, string>, keys: string[]) {
   return null;
 }
 
-export function sampleSimulatorBoxScore(
-  sport: string,
-  games: { date: string | null; stats: Record<string, string> }[],
-  cutoff: number,
-  seed: string,
-) {
-  const markets = sportStats[sport] ?? [];
-  const samples = games
-    .filter((game) => game.date && Date.parse(game.date) < cutoff)
-    .flatMap((game) => {
-      const stats = markets.flatMap(([label, ...keys]) => {
-        const value = readStat(game.stats, keys);
-        return value == null ? [] : [{ label, value }];
-      });
-      return stats.length ? [stats] : [];
-    }).slice(0, 10);
-  if (!samples.length) return [];
-  let hash = 2166136261;
-  for (const character of seed) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  return samples[(hash >>> 0) % samples.length]!;
+type StatGame = { date: string | null; stats: Record<string, string> };
+
+export function projectPlayerStats(sport: string, recent: StatGame[], matchup: StatGame[], cutoff: number) {
+  const before = (game: StatGame) => game.date != null && Date.parse(game.date) < cutoff;
+  const form = recent.filter(before).slice(0, 10);
+  const meetings = matchup.filter(before).slice(0, 5);
+  return (sportStats[sport] ?? []).flatMap(([label, ...keys]) => {
+    const values = (games: StatGame[]) => games.map(({ stats }) => readStat(stats, keys))
+      .filter((value): value is number => value != null);
+    const baseline = values(form);
+    const against = values(meetings);
+    if (!baseline.length && !against.length) return [];
+    const mean = (sample: number[]) => sample.reduce((sum, value) => sum + value, 0) / sample.length;
+    // Shrink the matchup average toward recent form using five baseline games.
+    const weight = against.length / (against.length + 5);
+    const value = !baseline.length ? mean(against) : !against.length ? mean(baseline)
+      : mean(baseline) * (1 - weight) + mean(against) * weight;
+    return [{ label, value: Math.round(value), matchupGames: against.length }];
+  });
 }
 
 const footballPositions = ["QB", "RB", "WR", "TE", "FB"];
@@ -88,6 +88,7 @@ function orderFootballPlayers(players: GameRosterPlayer[]) {
 
 type Props = {
   sport: string;
+  eventId: string;
   homeTeamId: string;
   awayTeamId: string;
   home: string;
@@ -96,7 +97,7 @@ type Props = {
   run: number;
 };
 
-export function SimulatorPlayerBoxScore({ sport, homeTeamId, awayTeamId, home, away, startsAt, run }: Props) {
+export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId, home, away, startsAt, run }: Props) {
   const colors = useColors();
   const isFootball = sport === "nfl" || sport === "ncaaf";
   const [limit, setLimit] = useState(isFootball ? 4 : 3);
@@ -106,31 +107,117 @@ export function SimulatorPlayerBoxScore({ sport, homeTeamId, awayTeamId, home, a
     staleTime: 10 * 60_000,
     retry: false,
   });
+  const firstBasket = useQuery({
+    queryKey: ["sim-box-first-basket", eventId, homeTeamId, awayTeamId],
+    enabled: sport === "nba",
+    queryFn: ({ signal }) => fetchSimulatorFirstBasket(eventId, homeTeamId, awayTeamId, signal),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const pick = firstBasket.data?.pick;
+  const rosterPlayers = roster.data?.players ?? [];
+  const teamsByAthlete = new Map<string, Set<string>>();
+  for (const player of rosterPlayers) {
+    if (!player.athleteId) continue;
+    const teams = teamsByAthlete.get(player.athleteId) ?? new Set<string>();
+    teams.add(player.teamId);
+    teamsByAthlete.set(player.athleteId, teams);
+  }
   const sides = [{ id: awayTeamId, team: away }, { id: homeTeamId, team: home }].map((side) => {
-    const players = [...new Map((roster.data?.players ?? [])
-      .filter((player) => player.teamId === side.id && player.athleteId)
+    const players = [...new Map(rosterPlayers
+      .filter((player) => player.teamId === side.id && player.athleteId && teamsByAthlete.get(player.athleteId)?.size === 1)
       .map((player) => [player.athleteId!, player] as const)).values()];
+    if (pick?.teamId === side.id) {
+      players.sort((a, b) => Number(b.athleteId === pick.athleteId) - Number(a.athleteId === pick.athleteId));
+    }
     return { ...side, players: isFootball ? orderFootballPlayers(players) : players };
   });
   const players = sides.flatMap((side) => side.players.slice(0, limit));
   const histories = useQueries({
-    queries: players.map(({ athleteId }) => ({
-      queryKey: ["sim-box-history", sport, athleteId],
-      queryFn: ({ signal }: { signal: AbortSignal }) => fetchSimulatorPlayerHistory({ sport, athleteId }, signal),
+    queries: players.map(({ athleteId, teamId }) => ({
+      queryKey: ["sim-box-history", sport, athleteId, teamId === awayTeamId ? homeTeamId : awayTeamId],
+      queryFn: ({ signal }: { signal: AbortSignal }) => fetchSimulatorPlayerHistory({ sport, athleteId, opponentTeamId: teamId === awayTeamId ? homeTeamId : awayTeamId }, signal),
       staleTime: 10 * 60_000,
       retry: false,
     })),
   });
   const historyByPlayer = new Map(players.map((player, i) => [player.athleteId, histories[i]]));
   const cutoff = Math.min(run, Date.parse(startsAt));
+  const statsByPlayer = new Map(players.map(({ athleteId, teamId }) => {
+    const history = historyByPlayer.get(athleteId)?.data;
+    return [`${teamId}/${athleteId}`, projectPlayerStats(sport, history?.recent ?? [], history?.vsOpponent ?? [], cutoff)] as const;
+  }));
+  const visiblePickKey = pick && statsByPlayer.has(`${pick.teamId}/${pick.athleteId}`)
+    ? `${pick.teamId}/${pick.athleteId}` : null;
+  // Depend on projection values so asynchronous history loads are captured once.
+  const projectionSignature = JSON.stringify([...statsByPlayer].flatMap(([playerKey, stats]) =>
+    stats.map((stat) => ({ playerKey, ...stat }))));
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => {
+    const projections = JSON.parse(projectionSignature) as Parameters<typeof trackSimulatorProjections>[0]["players"];
+    if (!projections.length && !visiblePickKey) return;
+    let active = true;
+    void trackSimulatorProjections({
+      sport, eventId, homeTeamId, awayTeamId, startsAt, players: projections, firstBasketPick: visiblePickKey,
+    }).then(() => { if (active) setSaveFailed(false); }, () => { if (active) setSaveFailed(true); });
+    return () => { active = false; };
+  }, [sport, eventId, homeTeamId, awayTeamId, startsAt, projectionSignature, visiblePickKey]);
+
+  const statKeys = new Map((sportStats[sport] ?? []).map(([label, ...keys]) => [label, keys]));
+  const accuracy = useQuery({
+    queryKey: ["sim-box-accuracy", sport],
+    queryFn: ({ signal }) => refreshSimulatorAccuracy(sport, signal, (label, stats) => readStat(stats, statKeys.get(label) ?? [])),
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
+  const metrics = new Map<string, { exact: number; compared: number; error: number }>();
+  let basketHits = 0;
+  let basketCount = 0;
+  for (const tracked of accuracy.data ?? []) {
+    for (const projection of tracked.players) {
+      const actual = tracked.actuals?.[`${projection.playerKey}/${projection.label}`];
+      if (actual == null) continue;
+      const error = Math.abs(projection.value - actual);
+      const metric = metrics.get(projection.label) ?? { exact: 0, compared: 0, error: 0 };
+      metric.exact += Number(error === 0);
+      metric.compared++;
+      metric.error += error;
+      metrics.set(projection.label, metric);
+    }
+    if (tracked.firstBasketCorrect != null) {
+      basketCount++;
+      basketHits += Number(tracked.firstBasketCorrect);
+    }
+  }
 
   return (
     <Card style={{ marginBottom: 12, gap: 8 }}>
       <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Simulated Player Box Score</Text>
       <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-        Each player’s line is sampled from recent games. Player totals are independent of the replay score.
+        Player projections use recent form and verified games against this opponent when available. Player totals are independent of the replay score.
         {isFootball ? " Football rows cover passing, rushing, and receiving." : null}
       </Text>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Projection Accuracy</Text>
+      {saveFailed || accuracy.isError ? (
+        <Text style={{ color: colors.mutedForeground }}>Accuracy tracking is unavailable on this device.</Text>
+      ) : metrics.size === 0 && !basketCount ? (
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>No verified finals for saved projections yet.</Text>
+      ) : null}
+      {[...metrics].map(([label, { exact, compared, error }]) => (
+        <Text key={label} style={{ color: colors.mutedForeground, fontSize: 12 }}>
+          {label} · {exact}/{compared} exact · average miss {(error / compared).toFixed(1)}
+        </Text>
+      ))}
+      {basketCount ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+        First Basket · {basketHits}/{basketCount} correct
+      </Text> : null}
+      {sport === "nba" && (!pick || !sides.some(({ id, players }) =>
+        id === pick.teamId && players.some(({ athleteId }) => athleteId === pick.athleteId))) ? (
+        <Text style={{ color: colors.mutedForeground }}>
+          {firstBasket.isFetching ? "Checking First Basket history…" : firstBasket.isError
+            ? "Couldn’t load First Basket history." : "No verified First Basket pick for this roster."}
+        </Text>
+      ) : null}
       {roster.isPending || !players.length ? (
         <Text style={{ color: colors.mutedForeground }}>
           {roster.isPending ? "Loading rosters…" : "Player rosters are unavailable for this matchup."}
@@ -142,14 +229,23 @@ export function SimulatorPlayerBoxScore({ sport, homeTeamId, awayTeamId, home, a
             <Text style={{ color: colors.mutedForeground }}>Roster unavailable.</Text>
           ) : teamPlayers.slice(0, limit).map(({ athleteId, name }) => {
             const history = historyByPlayer.get(athleteId);
-            const stats = sampleSimulatorBoxScore(sport, history?.data?.recent ?? [], cutoff, `${run}/${athleteId}`);
+            const stats = statsByPlayer.get(`${id}/${athleteId}`) ?? [];
+            const firstBasketPick = pick?.athleteId === athleteId && pick.teamId === id ? pick : null;
             return (
               <View key={athleteId} style={{ gap: 3, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{name}</Text>
+                {firstBasketPick ? (
+                  <Text style={{ color: colors.primary }}>
+                    First Basket pick · {firstBasketPick.hits}/{firstBasketPick.starts} verified recent starts
+                  </Text>
+                ) : null}
                 <Text style={{ color: colors.mutedForeground }}>
                   {stats.length ? stats.map(({ value, label }) => `${value} ${label}`).join(" · ")
                     : history?.isPending ? "Loading player stats…" : "Recent stats unavailable."}
                 </Text>
+                {stats.length ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                  {stats.some(({ matchupGames }) => matchupGames > 0) ? "Includes head-to-head history" : "Recent form · head-to-head unavailable"}
+                </Text> : null}
               </View>
             );
           })}
