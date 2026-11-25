@@ -378,7 +378,7 @@ function SimulatorScreen() {
   const showReplay = replayData != null;
 
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
-    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
     const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
     return buildGameFourQuestions({
       gameLabel,
@@ -387,10 +387,10 @@ function SimulatorScreen() {
       sim: gameResult,
       oddsLines,
     });
-  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
 
   const scoringInput = useMemo(() => {
-    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -399,7 +399,7 @@ function SimulatorScreen() {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     };
-  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
   const [linePageSize, setLinePageSize] = useState(20);
   const [scoredLines, setScoredLines] = useState<{
     input: NonNullable<typeof scoringInput>;
@@ -870,7 +870,7 @@ function SimulatorScreen() {
               </View>
             ) : null}
 
-            {!showReplay && (running || gameResult) ? (
+            {running || gameResult ? (
               <SimulationSummaryCard
                 analyzing={bestLinesAnalyzing}
                 linesScanStep={linesScanStep}
@@ -960,7 +960,7 @@ function SimulatorScreen() {
                         </Text>
                       </Card>
                     ) : null}
-                    {showReplay ? null : bestLinesAnalyzing ? (
+                    {bestLinesAnalyzing ? (
                       <BestLinesLoadingCard
                         step={linesScanStep}
                         postedLines={gameOddsLines.length}

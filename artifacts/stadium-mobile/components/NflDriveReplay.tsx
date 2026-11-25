@@ -101,9 +101,26 @@ function sportConfig(sport: ReplaySport, hasDrives: boolean): SportReplayConfig 
       clockFor: (c) => (c === 0 ? "Kickoff" : c === 1 ? "Halftime · 45:00" : "Full time · 90:00"),
     };
   }
-  // Basketball family
+  if (sport === "wnba") {
+    return {
+      label: "WNBA replay",
+      segments: ["Tipoff", "Q1", "Q2", "Q3", "Q4"],
+      nextLabel: "Next quarter",
+      surface: "court",
+      clockFor: (c) => (c ? `End of Q${c} · ${c * 10}:00 elapsed` : "Tipoff"),
+    };
+  }
+  if (sport === "ncaab") {
+    return {
+      label: "NCAAB replay",
+      segments: ["Tipoff", "H1", "H2"],
+      nextLabel: "Next half",
+      surface: "court",
+      clockFor: (c) => (c === 0 ? "Tipoff" : c === 1 ? "Halftime · 20:00" : "Final · 40:00"),
+    };
+  }
   return {
-    label: sport === "wnba" ? "WNBA replay" : sport === "ncaab" ? "NCAAB replay" : "NBA replay",
+    label: "NBA replay",
     segments: ["Tipoff", "Q1", "Q2", "Q3", "Q4"],
     nextLabel: "Next quarter",
     surface: "court",

@@ -85,7 +85,11 @@ test("Simulator shows Watch a Sim plus player box score without a prop picker", 
   assert.match(screen, /supportsGameReplay\(sport\)/);
   assert.match(screen, /\{playerBoxScore\}/);
   assert.match(screen, /!showReplay \? playerBoxScore : null/);
+  // Watch a Sim must not suppress Best Lines / four-question analysis.
+  assert.doesNotMatch(screen, /if \(showReplay \|\| !gameResult/);
+  assert.doesNotMatch(screen, /showReplay \? null : bestLinesAnalyzing/);
   assert.match(replay, /Watch a Sim/);
   assert.match(replay, /supportsGameReplay/);
+  assert.match(replay, /c \* 10/);
   assert.doesNotMatch(screen + replay, /add player props|loadSimulatorProps|fetchSimulatorPropSimulationsBatch/i);
 });
