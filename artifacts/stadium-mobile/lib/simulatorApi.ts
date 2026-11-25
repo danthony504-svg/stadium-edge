@@ -645,3 +645,17 @@ export async function fetchSimulatorMatchupHistory(
     return null;
   }
 }
+
+
+type MatchupMarket = {
+  market: string;
+  scope: string;
+  games?: Array<{ date: string; value: number }>;
+};
+
+export function fetchSimulatorTeamMatchup(sport: string, teamId: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({ sport, teamId, simulatorMatchup: "1" });
+  return simGetJson<{ allowed: MatchupMarket[]; production: MatchupMarket[] }>(
+    `/sports/team-defense?${query}`, signal,
+  );
+}
