@@ -68,7 +68,6 @@ import {
   weatherSettingLabel,
   type SimulationSummary,
 } from "@/lib/gameSimDisplay";
-import { analyzeFullSimulation, type FullSimulationAnalytics } from "@/lib/fullSimulationAnalytics";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
@@ -109,16 +108,6 @@ function isNameOnlySimSport(sport: string): boolean {
   return isGameLinesOnlySport(sport);
 }
 const SIM_COUNT = 10_000;
-function initials(name: string) {
-  return (name || "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(-2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
-
 function simGameTabLabel(g: EspnGame, games: EspnGame[]): string {
   const base = `${g.awayAbbr ?? g.awayTeam} @ ${g.homeAbbr ?? g.homeTeam}`;
   const dupes = games.filter(
@@ -447,19 +436,6 @@ function SimulatorScreen() {
     () => buildSimulationSummary(displayBestLines[0], gameSimRecommendation),
     [displayBestLines, gameSimRecommendation],
   );
-
-  const [analyticsResult, setAnalyticsResult] = useState<GameSimulationResult | null>(null);
-  const analyticsOpen = gameResult != null && analyticsResult === gameResult;
-  const fullSimAnalytics = useMemo(() => {
-    if (!analyticsOpen || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
-    return analyzeFullSimulation({
-      result: gameResult,
-      evalLines: gameOddsLines,
-      gameLabel,
-      awayTeam: game.awayTeam,
-      homeTeam: game.homeTeam,
-    });
-  }, [analyticsOpen, gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
 
   const bestLinesAnalyzing = gameResult ? !!scoringInput && scoredLines?.input !== scoringInput : running;
 
@@ -858,6 +834,7 @@ function SimulatorScreen() {
                   {...replayData}
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
+                  matchupTime={formatGameWhen(game.startsAt)}
                   endOfGame={playerBoxScore}
                   simulations={gameResult.simulations}
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
@@ -866,50 +843,22 @@ function SimulatorScreen() {
               </View>
             ) : null}
 
-            {/* Matchup header */}
-            <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <TeamCol
-                  name={game.awayTeam ?? ""}
-                  logo={awayFighterImage}
-                  record={game.awayAbbr ?? ""}
-                  align="left"
-                  photo={sport === "ufc" || sport === "mma"}
-                />
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>@</Text>
-                <TeamCol
-                  name={game.homeTeam ?? ""}
-                  logo={homeFighterImage}
-                  record={game.homeAbbr ?? ""}
-                  align="right"
-                  photo={sport === "ufc" || sport === "mma"}
-                />
+            {!showReplay ? (
+              <View style={{ marginHorizontal: 16, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {awayFighterImage ? (
+                  <Image source={{ uri: awayFighterImage }} style={{ width: 28, height: 28 }} contentFit="contain" />
+                ) : null}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>
+                    {game.awayTeam ?? "Away"} @ {game.homeTeam ?? "Home"}
+                  </Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{formatGameWhen(game.startsAt)}</Text>
+                </View>
+                {homeFighterImage ? (
+                  <Image source={{ uri: homeFighterImage }} style={{ width: 28, height: 28 }} contentFit="contain" />
+                ) : null}
               </View>
-              <Text
-                style={{
-                  textAlign: "center",
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.body,
-                  fontSize: 12,
-                  marginTop: 12,
-                }}
-              >
-                {formatGameWhen(game.startsAt)}
-              </Text>
-              {game.venue ? (
-                <Text
-                  style={{
-                    textAlign: "center",
-                    color: colors.mutedForeground,
-                    fontFamily: FONT.body,
-                    fontSize: 11,
-                    marginTop: 4,
-                  }}
-                >
-                  {game.venue}
-                </Text>
-              ) : null}
-            </Card>
+            ) : null}
 
             {/* Settings */}
             <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
@@ -1088,21 +1037,6 @@ function SimulatorScreen() {
                         </Text>
                       </Card>
                     )}
-                    {gameResult.outcomes ? (
-                      <>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityState={{ expanded: analyticsOpen }}
-                          onPress={() => setAnalyticsResult(analyticsOpen ? null : gameResult)}
-                          style={{ minHeight: 44, justifyContent: "center", marginBottom: 12 }}
-                        >
-                          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
-                            {analyticsOpen ? "Hide game analytics" : "Show game analytics"}
-                          </Text>
-                        </Pressable>
-                        {fullSimAnalytics ? <FullSimulationPanel analytics={fullSimAnalytics} /> : null}
-                      </>
-                    ) : null}
                     {gameFourQuestions.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
@@ -1179,55 +1113,6 @@ export default function SimulatorScreenGated() {
     <PremiumFeatureGate featureId="simulator">
       <SimulatorScreen />
     </PremiumFeatureGate>
-  );
-}
-
-function TeamCol({
-  name,
-  logo,
-  record,
-  align,
-  photo = false,
-}: {
-  name: string;
-  logo?: string | null;
-  record: string;
-  align: "left" | "right";
-  photo?: boolean;
-}) {
-  const colors = useColors();
-  return (
-    <View style={{ flex: 1, alignItems: align === "left" ? "flex-start" : "flex-end", gap: 6 }}>
-      {logo ? (
-        <Image
-          source={{ uri: logo }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: photo ? 20 : 10,
-            backgroundColor: colors.surface,
-          }}
-          contentFit={photo ? "cover" : "contain"}
-        />
-      ) : (
-        <View
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            backgroundColor: colors.surface,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ fontFamily: FONT.bold, fontSize: 12, color: colors.mutedForeground }}>{initials(name)}</Text>
-        </View>
-      )}
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, textAlign: align }}>
-        {name.split(" ").slice(-1)[0]}
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>{record}</Text>
-    </View>
   );
 }
 
@@ -1396,90 +1281,6 @@ function BestLinesLoadingCard({
           </Text>
         ))}
       </View>
-    </Card>
-  );
-}
-
-function FullSimulationPanel({ analytics }: { analytics: FullSimulationAnalytics }) {
-  const colors = useColors();
-  return (
-    <Card style={{ marginBottom: 12 }}>
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-        Full Simulation
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
-        Deep read on the same 10,000-run draw — score shapes, cover rates, and leverage spots you cannot get from a single projected score.
-      </Text>
-
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginBottom: 6 }}>
-        Most Common Final Scores
-      </Text>
-      {analytics.topScores.map((s) => (
-        <Text key={s.label} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-          {s.away}–{s.home} ({s.pct}%)
-        </Text>
-      ))}
-
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
-        Total Run Distribution
-      </Text>
-      {analytics.runDistribution.map((r) => (
-        <Text key={r.totalRuns} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-          {r.totalRuns} runs — {r.pct}%
-        </Text>
-      ))}
-
-      {analytics.totalLine != null && analytics.totalOverProb != null ? (
-        <>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
-            Total Over {analytics.totalLine}
-          </Text>
-          <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
-            Hits in {analytics.totalOverProb}% of sims
-          </Text>
-        </>
-      ) : null}
-
-      {analytics.coverFrequencies.length > 0 ? (
-        <>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
-            Cover Frequency by Spread
-          </Text>
-          {analytics.coverFrequencies.slice(0, 10).map((c) => (
-            <Text key={`${c.market}|${c.pick}`} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-              {c.pick} — {c.hitPct}%
-            </Text>
-          ))}
-        </>
-      ) : null}
-
-      {analytics.teamTotalProbs.length > 0 ? (
-        <>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
-            Team Total Probabilities
-          </Text>
-          {analytics.teamTotalProbs.map((t) => (
-            <Text key={t.pick} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-              {t.pick} — {t.hitPct}%
-            </Text>
-          ))}
-        </>
-      ) : null}
-
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
-        Game Script
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-        Tie / push rate — {analytics.tieProb}%
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
-        One-run games — {analytics.oneRunGameProb}%
-      </Text>
-      {analytics.underdogWinProb != null ? (
-        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
-          Underdog wins outright — {analytics.underdogWinProb}%
-        </Text>
-      ) : null}
     </Card>
   );
 }

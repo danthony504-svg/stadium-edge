@@ -15,6 +15,7 @@ type Props = {
   home: string;
   awayLogo?: string | null;
   homeLogo?: string | null;
+  matchupTime: string;
   endOfGame?: ReactNode;
 } & (
   | { sport: "nfl"; drives: NonNullable<GameSimulationResult["driveReplay"]> }
@@ -22,7 +23,7 @@ type Props = {
 );
 
 export function GameReplay(replay: Props) {
-  const { simulations, away, home, awayLogo, homeLogo, endOfGame } = replay;
+  const { simulations, away, home, awayLogo, homeLogo, matchupTime, endOfGame } = replay;
   const stepCount = replay.sport === "nba" ? 4 : replay.drives.length;
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -75,6 +76,7 @@ export function GameReplay(replay: Props) {
         <Feather name="film" color="#70d9ff" size={24} />
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Watch a Sim</Text>
+          <Text style={styles.subtitle}>{matchupTime}</Text>
           <Text style={styles.subtitle}>1 of {simulations.toLocaleString()} simulations · {replay.sport === "nba" ? "NBA replay" : "NFL drive replay"}</Text>
         </View>
       </View>
