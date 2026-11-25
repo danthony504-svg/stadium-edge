@@ -15,6 +15,7 @@ type Props = {
   home: string;
   awayLogo?: string | null;
   homeLogo?: string | null;
+  matchupTime: string;
   endOfGame?: ReactNode;
 } & (
   | { sport: "nfl"; drives: NonNullable<GameSimulationResult["driveReplay"]> }
@@ -22,7 +23,7 @@ type Props = {
 );
 
 export function GameReplay(replay: Props) {
-  const { simulations, away, home, awayLogo, homeLogo, endOfGame } = replay;
+  const { simulations, away, home, awayLogo, homeLogo, matchupTime, endOfGame } = replay;
   const stepCount = replay.sport === "nba" ? 4 : replay.drives.length;
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -63,7 +64,7 @@ export function GameReplay(replay: Props) {
     ? `${latest.side === "home" ? home : away} · ${latest.points ? `+${latest.points} points` : "No score"}`
     : "Kickoff";
 
-  const playbackLabel = playing ? "Pause" : complete ? "Replay" : cursor ? "Resume" : "Play";
+  const playbackLabel = playing ? "Pause" : complete ? "Replay" : cursor ? "Resume" : "Start Game";
   function togglePlayback() {
     if (complete) setCursor(0);
     setPlaying(!playing);
@@ -75,6 +76,7 @@ export function GameReplay(replay: Props) {
         <Feather name="film" color="#70d9ff" size={24} />
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Watch a Sim</Text>
+          <Text style={styles.subtitle}>{matchupTime}</Text>
           <Text style={styles.subtitle}>1 of {simulations.toLocaleString()} simulations · {replay.sport === "nba" ? "NBA replay" : "NFL drive replay"}</Text>
         </View>
       </View>
@@ -84,9 +86,6 @@ export function GameReplay(replay: Props) {
         <View pointerEvents="none" style={styles.scoreDivider}><Text style={styles.scoreDot}>·</Text></View>
       </View>
       <View style={styles.timeline}>
-        <Pressable accessibilityRole="button" accessibilityLabel={playbackLabel} onPress={togglePlayback} style={styles.play}>
-          <Feather name={playing ? "pause" : complete ? "rotate-ccw" : "play"} size={17} color="#c4edff" />
-        </Pressable>
         <View
           accessible
           accessibilityRole="adjustable"
@@ -264,7 +263,6 @@ const styles = StyleSheet.create({
   teamLabel: { color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 13, flexShrink: 1 },
   score: { color: "#fff", fontFamily: FONT.bold, fontSize: 25, fontVariant: ["tabular-nums"] },
   timeline: { flexDirection: "row", alignItems: "center", gap: 10 },
-  play: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#497ba9", backgroundColor: "#12365b", alignItems: "center", justifyContent: "center" },
   scrubber: { flex: 1, height: 44, justifyContent: "center", marginHorizontal: 10 },
   quarterStops: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   quarterStop: { flexGrow: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: "#345876", paddingHorizontal: 6 },
