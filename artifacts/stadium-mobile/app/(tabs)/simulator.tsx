@@ -3,13 +3,10 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
 import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -553,10 +550,8 @@ function SimulatorScreen() {
     (sport !== "mlb" || parkQ.isFetched) &&
     (sport !== "mlb" || probablesQ.isFetched);
 
-  const simulatorScroll = useRef<ScrollView>(null);
-
   const runSimulation = useCallback(
-    async (opts?: { force?: boolean; auto?: boolean }) => {
+    async () => {
       if (
         !gameEligible ||
         !game?.homeTeam ||
@@ -569,7 +564,7 @@ function SimulatorScreen() {
       if (runInFlightRef.current) return;
 
       const fp = simInputFingerprint;
-      if (!opts?.force && fp) {
+      if (fp) {
         const cached = getCachedGameSim(sport, game.id, fp);
         if (cached) {
           setGameResult(cached.gameResult);
@@ -580,15 +575,10 @@ function SimulatorScreen() {
       }
 
 
-      if (!opts?.force && !opts?.auto) {
-        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-
       const controller = new AbortController();
       const { signal } = controller;
       runInFlightRef.current = controller;
       setRunning(true);
-      if (!opts?.auto) setGameResult(null);
 
       try {
         const wx = weatherImpact;
@@ -617,17 +607,13 @@ function SimulatorScreen() {
         if (signal.aborted) return;
         if (gr) {
           setGameResult(gr);
-          if (opts?.force && ((sport === "nfl" && gr.driveReplay?.length) ||
-              (sport === "nba" && gr.outcomes?.homeScores.length && gr.outcomes?.awayScores.length))) {
-            simulatorScroll.current?.scrollTo({ y: 0, animated: true });
-          }
           const ran = Date.now();
           setRanAt(ran);
           if (fp) {
             rememberGameSim(sport, game.id, { gameResult: gr, ranAt: ran, fingerprint: fp });
             lastAutoRunKeyRef.current = fingerprintKey(fp);
           }
-        } else if (opts?.auto) {
+        } else {
           lastAutoRunKeyRef.current = null;
         }
       } finally {
@@ -667,7 +653,7 @@ function SimulatorScreen() {
     }
     if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
     lastAutoRunKeyRef.current = fpKey;
-    void runSimulation({ auto: true });
+    void runSimulation();
   }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
 
   const playerBoxScore = gameResult && ranAt != null && game?.homeTeamId && game.awayTeamId &&
@@ -684,7 +670,6 @@ function SimulatorScreen() {
     />
   ) : null;
 
-  const canRun = gameEligible && !!game && !running;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -744,7 +729,6 @@ function SimulatorScreen() {
         </View>
       </AppHeader>
       <ScrollView
-        ref={simulatorScroll}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 120 }}
         refreshControl={
@@ -880,33 +864,12 @@ function SimulatorScreen() {
               />
             </Card>
 
-            {/* Run */}
-            <Pressable
-              onPress={() => runSimulation({ force: true })}
-              disabled={!canRun}
-              style={{ marginHorizontal: 16, marginBottom: 20, opacity: canRun ? 1 : 0.5 }}
-            >
-              <LinearGradient
-                colors={["#3b82f6", "#2563eb"]}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                  paddingVertical: 16,
-                  borderRadius: 16,
-                }}
-              >
-                {running ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Feather name="play" size={20} color="#fff" />
-                )}
-                <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 16 }}>
-                  {running ? "Running…" : "Run Simulation"}
-                </Text>
-              </LinearGradient>
-            </Pressable>
+            {running && !gameResult ? (
+              <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 16 }}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={{ color: colors.mutedForeground }}>Running simulation…</Text>
+              </View>
+            ) : null}
 
             {!showReplay && (running || gameResult) ? (
               <SimulationSummaryCard
