@@ -97,3 +97,27 @@ export function buildSimulationSummary(
     recommendation: recommendationSummaryLabel(recommendation),
   };
 }
+
+export function selectRepresentativeReplayScore(result: {
+  awayProjectedScore?: number | null;
+  homeProjectedScore?: number | null;
+  outcomes?: { awayScores: readonly number[]; homeScores: readonly number[] } | null;
+}): { away: number; home: number } | null {
+  const { awayProjectedScore, homeProjectedScore, outcomes } = result;
+  if (!outcomes || awayProjectedScore == null || homeProjectedScore == null ||
+      !Number.isFinite(awayProjectedScore) || !Number.isFinite(homeProjectedScore)) return null;
+  let closest: { away: number; home: number } | null = null;
+  let bestDistance = Infinity;
+  const count = Math.min(outcomes.awayScores.length, outcomes.homeScores.length);
+  for (let i = 0; i < count; i++) {
+    const away = outcomes.awayScores[i]!;
+    const home = outcomes.homeScores[i]!;
+    if (!Number.isFinite(away) || !Number.isFinite(home) || away < 0 || home < 0) continue;
+    const distance = (away - awayProjectedScore) ** 2 + (home - homeProjectedScore) ** 2;
+    if (distance < bestDistance) {
+      closest = { away, home };
+      bestDistance = distance;
+    }
+  }
+  return closest;
+}
