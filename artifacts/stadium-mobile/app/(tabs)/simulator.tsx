@@ -1,4 +1,4 @@
-import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, simulatorPropPick } from "@/lib/simulatorPropMetrics";
+import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel, simulatorPropPick } from "@/lib/simulatorPropMetrics";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useFocusEffect } from "expo-router";
@@ -1608,6 +1608,9 @@ function SimulatorScreen() {
                   <Card style={{ marginBottom: 16 }}>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
                       Simulator Picks
+                    </Text>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginBottom: 8 }}>
+                      {propSimulationSummaryLabel(propResults)}
                     </Text>
                     {simDeepPending ? (
                       <Text style={{ color: colors.mutedForeground }}>Simulation updating…</Text>
