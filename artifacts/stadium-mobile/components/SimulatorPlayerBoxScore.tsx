@@ -4,7 +4,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { fetchGameRoster, fetchSimulatorPlayerHistory } from "@/lib/simulatorApi";
+import { fetchGameRoster, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
 
 type Stat = readonly [label: string, ...keys: string[]];
 
@@ -63,6 +63,29 @@ export function sampleSimulatorBoxScore(
   return samples[(hash >>> 0) % samples.length]!;
 }
 
+const footballPositions = ["QB", "RB", "WR", "TE", "FB"];
+
+function orderFootballPlayers(players: GameRosterPlayer[]) {
+  const byPosition = new Map<string, GameRosterPlayer[]>();
+  for (const player of players) {
+    const position = player.position?.trim().toUpperCase() || "";
+    const role = position === "HB" ? "RB" : position;
+    if (role && !footballPositions.includes(role)) continue;
+    const group = byPosition.get(role) ?? [];
+    group.push(player);
+    byPosition.set(role, group);
+  }
+  const ordered: GameRosterPlayer[] = [];
+  const depth = Math.max(0, ...footballPositions.map((position) => byPosition.get(position)?.length ?? 0));
+  for (let index = 0; index < depth; index++) {
+    for (const position of footballPositions) {
+      const player = byPosition.get(position)?.[index];
+      if (player) ordered.push(player);
+    }
+  }
+  return ordered.concat(byPosition.get("") ?? []);
+}
+
 type Props = {
   sport: string;
   homeTeamId: string;
@@ -75,19 +98,20 @@ type Props = {
 
 export function SimulatorPlayerBoxScore({ sport, homeTeamId, awayTeamId, home, away, startsAt, run }: Props) {
   const colors = useColors();
-  const [limit, setLimit] = useState(3);
+  const isFootball = sport === "nfl" || sport === "ncaaf";
+  const [limit, setLimit] = useState(isFootball ? 4 : 3);
   const roster = useQuery({
     queryKey: ["sim-box-roster", sport, homeTeamId, awayTeamId],
     queryFn: ({ signal }) => fetchGameRoster(sport, homeTeamId, awayTeamId, signal),
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const sides = [{ id: awayTeamId, team: away }, { id: homeTeamId, team: home }].map((side) => ({
-    ...side,
-    players: [...new Map((roster.data?.players ?? [])
+  const sides = [{ id: awayTeamId, team: away }, { id: homeTeamId, team: home }].map((side) => {
+    const players = [...new Map((roster.data?.players ?? [])
       .filter((player) => player.teamId === side.id && player.athleteId)
-      .map((player) => [player.athleteId!, player] as const)).values()],
-  }));
+      .map((player) => [player.athleteId!, player] as const)).values()];
+    return { ...side, players: isFootball ? orderFootballPlayers(players) : players };
+  });
   const players = sides.flatMap((side) => side.players.slice(0, limit));
   const histories = useQueries({
     queries: players.map(({ athleteId }) => ({
@@ -105,6 +129,7 @@ export function SimulatorPlayerBoxScore({ sport, homeTeamId, awayTeamId, home, a
       <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Simulated Player Box Score</Text>
       <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
         Each player’s line is sampled from recent games. Player totals are independent of the replay score.
+        {isFootball ? " Football rows cover passing, rushing, and receiving." : null}
       </Text>
       {roster.isPending || !players.length ? (
         <Text style={{ color: colors.mutedForeground }}>
