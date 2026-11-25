@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -192,59 +192,73 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
   }
 
   return (
-    <Card style={{ marginBottom: 12, gap: 8 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Simulated Player Box Score</Text>
-      <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-        Player projections use recent form and verified games against this opponent when available. Player totals are independent of the replay score.
-        {isFootball ? " Football rows cover passing, rushing, and receiving." : null}
+    <Card
+      style={{
+        marginBottom: 12,
+        gap: 10,
+        backgroundColor: "#071525",
+        borderColor: "#1e3a55",
+        borderRadius: 18,
+        padding: 14,
+      }}
+    >
+      <Text style={{ color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 17 }}>
+        Simulated Player Box Score
       </Text>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Projection Accuracy</Text>
+      <Text style={{ color: "#9db4cc", fontSize: 12, fontFamily: FONT.body }}>
+        Player lines are sampled from recent games
+        {isFootball ? " (passing, rushing, receiving)" : ""} and are independent of the replay score.
+      </Text>
+      <Text style={{ color: "#e8f1fa", fontFamily: FONT.semibold }}>Projection Accuracy</Text>
       {saveFailed || accuracy.isError ? (
-        <Text style={{ color: colors.mutedForeground }}>Accuracy tracking is unavailable on this device.</Text>
+        <Text style={{ color: "#9db4cc" }}>Accuracy tracking is unavailable on this device.</Text>
       ) : metrics.size === 0 && !basketCount ? (
-        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>No verified finals for saved projections yet.</Text>
+        <Text style={{ color: "#9db4cc", fontSize: 12 }}>No verified finals for saved projections yet.</Text>
       ) : null}
       {[...metrics].map(([label, { exact, compared, error }]) => (
-        <Text key={label} style={{ color: colors.mutedForeground, fontSize: 12 }}>
+        <Text key={label} style={{ color: "#9db4cc", fontSize: 12 }}>
           {label} · {exact}/{compared} exact · average miss {(error / compared).toFixed(1)}
         </Text>
       ))}
-      {basketCount ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+      {basketCount ? <Text style={{ color: "#9db4cc", fontSize: 12 }}>
         First Basket · {basketHits}/{basketCount} correct
       </Text> : null}
       {sport === "nba" && (!pick || !sides.some(({ id, players }) =>
         id === pick.teamId && players.some(({ athleteId }) => athleteId === pick.athleteId))) ? (
-        <Text style={{ color: colors.mutedForeground }}>
+        <Text style={{ color: "#9db4cc" }}>
           {firstBasket.isFetching ? "Checking First Basket history…" : firstBasket.isError
             ? "Couldn’t load First Basket history." : "No verified First Basket pick for this roster."}
         </Text>
       ) : null}
       {roster.isPending || !players.length ? (
-        <Text style={{ color: colors.mutedForeground }}>
+        <Text style={{ color: "#9db4cc" }}>
           {roster.isPending ? "Loading rosters…" : "Player rosters are unavailable for this matchup."}
         </Text>
       ) : sides.map(({ id, team, players: teamPlayers }) => (
-        <View key={id} style={{ gap: 8 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{team}</Text>
+        <View key={id} style={{ gap: 4 }}>
+          <Text style={{ color: "#f4f8ff", fontFamily: FONT.bold, fontSize: 15, marginTop: 4 }}>{team}</Text>
           {!teamPlayers.length ? (
-            <Text style={{ color: colors.mutedForeground }}>Roster unavailable.</Text>
+            <Text style={{ color: "#9db4cc" }}>Roster unavailable.</Text>
           ) : teamPlayers.slice(0, limit).map(({ athleteId, name }) => {
             const history = historyByPlayer.get(athleteId);
             const stats = statsByPlayer.get(`${id}/${athleteId}`) ?? [];
             const firstBasketPick = pick?.athleteId === athleteId && pick.teamId === id ? pick : null;
             return (
-              <View key={athleteId} style={{ gap: 3, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{name}</Text>
+              <View
+                key={athleteId}
+                style={{ gap: 2, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#2a4563" }}
+              >
+                <Text style={{ color: "#f4f8ff", fontFamily: FONT.semibold }}>{name}</Text>
                 {firstBasketPick ? (
-                  <Text style={{ color: colors.primary }}>
+                  <Text style={{ color: "#70d9ff" }}>
                     First Basket pick · {firstBasketPick.hits}/{firstBasketPick.starts} verified recent starts
                   </Text>
                 ) : null}
-                <Text style={{ color: colors.mutedForeground }}>
+                <Text style={{ color: "#b7c9dc", fontSize: 13, fontFamily: FONT.body }}>
                   {stats.length ? stats.map(({ value, label }) => `${value} ${label}`).join(" · ")
                     : history?.isPending ? "Loading player stats…" : "Recent stats unavailable."}
                 </Text>
-                {stats.length ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                {stats.length ? <Text style={{ color: "#7f96ad", fontSize: 11 }}>
                   {stats.some(({ matchupGames }) => matchupGames > 0) ? "Includes head-to-head history" : "Recent form · head-to-head unavailable"}
                 </Text> : null}
               </View>
@@ -255,7 +269,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
       {limit !== undefined && sides.some((side) => side.players.length > limit) ? (
         <Pressable accessibilityRole="button" onPress={() => setShowAllPlayers(true)}
           style={{ minHeight: 44, justifyContent: "center" }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Show all players</Text>
+          <Text style={{ color: "#70d9ff", fontFamily: FONT.semibold }}>Show all players</Text>
         </Pressable>
       ) : null}
     </Card>

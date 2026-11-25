@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SimulatorPlayerBoxScore, supportsSimulatorBoxScore } from "@/components/SimulatorPlayerBoxScore";
-import { GameReplay } from "@/components/NflDriveReplay";
+import { GameReplay, supportsGameReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
@@ -359,17 +359,26 @@ function SimulatorScreen() {
 
   const replayAway = gameResult?.outcomes?.awayScores[0];
   const replayHome = gameResult?.outcomes?.homeScores[0];
-  const replayData = sport === "nfl" && gameResult?.driveReplay?.length
-    ? { sport: "nfl" as const, drives: gameResult.driveReplay }
-    : sport === "nba" && replayAway != null && replayHome != null &&
-        Number.isFinite(replayAway) && Number.isFinite(replayHome)
-      ? { sport: "nba" as const, finalScore: { away: replayAway, home: replayHome } }
-      : null;
+  const hasReplayScores =
+    replayAway != null &&
+    replayHome != null &&
+    Number.isFinite(replayAway) &&
+    Number.isFinite(replayHome);
+  const replayData = (() => {
+    if (!gameResult || !supportsGameReplay(sport)) return null;
+    if (gameResult.driveReplay?.length) {
+      return { sport, drives: gameResult.driveReplay };
+    }
+    if (hasReplayScores) {
+      return { sport, finalScore: { away: replayAway, home: replayHome } };
+    }
+    return null;
+  })();
 
   const showReplay = replayData != null;
 
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
-    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
     const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
     return buildGameFourQuestions({
       gameLabel,
@@ -378,10 +387,10 @@ function SimulatorScreen() {
       sim: gameResult,
       oddsLines,
     });
-  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
 
   const scoringInput = useMemo(() => {
-    if (showReplay || !gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -390,7 +399,7 @@ function SimulatorScreen() {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     };
-  }, [showReplay, gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
   const [linePageSize, setLinePageSize] = useState(20);
   const [scoredLines, setScoredLines] = useState<{
     input: NonNullable<typeof scoringInput>;
@@ -809,11 +818,11 @@ function SimulatorScreen() {
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
                   matchupTime={formatGameWhen(game.startsAt)}
-                  endOfGame={playerBoxScore}
                   simulations={gameResult.simulations}
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
                   home={game.homeAbbr ?? game.homeTeam ?? "Home"}
                 />
+                {playerBoxScore}
               </View>
             ) : null}
 
@@ -861,7 +870,7 @@ function SimulatorScreen() {
               </View>
             ) : null}
 
-            {!showReplay && (running || gameResult) ? (
+            {running || gameResult ? (
               <SimulationSummaryCard
                 analyzing={bestLinesAnalyzing}
                 linesScanStep={linesScanStep}
@@ -951,7 +960,7 @@ function SimulatorScreen() {
                         </Text>
                       </Card>
                     ) : null}
-                    {showReplay ? null : bestLinesAnalyzing ? (
+                    {bestLinesAnalyzing ? (
                       <BestLinesLoadingCard
                         step={linesScanStep}
                         postedLines={gameOddsLines.length}
