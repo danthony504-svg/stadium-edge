@@ -55,25 +55,27 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const awayRates = nflDriveScoringRates(Math.max(0, awayOff) / rateScale);
   const homeScores: number[] = [];
   const awayScores: number[] = [];
-  // Interleave each team's drive results for display while preserving the draw order.
-  const driveReplay: GameSimResult["driveReplay"] =
-    isNfl && ctx.includeDriveReplay ? [] : undefined;
+  const drivesPerGame = 2 * drivesPerTeam;
+  const replayPoints = isNfl && ctx.includeDriveReplay
+    ? new Uint8Array(n * drivesPerGame)
+    : undefined;
 
   for (let i = 0; i < n; i++) {
+    const replayOffset = i * drivesPerGame;
     let h = 0;
     let a = 0;
     for (let d = 0; d < drivesPerTeam; d++) {
-      const before = h;
-      h += driveOutcome(homeRates);
+      const points = driveOutcome(homeRates);
+      h += points;
       // Clock management — trailing team passes more (slightly higher variance).
       if (!isNfl && d > drivesPerTeam * 0.7 && h < a) h += Math.random() < 0.08 ? 7 : 0;
-      if (driveReplay && i === 0) driveReplay[2 * d + 1] = { side: "home", points: h - before };
+      if (replayPoints) replayPoints[replayOffset + 2 * d + 1] = points;
     }
     for (let d = 0; d < drivesPerTeam; d++) {
-      const before = a;
-      a += driveOutcome(awayRates);
+      const points = driveOutcome(awayRates);
+      a += points;
       if (!isNfl && d > drivesPerTeam * 0.7 && a < h) a += Math.random() < 0.08 ? 7 : 0;
-      if (driveReplay && i === 0) driveReplay[2 * d] = { side: "away", points: a - before };
+      if (replayPoints) replayPoints[replayOffset + 2 * d] = points;
     }
     homeScores.push(h);
     awayScores.push(a);
@@ -83,5 +85,23 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
     simModel: "nfl-drive",
     simModelLabel: "NFL drive-by-drive",
   }, 48);
-  return driveReplay?.length ? { ...result, driveReplay } : result;
+  if (!replayPoints || !n) return result;
+
+  // Squared distance in team scores weights the game total and margin equally.
+  let replayIndex = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < n; i++) {
+    const distance = (homeScores[i]! - result.homeProjectedScore) ** 2
+      + (awayScores[i]! - result.awayProjectedScore) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      replayIndex = i;
+    }
+  }
+
+  const driveReplay: NonNullable<GameSimResult["driveReplay"]> = Array.from(
+    replayPoints.subarray(replayIndex * drivesPerGame, (replayIndex + 1) * drivesPerGame),
+    (points, index) => ({ side: index % 2 === 0 ? "away" : "home", points }),
+  );
+  return { ...result, driveReplay };
 }
