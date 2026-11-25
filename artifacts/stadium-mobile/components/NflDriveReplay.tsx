@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import Feather from "@expo/vector-icons/Feather";
@@ -7,10 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Defs, LinearGradient as FieldGradient, Line, Path, Polygon, Rect, Stop, Text as FieldText } from "react-native-svg";
 
 import { Card, FONT } from "@/components/ui";
-import { useColors } from "@/hooks/useColors";
-import { formatPropProjectedStat, propSimulationCount } from "@/lib/simulatorPropMetrics";
-import { propMarketLabel } from "@/lib/propMarketLabel";
-import type { GameSimulationResult, PropSimulationResult } from "@/lib/api";
+import type { GameSimulationResult } from "@/lib/api";
 
 type Props = {
   simulations: number;
@@ -18,33 +15,15 @@ type Props = {
   home: string;
   awayLogo?: string | null;
   homeLogo?: string | null;
-  props: PropSimulationResult[];
-  selectedProps: Pick<PropSimulationResult, "player" | "market" | "line" | "side">[];
-  propsRunning: boolean;
-  onSelectProps: () => void;
+  endOfGame?: ReactNode;
 } & (
   | { sport: "nfl"; drives: NonNullable<GameSimulationResult["driveReplay"]> }
   | { sport: "nba"; finalScore: { away: number; home: number } }
 );
 
-const ADDITIVE_MARKETS = new Set([
-  "player_points", "player_rebounds", "player_assists", "player_threes",
-  "player_steals", "player_blocks", "player_turnovers",
-  "player_points_rebounds_assists", "player_points_rebounds",
-  "player_points_assists", "player_rebounds_assists", "player_blocks_steals",
-  "player_receptions", "player_rush_attempts", "player_pass_attempts", "player_pass_completions",
-  "player_pass_yds",
-  "player_rush_yds",
-  "player_reception_yds",
-  "player_pass_rush_yds",
-  "player_rush_reception_yds",
-  "player_pass_rush_reception_yds",
-]);
-
 export function GameReplay(replay: Props) {
-  const { simulations, away, home, awayLogo, homeLogo, props, selectedProps, propsRunning, onSelectProps } = replay;
+  const { simulations, away, home, awayLogo, homeLogo, endOfGame } = replay;
   const stepCount = replay.sport === "nba" ? 4 : replay.drives.length;
-  const colors = useColors();
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
   const complete = cursor === stepCount;
@@ -80,10 +59,6 @@ export function GameReplay(replay: Props) {
     for (const drive of replay.drives.slice(0, cursor)) score[drive.side] += drive.points;
   }
   const latest = replay.sport === "nfl" && cursor ? replay.drives[cursor - 1] : undefined;
-  const resultsByKey = new Map(props.map((prop) => [prop.key, prop]));
-  const timestamp = replay.sport === "nba"
-    ? cursor ? `End of Q${cursor}` : "Tipoff"
-    : cursor ? `Drive ${cursor}/${stepCount}` : "Kickoff";
   const driveText = latest
     ? `${latest.side === "home" ? home : away} · ${latest.points ? `+${latest.points} points` : "No score"}`
     : "Kickoff";
@@ -183,49 +158,7 @@ export function GameReplay(replay: Props) {
           <Feather name="skip-forward" size={15} color="#c4edff" />
         </Pressable>
       </View>
-      <View style={{ backgroundColor: colors.card, borderRadius: 10, padding: 12, gap: 8 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>Selected Player Props · {timestamp}</Text>
-        {selectedProps.length ? (
-          <>
-            <Text style={{ color: colors.mutedForeground }}>
-              Estimated progress from full-game projections. The replay tracks team scores.
-            </Text>
-            {selectedProps.map((pick) => {
-              const key = `${pick.player}|${pick.market}|${pick.line}|${pick.side}`;
-              const result = resultsByKey.get(key);
-              const hasSimulation = result != null && propSimulationCount(result) > 0;
-              const estimate = hasSimulation && result.meanProjection != null &&
-                Number.isFinite(result.meanProjection) &&
-                ADDITIVE_MARKETS.has(pick.market.replace(/_alternate$/i, ""))
-                ? (result.meanProjection * position).toFixed(1)
-                : null;
-              return (
-                <View key={key} style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{pick.player}</Text>
-                    <Text style={{ color: colors.mutedForeground }}>
-                      {propMarketLabel(pick.market)} · {pick.side} {pick.line}
-                    </Text>
-                  </View>
-                  <View style={{ flexShrink: 1 }}>
-                    <Text style={{ color: colors.foreground }}>
-                      {estimate != null ? `Est. ${estimate} at this point` : propsRunning && !result
-                        ? "Simulating…" : hasSimulation ? "No replay estimate" : "No simulation available"}
-                    </Text>
-                    {hasSimulation ? (
-                      <Text style={{ color: colors.mutedForeground }}>{formatPropProjectedStat(result)} full game</Text>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
-          </>
-        ) : (
-          <Pressable accessibilityRole="button" onPress={onSelectProps}>
-            <Text style={{ color: colors.primary }}>Add player props</Text>
-          </Pressable>
-        )}
-      </View>
+      {complete ? endOfGame : null}
     </Card>
   );
 }

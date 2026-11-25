@@ -1,4 +1,3 @@
-import { formatPropProjectedStat, propSimulationCount, propSimulationEvidence, propSimulationSummaryLabel, simulatorPropPick } from "@/lib/simulatorPropMetrics";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useFocusEffect } from "expo-router";
@@ -15,7 +14,6 @@ import {
   RefreshControl,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,13 +28,8 @@ import type {
   EspnGame,
   GameSimulationResult,
   OddsGame,
-  PlayerProp,
-  PropSimulationResult,
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
-import { loadSimulatorProps } from "@/lib/simulatorProps";
-import { isBinaryNullLineMarket } from "@/lib/binaryPropMarket";
-import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
 import {
   fetchSimulatorFirstBasket,
   fetchSimulatorGameOutcome,
@@ -46,14 +39,10 @@ import {
   fetchSimulatorMlbProbables,
   fetchSimulatorOdds,
   fetchSimulatorParkWeather,
-  fetchSimulatorPlayerHistory,
-  fetchSimulatorPropSimulationsBatch,
   isSimulatorPregame,
-  searchSimulatorPlayer,
   warmSimulatorApi,
 } from "@/lib/simulatorApi";
 
-import { propMarketLabel } from "@/lib/propMarketLabel";
 import {
   buildGameFourQuestions,
   realOddsToGameLines,
@@ -80,14 +69,12 @@ import {
   type SimulationSummary,
 } from "@/lib/gameSimDisplay";
 import { analyzeFullSimulation, type FullSimulationAnalytics } from "@/lib/fullSimulationAnalytics";
-import { normalizeSimulatorPropLines } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
   cachedSimGames,
   pruneSimGamesCache,
   rememberSimGames,
-  rememberSimProps,
 } from "@/lib/simulatorSessionCache";
 import {
   buildSimInputFingerprint,
@@ -122,35 +109,6 @@ function isNameOnlySimSport(sport: string): boolean {
   return isGameLinesOnlySport(sport);
 }
 const SIM_COUNT = 10_000;
-const MAX_PROPS = 6;
-
-type SelectedProp = {
-  player: string;
-  market: string;
-  line: number;
-  side: "Over" | "Under";
-  odds: number;
-  athleteId: string | null;
-  headshot: string | null;
-  label: string;
-};
-
-const SOCCER_PROP_MARKETS = [
-  "player_shots",
-  "player_shots_on_target",
-  "player_goal_scorer_anytime",
-] as const;
-
-
-
-function isSoccerPropMarket(market: string): boolean {
-  const m = market.toLowerCase();
-  if ((SOCCER_PROP_MARKETS as readonly string[]).includes(market)) return true;
-  if (m.includes("shot")) return true;
-  if (m.includes("goal")) return true;
-  return false;
-}
-
 function initials(name: string) {
   return (name || "")
     .split(/\s+/)
@@ -159,34 +117,6 @@ function initials(name: string) {
     .map((w) => w[0])
     .join("")
     .toUpperCase();
-}
-
-function SimAvatar({ headshot, name }: { headshot: string | null; name: string }) {
-  const colors = useColors();
-  const label = initials(name);
-  return (
-    <View
-      style={{
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      {headshot ? (
-        <Image source={{ uri: headshot }} style={{ width: 38, height: 38 }} contentFit="cover" />
-      ) : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
-          {label || "?"}
-        </Text>
-      )}
-    </View>
-  );
 }
 
 function simGameTabLabel(g: EspnGame, games: EspnGame[]): string {
@@ -233,12 +163,6 @@ function asGameList(data: unknown): EspnGame[] {
     : [];
 }
 
-function asPropList(data: unknown): PlayerProp[] {
-  return Array.isArray(data)
-    ? data.filter((p): p is PlayerProp => !!p && typeof p === "object" && typeof p.player === "string")
-    : [];
-}
-
 function asParkList(data: unknown): Awaited<ReturnType<typeof fetchSimulatorParkWeather>> {
   return Array.isArray(data) ? data : [];
 }
@@ -250,15 +174,8 @@ function SimulatorScreen() {
   const [sport, setSport] = useState<string>("mlb");
   const [gameIdx, setGameIdx] = useState(0);
   const [firstBasketOpen, setFirstBasketOpen] = useState(false);
-  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
-  const [visiblePlayerCount, setVisiblePlayerCount] = useState(6);
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<SelectedProp[]>([]);
   const [running, setRunning] = useState(false);
   const [scopedGameResult, setScopedGameResult] = useState<{ scope: string; result: GameSimulationResult } | null>(null);
-  const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
-  const [simDeepPending, setSimDeepPending] = useState(false);
-  const [boxScoreScope, setBoxScoreScope] = useState<string | null>(null);
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [linesScanStep, setLinesScanStep] = useState(0);
@@ -362,7 +279,6 @@ function SimulatorScreen() {
       : game?.homeLogo ?? null;
 
   const gameScope = JSON.stringify([sport, game?.id]);
-  useEffect(() => setVisiblePlayerCount(6), [gameScope, search]);
   const gameResult = scopedGameResult?.scope === gameScope ? scopedGameResult.result : null;
   const setGameResult = useCallback((result: GameSimulationResult | null) => {
     setScopedGameResult((previous) => {
@@ -372,11 +288,8 @@ function SimulatorScreen() {
     });
   }, [gameScope]);
 
-  // Switching games must drop prior prop selections (PP lines are per-matchup).
+  // Switching games clears the previous simulation and cancels any pending run.
   useEffect(() => {
-    setSelected([]);
-    setPropResults([]);
-    setSimDeepPending(false);
     setScopedGameResult(null);
     setRanAt(null);
     setRunning(false);
@@ -562,42 +475,9 @@ function SimulatorScreen() {
     return () => clearInterval(id);
   }, [bestLinesAnalyzing]);
 
-  const showPropPicker = !isGameLinesOnly;
-  const propsQ = useQuery({
-    queryKey: ["sim-props", sport, game?.id],
-    enabled: !!game?.id && gameEligible && showPropPicker,
-    throwOnError: false,
-    queryFn: async ({ signal }) => {
-      if (!game?.id) return [] as PlayerProp[];
-      try {
-        const props = await loadSimulatorProps(
-          {
-            sport,
-            eventId: game.id,
-            home: game.homeTeam ?? undefined,
-            away: game.awayTeam ?? undefined,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            startsAt: game.startsAt,
-          },
-          signal,
-        );
-        if (props.length > 0) rememberSimProps(sport, game.id, props);
-        return props;
-      } catch {
-        return [] as PlayerProp[];
-      }
-    },
-    staleTime: 5 * 60_000,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
-    // Never paint another sport/game's props while this query refetches.
-    placeholderData: undefined,
-  });
-
   const firstBasketQ = useQuery({
     queryKey: ["sim-first-basket", game?.id, game?.homeTeamId, game?.awayTeamId],
-    enabled: showPropPicker && sport === "nba" && firstBasketOpen && gameEligible &&
+    enabled: sport === "nba" && firstBasketOpen && gameEligible &&
       !!game?.id && !!game.homeTeamId && !!game.awayTeamId,
     queryFn: ({ signal }) => fetchSimulatorFirstBasket(game!.id, game!.homeTeamId!, game!.awayTeamId!, signal),
     staleTime: 5 * 60_000,
@@ -607,7 +487,6 @@ function SimulatorScreen() {
   const gamesBootstrapping =
     (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
     games.length === 0;
-  const propsLoading = showPropPicker && gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
@@ -698,75 +577,7 @@ function SimulatorScreen() {
     (sport !== "mlb" || parkQ.isFetched) &&
     (sport !== "mlb" || probablesQ.isFetched);
 
-  const mains = useMemo(() => {
-    if (!showPropPicker || propsLoading) return [];
-    let list = normalizeSimulatorPropLines(asPropList(propsQ.data)).filter((p) => !p?.alt && p.line != null && p.market !== "player_first_basket");
-    if (sport === "soccer") {
-      list = list.filter((p) => isSoccerPropMarket(p.market));
-    }
-    return list;
-  }, [propsQ.data, propsLoading, showPropPicker, sport]);
-
-  const filteredProps = useMemo(() => {
-    let list = mains;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.player.toLowerCase().includes(q) ||
-          propMarketLabel(p.market).toLowerCase().includes(q),
-      );
-    }
-    return [...list].sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0));
-  }, [mains, search]);
-
-  const playerGroups = useMemo(() => {
-    const groups = new Map<string, PlayerProp[]>();
-    for (const prop of filteredProps) {
-      const key = JSON.stringify([prop.playerTeamId, prop.athleteId ?? prop.player]);
-      const group = groups.get(key);
-      if (group) group.push(prop);
-      else groups.set(key, [prop]);
-    }
-    return [...groups.entries()];
-  }, [filteredProps]);
-
-  const toggleProp = (p: PlayerProp) => {
-    const side = p.overPrice != null || p.underPrice == null ? "Over" : "Under";
-    if (Platform.OS !== "web") Haptics.selectionAsync();
-    const isPp = p.priceSource === "PrizePicks";
-    const price = side === "Over" ? p.overPrice : p.underPrice;
-    if (!isPp && (price == null || p.line == null)) return;
-    if (p.line == null) return;
-    const label = isBinaryNullLineMarket(p.market) ? propMarketLabel(p.market) : `${p.line} ${propMarketLabel(p.market)}`;
-    const key = `${p.player}|${p.market}|${p.line}|${side}`;
-    const exists = selected.find(
-      (s) => `${s.player}|${s.market}|${s.line}|${s.side}` === key,
-    );
-    if (exists) {
-      setSelected((prev) =>
-        prev.filter((s) => `${s.player}|${s.market}|${s.line}|${s.side}` !== key),
-      );
-      return;
-    }
-    if (selected.length >= MAX_PROPS) return;
-    setSelected((prev) => [
-      ...prev,
-      {
-        player: p.player,
-        market: p.market,
-        line: p.line as number,
-        side,
-        odds: price ?? 0,
-        athleteId: p.athleteId,
-        headshot: p.headshot,
-        label,
-      },
-    ]);
-  };
-
   const simulatorScroll = useRef<ScrollView>(null);
-  const propPickerOffset = useRef(0);
 
   const runSimulation = useCallback(
     async (opts?: { force?: boolean; auto?: boolean }) => {
@@ -792,7 +603,6 @@ function SimulatorScreen() {
         }
       }
 
-      const runProps = !opts?.auto && !isGameLinesOnly && selected.length > 0;
 
       if (!opts?.force && !opts?.auto) {
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -802,13 +612,7 @@ function SimulatorScreen() {
       const { signal } = controller;
       runInFlightRef.current = controller;
       setRunning(true);
-      if (opts?.force) {
-        setGameResult(null);
-        setPropResults([]);
-      } else if (!opts?.auto) {
-        setGameResult(null);
-        setPropResults([]);
-      }
+      if (!opts?.auto) setGameResult(null);
 
       try {
         const wx = weatherImpact;
@@ -843,104 +647,12 @@ function SimulatorScreen() {
           }
           const ran = Date.now();
           setRanAt(ran);
-          if (!opts?.auto) setBoxScoreScope(JSON.stringify([sport, game.id]));
           if (fp) {
             rememberGameSim(sport, game.id, { gameResult: gr, ranAt: ran, fingerprint: fp });
             lastAutoRunKeyRef.current = fingerprintKey(fp);
           }
         } else if (opts?.auto) {
           lastAutoRunKeyRef.current = null;
-        }
-
-        if (runProps) {
-          const teamTokens = [game.homeTeam, game.awayTeam]
-            .filter(Boolean)
-            .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
-
-          const simProps = await Promise.all(
-            selected.map(async (s) => {
-              let athleteId = s.athleteId;
-              if (!athleteId) {
-                try {
-                  const { results } = await searchSimulatorPlayer(s.player, signal);
-                  const hit =
-                    results.find(
-                      (r) =>
-                        r.sport === sport &&
-                        r.team &&
-                        teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
-                    ) ?? results.find((r) => r.sport === sport);
-                  athleteId = hit?.athleteId ?? null;
-                } catch {
-                  athleteId = null;
-                }
-              }
-              return {
-                player: s.player,
-                market: s.market,
-                line: s.line,
-                side: s.side,
-                athleteId,
-              };
-            }),
-          );
-
-          if (signal.aborted) return;
-          const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> =
-            {};
-          await Promise.all(
-            simProps.map(async (s) => {
-              if (!s.athleteId) return;
-              try {
-                const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId }, signal);
-                const recent = (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats }));
-                if (recent.length) {
-                  phForSim[`${s.player}#${s.athleteId}`] = { labels: h.labels, recent };
-                }
-              } catch {
-                /* honest no-history skip */
-              }
-            }),
-          );
-          if (signal.aborted) return;
-          const prQuick = enrichPropSimResults(
-            await fetchSimulatorPropSimulationsBatch(
-              sport,
-              simProps,
-              {
-                homeTeam: game.homeTeam,
-                awayTeam: game.awayTeam,
-                homeTeamId: game.homeTeamId,
-                awayTeamId: game.awayTeamId,
-                weatherImpact: wx,
-                tier: "quick",
-              },
-              signal,
-            ),
-            phForSim,
-          );
-          if (signal.aborted) return;
-          setPropResults(prQuick);
-          setSimDeepPending(true);
-          const prDeep = enrichPropSimResults(
-            await fetchSimulatorPropSimulationsBatch(
-              sport,
-              simProps,
-              {
-                homeTeam: game.homeTeam,
-                awayTeam: game.awayTeam,
-                homeTeamId: game.homeTeamId,
-                awayTeamId: game.awayTeamId,
-                weatherImpact: wx,
-                tier: "deep",
-              },
-              signal,
-            ),
-            phForSim,
-          );
-          if (signal.aborted) return;
-          setPropResults(prDeep);
-          setSimDeepPending(false);
         }
       } finally {
         if (runInFlightRef.current === controller) {
@@ -954,8 +666,6 @@ function SimulatorScreen() {
       game,
       simInputFingerprint,
       sport,
-      isGameLinesOnly,
-      selected,
       gameOddsLines,
       setGameResult,
       weatherImpact,
@@ -983,6 +693,20 @@ function SimulatorScreen() {
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
   }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
+
+  const playerBoxScore = gameResult && ranAt != null && game?.homeTeamId && game.awayTeamId &&
+    game.startsAt && supportsSimulatorBoxScore(sport) ? (
+    <SimulatorPlayerBoxScore
+      key={gameScope}
+      sport={sport}
+      homeTeamId={game.homeTeamId}
+      awayTeamId={game.awayTeamId}
+      home={game.homeTeam ?? "Home"}
+      away={game.awayTeam ?? "Away"}
+      startsAt={game.startsAt}
+      run={ranAt}
+    />
+  ) : null;
 
   const canRun = gameEligible && !!game && !running;
 
@@ -1060,7 +784,7 @@ function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFirstBasketOpen(false); setExpandedPlayer(null); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setFirstBasketOpen(false); }} />
             );
           })}
         </ScrollView>
@@ -1109,7 +833,7 @@ function SimulatorScreen() {
                 {games.map((g, i) => (
                   <Pressable
                     key={g.id}
-                    onPress={() => { setGameIdx(i); setSelected([]); setFirstBasketOpen(false); setExpandedPlayer(null); }}
+                    onPress={() => { setGameIdx(i); setFirstBasketOpen(false); }}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 8,
@@ -1134,10 +858,7 @@ function SimulatorScreen() {
                   {...replayData}
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
-                  props={propResults}
-                  selectedProps={selected}
-                  propsRunning={running && selected.length > 0}
-                  onSelectProps={() => simulatorScroll.current?.scrollTo({ y: propPickerOffset.current, animated: true })}
+                  endOfGame={playerBoxScore}
                   simulations={gameResult.simulations}
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
                   home={game.homeAbbr ?? game.homeTeam ?? "Home"}
@@ -1190,217 +911,6 @@ function SimulatorScreen() {
               ) : null}
             </Card>
 
-            {/* Player prop builder */}
-            {showPropPicker && (
-              <View
-                style={{ paddingHorizontal: 16, marginBottom: 16 }}
-                onLayout={({ nativeEvent }) => {
-                  propPickerOffset.current = nativeEvent.layout.y;
-
-                }}
-              >
-                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                  <View>
-                    <Text style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}>
-                      2. Add Player Props
-                    </Text>
-                    <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}>
-                      Optional · Add up to {MAX_PROPS} props
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ fontFamily: FONT.medium, fontSize: 12, color: colors.primary }}>
-                      {selected.length} / {MAX_PROPS} selected
-                    </Text>
-                    {selected.length > 0 ? (
-                      <Pressable onPress={() => setSelected([])}>
-                        <Text style={{ fontFamily: FONT.medium, fontSize: 12, color: colors.mutedForeground }}>
-                          Clear all
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-
-                {selected.length > 0 ? (
-                  <View style={{ gap: 8, marginBottom: 12 }}>
-                    {selected.map((s) => (
-                      <View
-                        key={`${s.player}|${s.market}|${s.line}|${s.side}`}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: 10,
-                          borderRadius: 12,
-                          backgroundColor: colors.card,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        }}
-                      >
-                        <SimAvatar headshot={s.headshot} name={s.player} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {s.player} · {s.label}
-                          </Text>
-                        </View>
-                        <Pressable
-                          onPress={() =>
-                            setSelected((prev) =>
-                              prev.filter(
-                                (x) =>
-                                  !(
-                                    x.player === s.player &&
-                                    x.market === s.market &&
-                                    x.line === s.line &&
-                                    x.side === s.side
-                                  ),
-                              ),
-                            )
-                          }
-                        >
-                          <Feather name="x" size={18} color={colors.mutedForeground} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 10,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
-                  <Feather name="search" size={16} color={colors.mutedForeground} />
-                  <TextInput
-                    placeholder="Search players or stats…"
-                    placeholderTextColor={colors.mutedForeground}
-                    value={search}
-                    onChangeText={setSearch}
-                    style={{ flex: 1, color: colors.foreground, fontFamily: FONT.body, fontSize: 14 }}
-                  />
-                </View>
-
-                {sport === "nba" && gameEligible ? (
-                  <Card style={{ marginBottom: 12, gap: 8 }}>
-                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: firstBasketOpen }}
-                      onPress={() => setFirstBasketOpen((open) => !open)}
-                      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
-                      <Feather name={firstBasketOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
-                    </Pressable>
-                    {firstBasketOpen ? (
-                      firstBasketQ.data?.pick ? (
-                        <>
-                          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
-                            {firstBasketQ.data.pick.player} · History-based pick
-                          </Text>
-                          <Text style={{ color: colors.mutedForeground }}>
-                            Made the game's first field goal in {firstBasketQ.data.pick.hits} of {firstBasketQ.data.pick.starts} verified recent starts. Uses recent starters.
-                          </Text>
-                        </>
-                      ) : (
-                        <Text style={{ color: colors.mutedForeground }}>
-                          {firstBasketQ.isFetching ? "Checking recent opening baskets…" : firstBasketQ.isError
-                            ? "Couldn’t load opening basket history."
-                            : "No First Basket pick from the verified recent starts."}
-                        </Text>
-                      )
-                    ) : null}
-                  </Card>
-                ) : null}
-
-                {propsLoading ? (
-                  <Loading label="Loading player props…" />
-                ) : !gameEligible ? (
-                  <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
-                    This game has already started — pick an upcoming matchup to simulate props.
-                  </Text>
-                ) : playerGroups.length === 0 ? (
-                  <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
-                    {propsQ.isFetching
-                      ? "Loading player props…"
-                      : search.trim() ? "No matching players or stats." : "No player props posted for this game yet."}
-                  </Text>
-                ) : (
-                  <View style={{ gap: 8 }}>
-                    {playerGroups.slice(0, visiblePlayerCount).map(([key, props]) => {
-                      const player = props[0]!;
-                      const expanded = expandedPlayer === key;
-                      return (
-                        <Card key={key} style={{ gap: 8, padding: 10 }}>
-                          <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
-                            onPress={() => setExpandedPlayer(expanded ? null : key)}
-                            style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                            <SimAvatar headshot={player.headshot} name={player.player} />
-                            <Text style={{ flex: 1, fontFamily: FONT.semibold, color: colors.foreground }}>{player.player}</Text>
-                            <Feather name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
-                          </Pressable>
-                          {expanded ? props.map((p) => {
-                            const added = selected.some((pick) => pick.player === p.player &&
-                              pick.market === p.market && pick.line === p.line);
-                            const model = added ? propResults.find((result) =>
-                              result.player === p.player && result.market === p.market && result.line === p.line,
-                            ) : undefined;
-                            const modelPick = model ? simulatorPropPick(model) : null;
-                            const binary = isBinaryNullLineMarket(p.market);
-                            const playsAtHome = p.playerTeamId === game.homeTeamId;
-                            const opponent = playsAtHome ? game.awayTeam : game.homeTeam;
-                            const opponentPace = playsAtHome ? matchupQ.data?.awayPace : matchupQ.data?.homePace;
-                            const matchupNote = sport === "nba" && opponentPace != null &&
-                              Number.isFinite(opponentPace)
-                              ? ` · Opp. pace ${opponentPace.toFixed(1)} possessions per 48 min`
-                              : p.position ? ` · ${p.position}` : "";
-                            return (
-                              <View key={`${p.market}|${p.line}`} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>
-                                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{propMarketLabel(p.market)}</Text>
-                                <Text style={{ color: colors.mutedForeground }}>
-                                  vs {opponent ?? "selected opponent"}{matchupNote}
-                                </Text>
-                                <Pressable
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`${added ? "Remove" : "Add"} ${p.player}, ${propMarketLabel(p.market)}${binary ? "" : `, ${p.line}`}`}
-                                  accessibilityState={{ selected: added }}
-                                  onPress={() => toggleProp(p)}
-                                  style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
-                                >
-                                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>
-                                    {added ? "Added ✓" : "Add prop"}{binary ? "" : ` · Line ${p.line}`}
-                                  </Text>
-                                </Pressable>
-                                {modelPick ? (
-                                  <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
-                                    Simulator pick · {binary
-                                      ? modelPick.side === "Over" ? "Yes" : "No"
-                                      : `${modelPick.side} ${p.line}`} · {(modelPick.probability * 100).toFixed(1)}% sim hit
-                                  </Text>
-                                ) : null}
-                              </View>
-                            );
-                          }) : null}
-                        </Card>
-                      );
-                    })}
-                    {visiblePlayerCount < playerGroups.length ? (
-                      <Pressable accessibilityRole="button" onPress={() => setVisiblePlayerCount((count) => count + 6)}
-                        style={{ minHeight: 44, justifyContent: "center" }}>
-                        <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Show more players</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                )}
-              </View>
-            )}
-
             {/* Settings */}
             <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
               <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginBottom: 12 }}>
@@ -1444,7 +954,7 @@ function SimulatorScreen() {
                   <Feather name="play" size={20} color="#fff" />
                 )}
                 <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 16 }}>
-                  {running ? "Running…" : showPropPicker ? "3. Run Simulation" : "Run Simulation"}
+                  {running ? "Running…" : "Run Simulation"}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -1460,7 +970,7 @@ function SimulatorScreen() {
             ) : null}
 
             {/* Results */}
-            {(gameResult || propResults.length > 0) && (
+            {gameResult && (
               <View style={{ paddingHorizontal: 16 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <Text style={{ fontFamily: FONT.semibold, fontSize: 17, color: colors.foreground }}>
@@ -1487,19 +997,7 @@ function SimulatorScreen() {
                   </View>
                 </View>
 
-                {gameResult && ranAt != null && boxScoreScope === gameScope &&
-                  game.homeTeamId && game.awayTeamId && game.startsAt && supportsSimulatorBoxScore(sport) ? (
-                  <SimulatorPlayerBoxScore
-                    key={gameScope}
-                    sport={sport}
-                    homeTeamId={game.homeTeamId}
-                    awayTeamId={game.awayTeamId}
-                    home={game.homeTeam ?? "Home"}
-                    away={game.awayTeam ?? "Away"}
-                    startsAt={game.startsAt}
-                    run={ranAt}
-                  />
-                ) : null}
+                {!showReplay ? playerBoxScore : null}
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
                   <>
@@ -1621,38 +1119,32 @@ function SimulatorScreen() {
                   </>
                 ) : null}
 
-                {propResults.length > 0 ? (
-                  <Card style={{ marginBottom: 16 }}>
-                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                      Simulator Picks
-                    </Text>
-                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginBottom: 8 }}>
-                      {propSimulationSummaryLabel(propResults)}
-                    </Text>
-                    {simDeepPending ? (
-                      <Text style={{ color: colors.mutedForeground }}>Simulation updating…</Text>
+                {sport === "nba" && gameEligible ? (
+                  <Card style={{ marginBottom: 12, gap: 8 }}>
+                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: firstBasketOpen }}
+                      onPress={() => setFirstBasketOpen((open) => !open)}
+                      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>First Basket</Text>
+                      <Feather name={firstBasketOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
+                    </Pressable>
+                    {firstBasketOpen ? (
+                      firstBasketQ.data?.pick ? (
+                        <>
+                          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>
+                            {firstBasketQ.data.pick.player} · History-based pick
+                          </Text>
+                          <Text style={{ color: colors.mutedForeground }}>
+                            Made the game's first field goal in {firstBasketQ.data.pick.hits} of {firstBasketQ.data.pick.starts} verified recent starts. Uses recent starters.
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={{ color: colors.mutedForeground }}>
+                          {firstBasketQ.isFetching ? "Checking recent opening baskets…" : firstBasketQ.isError
+                            ? "Couldn’t load opening basket history."
+                            : "No First Basket pick from the verified recent starts."}
+                        </Text>
+                      )
                     ) : null}
-                    {propResults.map((r) => {
-                      const pick = simulatorPropPick(r);
-                      const binary = isBinaryNullLineMarket(r.market);
-                      const selection = pick && (binary
-                        ? `${pick.side === "Over" ? "Yes" : "No"} · ${propMarketLabel(r.market)}`
-                        : `${pick.side} ${r.line} ${propMarketLabel(r.market)}`);
-                      const projected = formatPropProjectedStat(r);
-                      return (
-                        <View key={r.key} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border }}>
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: pick ? colors.primary : colors.foreground }}>
-                            {r.player} · {selection ?? "No simulator pick"}
-                          </Text>
-                          <Text style={{ color: colors.mutedForeground, marginTop: 4 }}>
-                            {pick
-                              ? `Why: This side hit in ${(pick.probability * 100).toFixed(1)}% of simulations.${!binary && projected !== "—" ? ` Projected ${propMarketLabel(r.market).toLowerCase()}: ${projected}.` : ""}`
-                              : propSimulationCount(r) ? "The simulation didn’t establish a side above 50%." : "A simulation is unavailable for this prop."}
-                          </Text>
-                          <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 4 }}>{propSimulationEvidence(r)}</Text>
-                        </View>
-                      );
-                    })}
                   </Card>
                 ) : null}
               </View>
@@ -1669,10 +1161,8 @@ function SimulatorScreen() {
                 How it works
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
-                Deep simulations target {SIM_COUNT.toLocaleString()} Monte Carlo draws. Each prop shows its actual draw count;
-                history estimates are labeled separately. Model edge is the estimated hit chance minus the price's
-                break-even chance, in percentage points. Quality and model scores are not win probabilities.
-                Binary props show Yes/No outcomes. Supported models use recent game logs and applicable context.
+                Deep simulations target {SIM_COUNT.toLocaleString()} Monte Carlo draws. The player box score samples recent game logs.
+                Model edge is the estimated hit chance minus the price's break-even chance, in percentage points.
                 For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
                 The Final AI Score rolls those answers together with matchup, form, injuries, and line shopping.
               </Text>
