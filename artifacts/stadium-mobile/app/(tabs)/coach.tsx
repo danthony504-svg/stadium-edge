@@ -466,6 +466,20 @@ export default function CoachScreen() {
         return;
       }
 
+      if (!images.length && /\b(?:first|1st)[\s_-]+(?:baskets?|made\s+field\s+goal)\b/i.test(text)) {
+        setMessages((prev) => [
+          ...prev,
+          { id: uid("u"), role: "user", text },
+          {
+            id: uid("a"),
+            role: "assistant",
+            text: "AI Coach does not build First Basket tickets yet. For NBA opening-basket history, open Game Simulator → NBA → Player Props → First Basket.",
+          },
+        ]);
+        setDraft("");
+        return;
+      }
+
       // Resolve outgoing images: fresh attachments, or silent re-attach on
       // "give me a better one" so the model can re-read the same slip.
       let outgoingImageDataUrls: string[] | undefined;
