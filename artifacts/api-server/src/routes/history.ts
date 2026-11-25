@@ -758,13 +758,19 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
         last10: aggregate(rows.slice(0, 10)),
         last20: aggregate(rows.slice(0, 20)),
       };
+      const normalizeTeam = (name: string) =>
+        name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const targetOpponent = normalizeTeam(opponentNameQ);
+      const vsOpponent = targetOpponent
+        ? recent.filter((game) => normalizeTeam(game.opponentName ?? "") === targetOpponent)
+        : [];
       res.json({
         sport: sportId,
         athleteId,
         labels,
         recent,
-        vsOpponent: [],
-        vsOpponentName: null,
+        vsOpponent,
+        vsOpponentName: vsOpponent[0]?.opponentName ?? null,
         homeSplit: { games: home.games, averages: home.averages },
         awaySplit: { games: away.games, averages: away.averages },
         windows,
