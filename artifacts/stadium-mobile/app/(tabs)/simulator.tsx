@@ -61,6 +61,7 @@ import {
 import {
   buildSimulationSummary,
   normalizeGameWinDisplay,
+  selectRepresentativeReplayScore,
   weatherSettingLabel,
   type SimulationSummary,
 } from "@/lib/gameSimDisplay";
@@ -357,23 +358,14 @@ function SimulatorScreen() {
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
-  const replayAway = gameResult?.outcomes?.awayScores[0];
-  const replayHome = gameResult?.outcomes?.homeScores[0];
-  const hasReplayScores =
-    replayAway != null &&
-    replayHome != null &&
-    Number.isFinite(replayAway) &&
-    Number.isFinite(replayHome);
-  const replayData = (() => {
+  const replayData = useMemo(() => {
     if (!gameResult || !supportsGameReplay(sport)) return null;
     if (gameResult.driveReplay?.length) {
       return { sport, drives: gameResult.driveReplay };
     }
-    if (hasReplayScores) {
-      return { sport, finalScore: { away: replayAway, home: replayHome } };
-    }
-    return null;
-  })();
+    const finalScore = selectRepresentativeReplayScore(gameResult);
+    return finalScore ? { sport, finalScore } : null;
+  }, [gameResult, sport]);
 
   const showReplay = replayData != null;
 

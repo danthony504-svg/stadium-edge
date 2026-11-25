@@ -206,7 +206,7 @@ export function GameReplay(replay: Props) {
           <Text style={styles.title}>Watch a Sim</Text>
           <Text style={styles.subtitle}>{replay.matchupTime}</Text>
           <Text style={styles.subtitle}>
-            1 of {replay.simulations.toLocaleString()} simulations · {cfg.label}
+            Selected from {replay.simulations.toLocaleString()} simulations · {cfg.label}
           </Text>
         </View>
       </View>

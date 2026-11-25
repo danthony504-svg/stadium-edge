@@ -1,3 +1,4 @@
+import { selectRepresentativeReplayScore } from "./gameSimDisplay.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { URL } from "node:url";
@@ -92,4 +93,16 @@ test("Simulator shows Watch a Sim plus player box score without a prop picker", 
   assert.match(replay, /supportsGameReplay/);
   assert.match(replay, /c \* 10/);
   assert.doesNotMatch(screen + replay, /add player props|loadSimulatorProps|fetchSimulatorPropSimulationsBatch/i);
+});
+
+test("replay skips an outlier and selects a paired result from the matchup", () => {
+  const projections = { awayProjectedScore: 114.66, homeProjectedScore: 116.46 };
+  assert.deepEqual(selectRepresentativeReplayScore({
+    ...projections,
+    outcomes: { awayScores: [134, 115, 114], homeScores: [96, 117, 116] },
+  }), { away: 115, home: 117 });
+  assert.equal(selectRepresentativeReplayScore({
+    ...projections,
+    outcomes: { awayScores: [NaN, 115], homeScores: [116] },
+  }), null);
 });
