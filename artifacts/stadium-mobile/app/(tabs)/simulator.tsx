@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SimulatorPlayerBoxScore, supportsSimulatorBoxScore } from "@/components/SimulatorPlayerBoxScore";
-import { GameReplay } from "@/components/NflDriveReplay";
+import { GameReplay, supportsGameReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
@@ -359,12 +359,21 @@ function SimulatorScreen() {
 
   const replayAway = gameResult?.outcomes?.awayScores[0];
   const replayHome = gameResult?.outcomes?.homeScores[0];
-  const replayData = sport === "nfl" && gameResult?.driveReplay?.length
-    ? { sport: "nfl" as const, drives: gameResult.driveReplay }
-    : sport === "nba" && replayAway != null && replayHome != null &&
-        Number.isFinite(replayAway) && Number.isFinite(replayHome)
-      ? { sport: "nba" as const, finalScore: { away: replayAway, home: replayHome } }
-      : null;
+  const hasReplayScores =
+    replayAway != null &&
+    replayHome != null &&
+    Number.isFinite(replayAway) &&
+    Number.isFinite(replayHome);
+  const replayData = (() => {
+    if (!gameResult || !supportsGameReplay(sport)) return null;
+    if (gameResult.driveReplay?.length) {
+      return { sport, drives: gameResult.driveReplay };
+    }
+    if (hasReplayScores) {
+      return { sport, finalScore: { away: replayAway, home: replayHome } };
+    }
+    return null;
+  })();
 
   const showReplay = replayData != null;
 
@@ -809,11 +818,11 @@ function SimulatorScreen() {
                   awayLogo={game.awayLogo}
                   homeLogo={game.homeLogo}
                   matchupTime={formatGameWhen(game.startsAt)}
-                  endOfGame={playerBoxScore}
                   simulations={gameResult.simulations}
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
                   home={game.homeAbbr ?? game.homeTeam ?? "Home"}
                 />
+                {playerBoxScore}
               </View>
             ) : null}
 

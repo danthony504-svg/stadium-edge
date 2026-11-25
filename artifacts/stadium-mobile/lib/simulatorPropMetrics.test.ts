@@ -79,11 +79,13 @@ test("simulator picks require a simulated majority on the exact line", () => {
   assert.deepEqual(simulatorPropPick(row({ hitProbability: 0.62 })), { side: "Over", probability: 0.62 });
 });
 
-test("Simulator shows the player box score at the end of the replay without a prop picker", () => {
+test("Simulator shows Watch a Sim plus player box score without a prop picker", () => {
   const screen = readFileSync(new URL("../app/(tabs)/simulator.tsx", import.meta.url), "utf8");
   const replay = readFileSync(new URL("../components/NflDriveReplay.tsx", import.meta.url), "utf8");
-  assert.match(screen, /endOfGame=\{playerBoxScore\}/);
+  assert.match(screen, /supportsGameReplay\(sport\)/);
+  assert.match(screen, /\{playerBoxScore\}/);
   assert.match(screen, /!showReplay \? playerBoxScore : null/);
-  assert.match(replay, /complete \? endOfGame : null/);
+  assert.match(replay, /Watch a Sim/);
+  assert.match(replay, /supportsGameReplay/);
   assert.doesNotMatch(screen + replay, /add player props|loadSimulatorProps|fetchSimulatorPropSimulationsBatch/i);
 });
