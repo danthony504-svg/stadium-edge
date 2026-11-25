@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SimulatorPlayerBoxScore, supportsSimulatorBoxScore } from "@/components/SimulatorPlayerBoxScore";
 import { GameReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
@@ -257,6 +258,7 @@ function SimulatorScreen() {
   const [scopedGameResult, setScopedGameResult] = useState<{ scope: string; result: GameSimulationResult } | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
   const [simDeepPending, setSimDeepPending] = useState(false);
+  const [boxScoreScope, setBoxScoreScope] = useState<string | null>(null);
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [linesScanStep, setLinesScanStep] = useState(0);
@@ -841,6 +843,7 @@ function SimulatorScreen() {
           }
           const ran = Date.now();
           setRanAt(ran);
+          if (!opts?.auto) setBoxScoreScope(JSON.stringify([sport, game.id]));
           if (fp) {
             rememberGameSim(sport, game.id, { gameResult: gr, ranAt: ran, fingerprint: fp });
             lastAutoRunKeyRef.current = fingerprintKey(fp);
@@ -1483,6 +1486,20 @@ function SimulatorScreen() {
                     ) : null}
                   </View>
                 </View>
+
+                {gameResult && ranAt != null && boxScoreScope === gameScope &&
+                  game.homeTeamId && game.awayTeamId && game.startsAt && supportsSimulatorBoxScore(sport) ? (
+                  <SimulatorPlayerBoxScore
+                    key={gameScope}
+                    sport={sport}
+                    homeTeamId={game.homeTeamId}
+                    awayTeamId={game.awayTeamId}
+                    home={game.homeTeam ?? "Home"}
+                    away={game.awayTeam ?? "Away"}
+                    startsAt={game.startsAt}
+                    run={ranAt}
+                  />
+                ) : null}
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
                   <>
