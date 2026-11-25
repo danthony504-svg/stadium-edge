@@ -328,6 +328,7 @@ export function fetchSimulatorPlayerHistory(
     name?: string | null;
     season?: string | null;
     opponentName?: string | null;
+    opponentTeamId?: string;
   },
   signal?: AbortSignal,
 ): Promise<PlayerHistory> {
@@ -335,6 +336,7 @@ export function fetchSimulatorPlayerHistory(
   if (args.athleteId) q.set("athleteId", args.athleteId);
   if (args.name) q.set("name", args.name);
   if (args.season) q.set("season", args.season);
+  if (args.opponentTeamId) q.set("opponentTeamId", args.opponentTeamId);
   if (args.opponentName) q.set("opponentName", args.opponentName);
   return simGetJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
 }
@@ -537,11 +539,24 @@ function computeMlLean(
   return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
 }
 
+export function fetchSimulatorPlayerFinal(
+  matchup: { sport: string; eventId: string; homeTeamId: string; awayTeamId: string },
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({
+    sport: matchup.sport, eventId: matchup.eventId, homeTeamId: matchup.homeTeamId, awayTeamId: matchup.awayTeamId,
+  });
+  return simGetJson<{
+    players: Record<string, Record<string, string>>;
+    firstBasket: { playerId: string; teamId: string } | null;
+  } | null>(`/sports/simulator-player-final?${params}`, signal);
+}
+
 export function fetchSimulatorFirstBasket(
   eventId: string, homeTeamId: string, awayTeamId: string, signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({ eventId, homeTeamId, awayTeamId });
-  return simGetJson<{ pick: { player: string; hits: number; starts: number } | null }>(
+  return simGetJson<{ pick: { athleteId: string; teamId: string; player: string; hits: number; starts: number } | null }>(
     `/sports/nba-first-basket-history?${params}`, signal,
   );
 }

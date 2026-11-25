@@ -1,4 +1,5 @@
 import { nbaFirstBasketRecentStarter, type FirstBasketSummary } from "../lib/nbaFirstBasketHistory";
+import { resolveNbaOpeningScore, type NbaOpeningSummary } from "../lib/nbaOpeningScore";
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
@@ -266,6 +267,80 @@ async function fetchNbaOpeningSummary(eventId: string) {
   return await response.json() as FirstBasketSummary;
 }
 
+type SimulatorFinalSummary = NbaOpeningSummary & {
+  boxscore?: {
+    players?: Array<{
+      team?: { id?: string };
+      statistics?: Array<{
+        keys?: string[];
+        labels?: string[];
+        athletes?: Array<{
+          athlete?: { id?: string };
+          didNotPlay?: boolean;
+          stats?: string[];
+        }>;
+      }>;
+    }>;
+  };
+};
+
+router.get("/sports/simulator-player-final",
+  rateLimit({ name: "simulator-player-final", windowMs: 60_000, max: 20 }),
+  async (req, res): Promise<void> => {
+    const { sport, eventId, homeTeamId, awayTeamId } = req.query;
+    if (typeof sport !== "string" || !Object.hasOwn(ESPN_SPORT_PATHS, sport) ||
+        typeof eventId !== "string" || !/^\d{1,12}$/.test(eventId) ||
+        typeof homeTeamId !== "string" || typeof awayTeamId !== "string" ||
+        homeTeamId === awayTeamId) {
+      res.status(400).json({ error: "Invalid matchup" });
+      return;
+    }
+    try {
+      const summary = await cachedJson(`sim-player-final:${sport}:${eventId}`, 5 * 60_000, async () => {
+        const response = await fetch(
+          `https://site.api.espn.com/apis/site/v2/sports/${ESPN_SPORT_PATHS[sport]}/summary?event=${eventId}`,
+          { signal: AbortSignal.timeout(5000) },
+        );
+        if (!response.ok) throw new Error(`ESPN summary ${response.status}`);
+        return await response.json() as SimulatorFinalSummary;
+      });
+      const game = summary.header?.competitions?.find(({ id }) => id === eventId);
+      if (summary.header?.id !== eventId || !game?.competitors?.some(({ id, homeAway }) => id === homeTeamId && homeAway === "home") ||
+          !game.competitors.some(({ id, homeAway }) => id === awayTeamId && homeAway === "away")) {
+        res.status(404).json({ error: "Matchup could not be verified" });
+        return;
+      }
+      if (!game.status?.type?.completed || !["STATUS_FINAL", "STATUS_FULL_TIME", "STATUS_FINAL_OVERTIME", "STATUS_FINAL_PEN"].includes(game.status.type.name ?? "")) {
+        res.json(null);
+        return;
+      }
+      const players = new Map<string, Record<string, string>>();
+      for (const team of summary.boxscore?.players ?? []) {
+        const teamId = team.team?.id;
+        if (teamId !== homeTeamId && teamId !== awayTeamId) continue;
+        for (const group of team.statistics ?? []) {
+          for (const row of group.athletes ?? []) {
+            if (!row.athlete?.id || row.didNotPlay || !row.stats?.length) continue;
+            const key = `${teamId}/${row.athlete.id}`;
+            const stats = players.get(key) ?? {};
+            row.stats.forEach((value, index) => {
+              const label = group.labels?.[index];
+              const statKey = group.keys?.[index];
+              if (label) stats[label] = value;
+              if (statKey) stats[statKey] = value;
+            });
+            players.set(key, stats);
+          }
+        }
+      }
+      const opening = sport === "nba" ? resolveNbaOpeningScore(summary, eventId) : null;
+      res.json({ players: Object.fromEntries(players), firstBasket: opening?.firstMadeFieldGoal ?? null });
+    } catch {
+      res.status(503).json({ error: "Final player stats unavailable" });
+    }
+  },
+);
+
 router.get("/sports/nba-first-basket-history",
   rateLimit({ name: "nba-first-basket-history", windowMs: 60_000, max: 12 }),
   async (req, res): Promise<void> => {
@@ -277,7 +352,7 @@ router.get("/sports/nba-first-basket-history",
       return;
     }
     try {
-      const result = await cachedJson(`nba-first-basket:${eventId}:${homeTeamId}:${awayTeamId}`, 5 * 60_000, async () => {
+      const result = await cachedJson(`nba-first-basket:v2:${eventId}:${homeTeamId}:${awayTeamId}`, 5 * 60_000, async () => {
         const target = await fetchNbaOpeningSummary(eventId);
         const competition = target.header?.competitions?.find((item) => item.id === eventId);
         const startsAt = Date.parse(competition?.date ?? "");
