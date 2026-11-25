@@ -100,7 +100,8 @@ type Props = {
 export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId, home, away, startsAt, run }: Props) {
   const colors = useColors();
   const isFootball = sport === "nfl" || sport === "ncaaf";
-  const [limit, setLimit] = useState(isFootball ? 4 : 3);
+  const [showAllPlayers, setShowAllPlayers] = useState(false);
+  const limit = showAllPlayers ? undefined : isFootball ? 4 : 3;
   const roster = useQuery({
     queryKey: ["sim-box-roster", sport, homeTeamId, awayTeamId],
     queryFn: ({ signal }) => fetchGameRoster(sport, homeTeamId, awayTeamId, signal),
@@ -251,10 +252,10 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
           })}
         </View>
       ))}
-      {sides.some((side) => side.players.length > limit) ? (
-        <Pressable accessibilityRole="button" onPress={() => setLimit((count) => count + 3)}
+      {limit !== undefined && sides.some((side) => side.players.length > limit) ? (
+        <Pressable accessibilityRole="button" onPress={() => setShowAllPlayers(true)}
           style={{ minHeight: 44, justifyContent: "center" }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Show more players</Text>
+          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Show all players</Text>
         </Pressable>
       ) : null}
     </Card>
