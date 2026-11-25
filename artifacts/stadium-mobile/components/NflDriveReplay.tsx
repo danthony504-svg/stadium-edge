@@ -222,7 +222,7 @@ export function GameReplay(replay: Props) {
           </>
         ) : (
           <Pressable accessibilityRole="button" onPress={onSelectProps}>
-            <Text style={{ color: colors.primary }}>Select player props in Full Simulation</Text>
+            <Text style={{ color: colors.primary }}>Add player props</Text>
           </Pressable>
         )}
       </View>
