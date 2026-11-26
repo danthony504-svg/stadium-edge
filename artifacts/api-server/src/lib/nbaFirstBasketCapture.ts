@@ -48,7 +48,7 @@ export function captureOpeningGame(feed: OpeningFeed) {
   const sideOf = (teamId: string): Side | null => teamId === teams[0].id ? 0 : teamId === teams[1].id ? 1 : null;
   const tipWinner: Side | null = winner === teams[0].jumperId ? 0 : winner === teams[1].jumperId ? 1 : null;
   if (tipWinner === null || (loser && loser !== teams[1 - tipWinner]!.jumperId)) return null;
-  const possessions: { side: Side; shots: OpeningPossession["shots"][number][] }[] = [];
+  const possessions: { side: Side; clock?: string; endClock?: string; shots: OpeningPossession["shots"][number][] }[] = [];
   let index = -1;
   for (const play of actions) {
     if (play.actionNumber <= tip.actionNumber) continue;
@@ -62,10 +62,11 @@ export function captureOpeningGame(feed: OpeningFeed) {
     if (play.possessionIndex !== index) {
       if (index !== -1 && play.possessionIndex !== index + 1) return null;
       index = play.possessionIndex;
-      possessions.push({ side, shots: [] });
+      possessions.push({ side, clock: play.clock ? clockOf(play.clock) : undefined, shots: [] });
     }
     const current = possessions.at(-1)!;
     if (current.side !== side) return null;
+    if (play.clock) current.endClock = clockOf(play.clock);
     if (!method) continue;
     const result = play.shotResult?.toLowerCase() ?? "";
     const made = result === "made" || (!result && (/^made shot$/i.test(play.actionType ?? "") || /\bmakes\b/i.test(play.description ?? "")));

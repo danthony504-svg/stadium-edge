@@ -1,7 +1,7 @@
-import { firstBasketMarkets, type BookRule, type FirstBasketSnapshot, type Market, type Method, type Quote } from "./nbaFirstBasketModel.js";
+import { firstBasketMarkets, supportedVoidRule, type BookRule, type FirstBasketSnapshot, type Market, type Method, type Quote } from "./nbaFirstBasketModel.js";
 
 type Outcome = { name?: string; description?: string; price?: number };
-type RawOdds = { id?: string; commence_time?: string; bookmakers?: {
+export type RawFirstBasketOdds = { id?: string; commence_time?: string; bookmakers?: {
   key?: string; markets?: { key?: string; last_update?: string; outcomes?: Outcome[] }[];
 }[] };
 const prob = (price: number) => price > 0 ? 100 / (100 + price) : -price / (100 - price);
@@ -15,14 +15,15 @@ function methodOf(name: string): Method | undefined {
   if (["3", "3point", "3points", "3pt", "threepointer", "3pointer"].includes(key)) return "3";
 }
 
-export function firstBasketQuotes(game: FirstBasketSnapshot, data: RawOdds, now: number): Quote[] {
+export function firstBasketQuotes(game: FirstBasketSnapshot, data: RawFirstBasketOdds, now: number): Quote[] {
   if (!game.oddsEventId || game.oddsEventId !== data.id ||
       !(Math.abs(Date.parse(data.commence_time ?? "") - game.startsAt) <= 15 * 60_000)) return [];
-  const rules = new Map<string, BookRule["rule"]>();
+  const rules = new Map<string, BookRule>();
   for (const entry of game.bookRules ?? []) {
     const key = `${entry.book}:${entry.market}`;
-    if (rules.has(key) && rules.get(key) !== entry.rule) return [];
-    rules.set(key, entry.rule);
+    if (!supportedVoidRule(entry.voidRule)) continue;
+    if (rules.has(key) && JSON.stringify(rules.get(key)) !== JSON.stringify(entry)) return [];
+    rules.set(key, entry);
   }
   const teams = [game.home, game.away];
   const names = new Map<string, { id: string; teamId: string } | null>();
@@ -35,9 +36,10 @@ export function firstBasketQuotes(game: FirstBasketSnapshot, data: RawOdds, now:
     if (!book.key) continue;
     for (const item of book.markets ?? []) {
       const market = item.key as Market;
-      const rule = rules.get(`${book.key}:${market}`);
+      const terms = rules.get(`${book.key}:${market}`);
+      const rule = terms?.rule;
       const updated = Date.parse(item.last_update ?? "");
-      if (!firstBasketMarkets.includes(market) || (rule !== "points" && rule !== "field_goal") ||
+      if (!terms || !firstBasketMarkets.includes(market) || (rule !== "points" && rule !== "field_goal") ||
           !Number.isFinite(updated) || updated > now || now - updated > 5 * 60_000) continue;
       const outcomes = item.outcomes ?? [];
       const classified = outcomes.flatMap(outcome => {
@@ -57,7 +59,8 @@ export function firstBasketQuotes(game: FirstBasketSnapshot, data: RawOdds, now:
         tally.set(keyOf(row), pair);
       }
       const completeFields = new Map<string, number>();
-      if (!binary && classified.length === outcomes.length) {
+      if (!binary && terms.exhaustiveStarterField === true && terms.voidRule.notStarter === "void" &&
+          classified.length === outcomes.length) {
         for (const team of market === "player_first_team_basket" ? teams : [null]) {
           const field = classified.filter(row => !team || row.teamId === team.id);
           const eligible = (team ? team.starters.length : 10) *
@@ -70,13 +73,14 @@ export function firstBasketQuotes(game: FirstBasketSnapshot, data: RawOdds, now:
         }
       }
       for (const row of classified) {
-        if ((binary && row.side !== "yes") || (market === "player_method_of_first_basket" && !row.method)) continue;
+        if ((binary && row.side !== "yes") || (market === "player_method_of_first_basket" && (!row.method || (rule === "field_goal" && row.method === "FT")))) continue;
         const pair = tally.get(keyOf(row));
         if (binary && pair?.yes.length !== 1) continue;
         const total = binary ? (pair?.no.length === 1 ? prob(row.price) + prob(pair.no[0]!) : null)
           : completeFields.get(market === "player_first_team_basket" ? row.teamId : "game");
         rows.push({ book: book.key, market, rule, playerId: row.id, method: row.method,
-          price: row.price, noVig: total ? prob(row.price) / total : null });
+          price: row.price, voidRule: terms.voidRule, noVig: total ? prob(row.price) / total : null,
+          completeField: !binary && total != null });
       }
     }
   }

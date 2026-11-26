@@ -52,12 +52,16 @@ export function SimulatorFirstBasket({ eventId, homeTeamId, awayTeamId, startsAt
           {result.groups.filter(group => group.rows.length).map(group => (
             <View key={`${group.market}:${group.rule}`} style={{ gap: 5, borderTopWidth: 1, borderColor: colors.border, paddingTop: 8 }}>
               <Text style={title}>{markets[group.market]} · {group.rule === "points" ? "FT counts" : "FT excluded"}</Text>
-              {group.rows.map(row => (
+              {group.rows.filter(row => row.voidRule?.didNotPlay === "void").map(row => (
                 <View key={row.playerId} style={{ gap: 2, paddingBottom: 5 }}>
-                  <Text style={title}>{row.player} ({row.teamId === homeTeamId ? home : away}){row.method ? ` · ${methods[row.method]}` : ""} · {row.grade}</Text>
-                  <Text style={detail}>{percent(row.probability)} model · {formatAmerican(row.fairPrice)} fair · {formatAmerican(row.price)} at {row.book}</Text>
-                  <Text style={detail}>{percent(row.breakEven)} break-even · {percent(row.positiveEvProbability)} P(+EV) · {row.confidence} confidence</Text>
-                  {row.noVig != null && <Text style={detail}>{percent(row.noVig)} book probability after vig removal</Text>}
+                  <Text style={title}>{row.player} ({row.teamId === homeTeamId ? home : away}){row.method ? ` · ${methods[row.method]}` : ""}{row.grade ? ` · ${row.grade}` : ""}</Text>
+                  <Text style={detail}>{formatAmerican(row.price)} at {row.book} · {row.voidRule.notStarter === "void" ? "Must start" : "Action if player enters"} · DNP void</Text>
+                  {row.probability != null && row.breakEven != null && row.positiveEvProbability != null && row.noVig != null ? (
+                    <>
+                      <Text style={detail}>{percent(row.probability)} model · {formatAmerican(row.fairPrice)} fair · {percent(row.noVig)} no-vig book</Text>
+                      <Text style={detail}>{percent(row.breakEven)} break-even · {percent(row.positiveEvProbability)} P(+EV) · {row.confidence} confidence</Text>
+                    </>
+                  ) : <Text style={detail}>Book price only · incomplete market</Text>}
                 </View>
               ))}
             </View>

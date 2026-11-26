@@ -14,9 +14,15 @@ export type FirstBasketPlayer = {
   // Season-to-date per-minute opportunity rates for free throws, twos, and threes.
   usage: readonly [number, number, number];
 };
-export type FirstBasketTeam = { id: string; starters: readonly FirstBasketPlayer[]; jumperId: string };
+type JumperWeight = { playerId: string; weight: number };
+export type FirstBasketTeam = {
+  id: string;
+  starters: readonly FirstBasketPlayer[];
+  jumperId?: string;
+  likelyJumpers?: readonly JumperWeight[];
+};
 export type OpenPlay = { playerId: string; method: Method; made: boolean; clock: string };
-export type OpeningPossession = { side: Side; shots: readonly OpenPlay[] };
+export type OpeningPossession = { side: Side; clock?: string; endClock?: string; shots: readonly OpenPlay[] };
 export type OpeningGame = {
   eventId: string;
   finalAt: number;
@@ -27,7 +33,14 @@ export type OpeningGame = {
   // Ordered, complete possessions through the opening window.
   possessions: readonly OpeningPossession[];
 };
-export type BookRule = { book: string; market: Market; rule: Rule };
+export type VoidRule = { notStarter: "void" | "action_if_plays"; didNotPlay: "void" | "loss" };
+export type BookRule = {
+  book: string; market: Market; rule: Rule;
+  voidRule: VoidRule;
+  // Verified field coverage for this book and market, in addition to checking
+  // the actual quote count and outcome identities.
+  exhaustiveStarterField?: boolean;
+};
 export type FirstBasketSnapshot = {
   eventId: string;
   startsAt: number;
@@ -47,14 +60,33 @@ export type Quote = {
   method?: Method;
   price: number;
   noVig: number | null;
+  voidRule: VoidRule;
+  completeField?: boolean;
 };
 
 const other = (side: Side): Side => side === 0 ? 1 : 0;
 const validSide = (side: unknown): side is Side => side === 0 || side === 1;
-const TARGET_DRAWS = 400;
-const validClock = (clock: string) => /^(?:(?:1[0-2]|[0-9]):[0-5]\d)(?:\.\d+)?$/.test(clock);
+const POSTERIOR_DRAWS = 4096;
+const OPENING_CLOCK_SECONDS = 10 * 60;
+const validClock = (clock: string) => /^(?:12:00(?:\.0+)?|(?:1[01]|[0-9]):[0-5]\d(?:\.\d+)?)$/.test(clock);
 const validTime = (value: number) => Number.isFinite(value) && value > 0;
 const methodIndex = (method: Method) => methods.indexOf(method);
+
+function likelyJumpers(team: FirstBasketTeam): readonly JumperWeight[] {
+  return team.likelyJumpers ?? (team.jumperId ? [{ playerId: team.jumperId, weight: 1 }] : []);
+}
+
+function validJumpers(team: FirstBasketTeam) {
+  const candidates = likelyJumpers(team);
+  return candidates.length >= 1 && candidates.length <= 5 &&
+    new Set(candidates.map(candidate => candidate.playerId)).size === candidates.length &&
+    candidates.every(candidate => Number.isFinite(candidate.weight) && candidate.weight > 0 && candidate.weight <= 1 &&
+      team.starters.some(player => player.id === candidate.playerId));
+}
+
+export function supportedVoidRule(rule?: VoidRule): rule is VoidRule {
+  return rule?.didNotPlay === "void" && (rule.notStarter === "void" || rule.notStarter === "action_if_plays");
+}
 
 export function validateFirstBasketSnapshot(game: FirstBasketSnapshot) {
   const { home, away, startsAt, availableAt, confirmedAt } = game;
@@ -62,13 +94,13 @@ export function validateFirstBasketSnapshot(game: FirstBasketSnapshot) {
     (confirmedAt === null || (validTime(confirmedAt) && confirmedAt <= availableAt)) &&
     !!home?.id && !!away?.id && home.id !== away.id && [home, away].every(team =>
       Array.isArray(team.starters) && team.starters.length === 5 &&
-      team.starters.some(player => player.id === team.jumperId) &&
+      validJumpers(team) &&
       team.starters.every((player: FirstBasketPlayer) => !!player.id && !!player.name && player.usage?.length === 3 &&
         player.usage.every(rate => Number.isFinite(rate) && rate >= 0) && player.usage.some(rate => rate > 0))) &&
     new Set([...home.starters, ...away.starters].map(player => player.id)).size === 10;
 }
 
-function firstScore(game: OpeningGame, rule: Rule, side?: Side) {
+export function firstScore(game: OpeningGame, rule: Rule, side?: Side) {
   for (const possession of game.possessions) {
     if (side != null && side !== possession.side) continue;
     const shot = possession.shots.find(shot => shot.made && (rule === "points" || shot.method !== "FT"));
@@ -85,6 +117,8 @@ export function openingGameSummary(game: OpeningGame) {
       game.teams[0].id === game.teams[1].id || new Set(game.teams.flatMap(team => team.starters)).size !== 10 ||
       !game.possessions?.length || game.possessions[0]!.side !== game.firstPossession ||
       !game.possessions.every(possession => validSide(possession.side) && Array.isArray(possession.shots) &&
+        (possession.clock == null || validClock(possession.clock)) &&
+        (possession.endClock == null || validClock(possession.endClock)) &&
         possession.shots.every(shot => !!shot.playerId && typeof shot.made === "boolean" &&
           methods.includes(shot.method) && validClock(shot.clock)))) return null;
   const firstPoints = firstScore(game, "points");
@@ -116,8 +150,17 @@ function beta(wins: number, misses: number, random: Random) {
   const a = gamma(wins, random);
   return a / (a + gamma(misses, random));
 }
-const average = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+const average = (values: readonly number[] | Float64Array) => {
+  let sum = 0;
+  for (const value of values) sum += value;
+  return sum / values.length;
+};
 const implied = (price: number) => price > 0 ? 100 / (100 + price) : -price / (100 - price);
+const secondsRemaining = (clock?: string) => {
+  if (!clock || !validClock(clock)) return null;
+  const [minutes, seconds] = clock.split(":").map(Number);
+  return minutes! * 60 + seconds!;
+};
 const fairPrice = (p: number) => Math.round(p >= .5 ? -100 * p / (1 - p) : 100 * (1 - p) / p);
 
 export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonly OpeningGame[], quotes: readonly Quote[], now: number) {
@@ -135,19 +178,24 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
   const teamGames = teams.map(team => history.filter(game => game.teams.some(side => side.id === team.id)).slice(0, 30));
   if (teamGames.some(games => !games.length)) return { status: "insufficient_history" } as const;
 
-  const jumpers = teams.map(team => team.jumperId);
-  let tipWins = 10, tipLosses = 10, retained = 18, lost = 2;
-  for (const game of history) {
-    const winner = game.teams[game.tipWinner].jumperId;
-    const loser = game.teams[other(game.tipWinner)].jumperId;
-    const containsHome = winner === jumpers[0] || loser === jumpers[0];
-    const containsAway = winner === jumpers[1] || loser === jumpers[1];
-    const weight = containsHome && containsAway ? 2 : .5;
-    if ((containsHome && winner === jumpers[0]) || (containsAway && loser === jumpers[1])) tipWins += weight;
-    else if (containsHome || containsAway) tipLosses += weight;
-    if (game.tipWinner === game.firstPossession) retained++;
-    else lost++;
-  }
+  const homeJumpers = likelyJumpers(teams[0]);
+  const awayJumpers = likelyJumpers(teams[1]);
+  const normalizer = homeJumpers.reduce((sum, player) => sum + player.weight, 0) *
+    awayJumpers.reduce((sum, player) => sum + player.weight, 0);
+  const pairs = homeJumpers.flatMap(home => awayJumpers.map(away => {
+    let wins = 10, losses = 10;
+    for (const game of history) {
+      const winner = game.teams[game.tipWinner].jumperId;
+      const loser = game.teams[other(game.tipWinner)].jumperId;
+      const direct = (winner === home.playerId && loser === away.playerId) ||
+        (winner === away.playerId && loser === home.playerId);
+      if (winner === home.playerId || loser === away.playerId) wins += direct ? 2 : .5;
+      else if (winner === away.playerId || loser === home.playerId) losses += direct ? 2 : .5;
+    }
+    return { wins, losses, weight: home.weight * away.weight / normalizer };
+  }));
+  const retained = 18 + history.filter(game => game.tipWinner === game.firstPossession).length;
+  const lost = 2 + history.length - (retained - 18);
 
   const stats = teams.map((team, i) => {
     const shots = new Map<string, number[]>();
@@ -157,10 +205,15 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
       const side = game.teams[0].id === team.id ? 0 : 1;
       for (const possession of game.possessions) {
         if (possession.side !== side) continue;
+        const start = secondsRemaining(possession.clock ?? possession.shots[0]?.clock);
+        const end = secondsRemaining(possession.endClock ?? possession.shots.at(-1)?.clock ?? possession.clock);
+        if (start == null || end == null || start < end || end < OPENING_CLOCK_SECONDS) continue;
+        const openingShots = possession.shots.filter(shot => (secondsRemaining(shot.clock) ?? 0) >= OPENING_CLOCK_SECONDS);
+        if (openingShots.length !== possession.shots.length) continue;
         total++;
-        points += Number(possession.shots.some(shot => shot.made));
-        fieldGoals += Number(possession.shots.some(shot => shot.made && shot.method !== "FT"));
-        for (const shot of possession.shots) {
+        points += Number(openingShots.some(shot => shot.made));
+        fieldGoals += Number(openingShots.some(shot => shot.made && shot.method !== "FT"));
+        for (const shot of openingShots) {
           const j = methodIndex(shot.method);
           const counts = shots.get(shot.playerId) ?? [0, 0, 0];
           counts[j]!++;
@@ -171,19 +224,24 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
     }
     return { total, points, fieldGoals, shots, made };
   });
+  if (stats.some(stat => stat.total === 0)) return { status: "insufficient_history" } as const;
   const random = rng([...snapshot.eventId].reduce((seed, char) => Math.imul(seed ^ char.charCodeAt(0), 16777619), 2166136261));
   const tips: number[] = [], starts: number[] = [];
   const first = { points: [] as number[], field_goal: [] as number[] };
-  const samples = new Map<string, number[]>();
+  const samples = new Map<string, Float64Array>();
+  let draw = 0;
   const keyOf = (rule: Rule, market: Market, playerId: string, method?: Method) =>
     JSON.stringify([rule, market, playerId, method]);
   const record = (key: string, value: number) => {
-    const values = samples.get(key) ?? [];
-    values.push(value);
-    samples.set(key, values);
+    let values = samples.get(key);
+    if (!values) {
+      values = new Float64Array(POSTERIOR_DRAWS);
+      samples.set(key, values);
+    }
+    values[draw] = value;
   };
-  for (let draw = 0; draw < TARGET_DRAWS; draw++) {
-    const tip = beta(tipWins, tipLosses, random);
+  for (; draw < POSTERIOR_DRAWS; draw++) {
+    const tip = pairs.reduce((sum, pair) => sum + pair.weight * beta(pair.wins, pair.losses, random), 0);
     const keepsBall = beta(retained, lost, random);
     const homeStarts = tip * keepsBall + (1 - tip) * (1 - keepsBall);
     tips.push(tip);
@@ -221,22 +279,31 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
   const players = new Map(teams.flatMap(team =>
     team.starters.map(player => [player.id, { name: player.name, teamId: team.id }] as const)));
   const thinHistory = teamGames.some(games => games.length < 5);
-  const rows = quotes.flatMap(quote => {
+  type BoardRow = Quote & {
+    player: string; teamId: string; probability: number | null; breakEven: number | null;
+    fairPrice: number | null; positiveEvProbability: number | null; confidence: string | null; grade: string | null;
+  };
+  const rows = quotes.flatMap<BoardRow>(quote => {
     const values = samples.get(keyOf(quote.rule, quote.market, quote.playerId, quote.method));
     const player = players.get(quote.playerId);
-    if (!values || !player || !Number.isFinite(quote.price) || Math.abs(quote.price) < 100) return [];
+    if (!values || !player || !supportedVoidRule(quote.voidRule) || !Number.isFinite(quote.price) || Math.abs(quote.price) < 100) return [];
+    const identity = { ...quote, player: player.name, teamId: player.teamId };
+    if (quote.noVig == null) return [{
+      ...identity, probability: null, breakEven: null, fairPrice: null, positiveEvProbability: null, confidence: null, grade: null,
+    }];
     const probability = average(values);
     if (probability <= 0 || probability >= 1) return [];
     const breakEven = implied(quote.price);
     const positiveEvProbability = values.filter(p => p > breakEven).length / values.length;
     const confidence = thinHistory ? "Low" : positiveEvProbability >= .9 ? "High" : positiveEvProbability >= .7 ? "Medium" : "Low";
     const grade = probability <= breakEven ? "Pass" : confidence === "High" ? "Strong Bet" : confidence === "Medium" ? "Small Edge" : "Lean";
-    return [{ ...quote, player: player.name, teamId: player.teamId, probability, breakEven, fairPrice: fairPrice(probability), positiveEvProbability, confidence, grade }];
+    return [{ ...identity, probability, breakEven, fairPrice: fairPrice(probability), positiveEvProbability, confidence, grade }];
   });
   const top = (rule: Rule, market: Market) => {
     const ranked = rows.filter(row => row.rule === rule && row.market === market)
-      .sort((a, b) => b.positiveEvProbability - a.positiveEvProbability ||
-        b.probability - b.breakEven - (a.probability - a.breakEven));
+      .sort((a, b) => (b.positiveEvProbability ?? -1) - (a.positiveEvProbability ?? -1) ||
+        ((b.probability ?? 0) - (b.breakEven ?? 0)) - ((a.probability ?? 0) - (a.breakEven ?? 0)) ||
+        b.price - a.price);
     const seen = new Set<string>();
     return ranked.filter(row => {
       if (seen.has(row.playerId)) return false;
@@ -244,6 +311,10 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
       return true;
     }).slice(0, 3);
   };
+  const outcomeProbabilities = [...samples].map(([key, values]) => {
+    const [rule, market, playerId, method] = JSON.parse(key) as [Rule, Market, string, Method | null];
+    return { rule, market, playerId, method, probability: average(values) };
+  });
   return { status: "ready", confirmedAt: snapshot.confirmedAt, source: snapshot.source,
     homeTipWin: average(tips), homeFirstPossession: average(starts), tipWinnerKeepsBall: retained / (retained + lost),
     openingRate: stats.map(stat => (stat.points + 6) / (stat.total + 12)),
@@ -252,6 +323,7 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
         sum + .25 + value * 35 + (stats[side]!.shots.get(player.id)?.[j] ?? 0), 0),
     ]))),
     homeScoresFirst: { points: average(first.points), field_goal: average(first.field_goal) },
+    posteriorDraws: POSTERIOR_DRAWS, outcomeProbabilities,
     historyGames: new Set(teamGames.flat().map(game => game.eventId)).size,
     groups: (["points", "field_goal"] as const).flatMap(rule => firstBasketMarkets.map(market => ({ rule, market, rows: top(rule, market) }))),
   } as const;

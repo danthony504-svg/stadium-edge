@@ -571,9 +571,10 @@ export type FirstBasketModelResult =
       market: FirstBasketMarket;
       rule: FirstBasketRule;
       rows: Array<{
-        playerId: string; player: string; teamId: string; book: string; price: number; fairPrice: number; noVig: number | null;
-        method?: "FT" | "2" | "3"; probability: number; breakEven: number; positiveEvProbability: number;
-        grade: string; confidence: string;
+        playerId: string; player: string; teamId: string; book: string; price: number; fairPrice: number | null; noVig: number | null;
+        voidRule: { notStarter: "void" | "action_if_plays"; didNotPlay: "void" };
+        method?: "FT" | "2" | "3"; probability: number | null; breakEven: number | null; positiveEvProbability: number | null;
+        grade: string | null; confidence: string | null;
       }>;
     }>;
   };
