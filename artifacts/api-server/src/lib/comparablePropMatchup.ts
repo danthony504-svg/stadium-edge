@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import type { PositionThresholdRow } from "./positionThresholdHistory.js";
 
 export const COMPARABLE_MATCHUP_VERSION = "comparable-workload-v1";
 
 export type ComparablePropMatchup = {
+  snapshotId?: string;
   status: "applied" | "limited" | "missing" | "unsupported";
   games: number;
   appearances: number;
@@ -23,6 +25,7 @@ export function comparablePropMatchup(input: {
   cutoff: number;
   recent: readonly PlayerGame[];
   thresholds?: readonly PositionThresholdRow[];
+  snapshotCapturedAt?: string;
 }): ComparablePropMatchup {
   const position = input.position?.trim().toUpperCase();
   const market = input.market.replace(/_alternate$/, "");
@@ -35,6 +38,10 @@ export function comparablePropMatchup(input: {
   if (!workload || !Number.isFinite(input.cutoff)) return result;
   const row = input.thresholds?.find(r => r.position === (rushing ? "RB" : position) && r.market === market);
   if (!row) return result;
+  // Hash the actual evidence, including changes that leave the capped factor unchanged.
+  result.snapshotId = createHash("sha256").update(JSON.stringify([
+    input.sport, input.snapshotCapturedAt ?? null, row,
+  ])).digest("hex");
 
   const dates = new Set<string>();
   const player = input.recent.flatMap(({ date, stats, periodTag }) => {
@@ -81,4 +88,10 @@ export function comparablePropMatchup(input: {
   const ratioDelta = average(peerValues) / playerMean - 1;
   const multiplier = 1 + Math.max(-0.08, Math.min(0.08, ratioDelta * seen.size / (seen.size + 12)));
   return { ...sample, status: "applied", multiplier };
+}
+
+/** Version and evidence are part of the distribution identity shared by warm and live scoring. */
+export function comparableDistributionFingerprint(base: string, matchup: ComparablePropMatchup): string {
+  const evidence = createHash("sha256").update(JSON.stringify(matchup)).digest("hex");
+  return `${base}:${COMPARABLE_MATCHUP_VERSION}:${evidence}`;
 }

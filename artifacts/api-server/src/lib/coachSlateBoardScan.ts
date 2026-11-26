@@ -1,3 +1,4 @@
+import { serverPickFinalAiScore, serverPickRankScore } from "./coachSlatePickScore.js";
 import {
   coachSlateSimsInProcess,
   pooled,
@@ -98,52 +99,9 @@ function isCoachBettableStartsAt(startsAt?: string | null): boolean {
   return t > now && t < now + COACH_HORIZON_MS;
 }
 
-function americanImplied(odds: number): number {
-  if (odds > 0) return 100 / (odds + 100);
-  return Math.abs(odds) / (Math.abs(odds) + 100);
-}
-
-function serverPickFinalAiScore(
-  simHit: number | null,
-  odds: number,
-  edge: number | null | undefined,
-): ParsedPick["finalAiScore"] {
-  if (simHit == null || !Number.isFinite(simHit)) return undefined;
-  const implied = americanImplied(odds);
-  const simAligned = simHit > implied;
-  const edgePct = edge ?? Math.round((simHit - implied) * 1000) / 10;
-  const grade = simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+";
-  const confidencePct = Math.round(simHit * 100);
-  const recommends = simAligned && edgePct > 0 && simHit >= 0.52;
-  return {
-    composite: Math.round((simHit * 100 + edgePct) * 10) / 10,
-    grade,
-    confidencePct,
-    edgePct,
-    simHit,
-    simAligned,
-    highRiskValuePlay: false,
-    recommends,
-    factors: [],
-    rubric: { composite: Math.round(simHit * 100), grade, confidencePct, edgePct, scores: {} as never },
-  };
-}
-
-function rankScoreForPick(
-  p: ParsedPick,
-  propSims: Map<string, number | null>,
-  gameSimHit?: number | null,
-): number {
+function rankScoreForPick(p: ParsedPick, hit: number | null | undefined): number {
   const edge = typeof p.edge === "string" ? parseFloat(p.edge) : (p as { edgeNum?: number }).edgeNum;
-  const edgeVal = Number.isFinite(edge) ? (edge as number) : 0;
-  let sim = gameSimHit ?? 0;
-  if (p.isProp && p.player && p.propLine != null && p.propSide) {
-    const k = propSimKey(p.player, p.propMarketKey ?? p.market, p.propLine, p.propSide);
-    const hit = propSims.get(k);
-    if (hit != null) sim = hit;
-  }
-  const oddsBoost = Math.min(30, Math.abs(p.odds) / 50);
-  return edgeVal * 2 + sim * 100 + oddsBoost;
+  return serverPickRankScore(p.odds, edge, hit);
 }
 
 async function fetchPropSimulationsDeep(
@@ -403,7 +361,7 @@ export async function runServerBoardScan(
     if (simHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(simHit, o.odds, o.edge);
     }
-    const score = rankScoreForPick(pick, propSims, simHit);
+    const score = rankScoreForPick(pick, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
@@ -421,7 +379,7 @@ export async function runServerBoardScan(
     if (minHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }
-    const score = rankScoreForPick(pick, propSims, minHit ?? null);
+    const score = rankScoreForPick(pick, minHit);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }

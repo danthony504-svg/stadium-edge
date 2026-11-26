@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { comparablePropMatchup, COMPARABLE_MATCHUP_VERSION } from "./comparablePropMatchup.js";
+import { comparablePropMatchup, comparableDistributionFingerprint } from "./comparablePropMatchup.js";
 import { cachedScoringSignals, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import type { PreparedGameContext } from "./preparedGameContext.js";
 import { propHasConfirmedAbsence, propHasConfirmedNonstarter } from "./propAvailability.js";
@@ -260,12 +259,8 @@ function preparedComparableMatchup(prop: SimPropRequest, game: PropSimGameContex
     sport: prop.sport, market: prop.market, position: prop.position, cutoff,
     recent: loaded?.recent ?? (warm ? toPropSimHistoryShape(warm).recent : []),
     thresholds: snapshot?.thresholds,
+    snapshotCapturedAt: snapshot?.receivedAt,
   });
-}
-
-function comparableDistributionFingerprint(base: string, matchup: ReturnType<typeof comparablePropMatchup>): string {
-  const evidence = createHash("sha256").update(JSON.stringify(matchup)).digest("hex").slice(0, 16);
-  return `${base}:${COMPARABLE_MATCHUP_VERSION}:${evidence}`;
 }
 
 function gameCtxForSimulate(gameCtx: PropSimGameContext) {
