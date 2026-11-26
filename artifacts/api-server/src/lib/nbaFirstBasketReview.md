@@ -165,6 +165,56 @@ For 265 games from October 20 through November 25 Central time, the fixed 70 pri
 
 Processed season data: https://github.com/ramirobentes/nba_data/releases
 
+## Tip-win logistic recalibration
+
+Run `scripts/recalibrateNbaFirstBasketTip.ts <2025–26-replay.json> <2026–27-replay.json>` with separate normalized fit and holdout files. Fit the home-tip outcome against the log-odds of each as-of forecast on the audited 2025–26 cohort. Freeze the intercept and slope before scoring any 2026–27 games. Retain the existing usage prior of 70 and the raw jump and possession labels.
+
+The 2026–27 replay uses recorded starters, verified earlier opening history frozen to 2025–26, and processed 2026–27 tip and first-points outcomes. Raw 2026–27 jump records and prospective lineup publication timestamps were unavailable. The scratch, quota, and closing-field checks still require live collection.
+
+The season 50–60% tip bin was underconfident: 53.70% forecast versus 58.99% observed. The mirror 40–50% bin was 46.33% versus 44.83%. The extreme bins have much smaller samples. The observed error intervals are per bin and the slope interval is an unclustered fit interval. Paired log-loss gain intervals resample games.
+
+For the team-scores-first replay, keep the original scoring and retention draws and shift the tip draws to reach the recalibrated mean. This holds the other inputs fixed. The recalibration is evaluated offline. Live pricing still uses the existing tip model and the Lean cap.
+
+The fit used 1,208 games. The intercept was +0.1138 and the slope was 2.4965 (95% interval 1.973–3.020). The fit spreads the probabilities farther from 50%. In the 265-game holdout, tip log loss changed from 0.66012 to 0.65993 and Brier score from 0.23401 to 0.23375. The paired log-loss gain was 0.00020 (95% interval −0.02802 to +0.02692). The high-end training miss did not repeat at the same size in the holdout. The adjusted 80–90% bin also overshot by 27.14 points in nine games. The candidate fails the release criterion and remains offline.
+
+Team-scores-first log loss changed from 0.68826 to 0.68555, a gain of 0.00271 (95% interval −0.00573 to +0.01113). The adjusted central-bin signed intervals both included zero. This holdout does not establish calibration or a measurable scoring improvement.
+
+### 2026–27 tip holdout
+
+| Forecast | Bin | Games | Mean | Observed | Error (pp) | 95% interval (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 20–30% | 5 | 27.82% | 0.00% | -27.82 | -27.82 to +15.63 |
+| Baseline | 30–40% | 25 | 37.18% | 32.00% | -5.18 | -19.98 to +14.41 |
+| Baseline | 40–50% | 98 | 45.99% | 44.90% | -1.09 | -10.56 to +8.76 |
+| Baseline | 50–60% | 109 | 54.26% | 58.72% | +4.46 | -4.93 to +13.25 |
+| Baseline | 60–70% | 21 | 62.79% | 66.67% | +3.87 | -17.42 to +20.01 |
+| Baseline | 70–80% | 7 | 72.91% | 85.71% | +12.81 | -24.22 to +24.53 |
+| Adjusted | 0–10% | 5 | 9.41% | 0.00% | -9.41 | -9.41 to +34.04 |
+| Adjusted | 10–20% | 7 | 17.96% | 28.57% | +10.61 | -9.74 to +46.15 |
+| Adjusted | 20–30% | 18 | 25.58% | 33.33% | +7.75 | -9.30 to +30.67 |
+| Adjusted | 30–40% | 35 | 35.83% | 42.86% | +7.02 | -7.85 to +23.31 |
+| Adjusted | 40–50% | 49 | 45.64% | 46.94% | +1.30 | -11.94 to +14.98 |
+| Adjusted | 50–60% | 54 | 55.43% | 50.00% | -5.43 | -18.32 to +7.45 |
+| Adjusted | 60–70% | 51 | 64.59% | 64.71% | +0.12 | -13.60 to +11.77 |
+| Adjusted | 70–80% | 29 | 74.10% | 62.07% | -12.04 | -30.10 to +3.21 |
+| Adjusted | 80–90% | 9 | 82.69% | 55.56% | -27.14 | -56.03 to -1.57 |
+| Adjusted | 90–100% | 8 | 92.61% | 87.50% | -5.11 | -39.70 to +5.15 |
+
+### 2026–27 team-scores-first holdout
+
+| Forecast | Bin | Games | Mean | Observed | Error (pp) | 95% interval (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 30–40% | 20 | 36.70% | 45.00% | +8.30 | -10.88 to +29.09 |
+| Baseline | 40–50% | 114 | 45.67% | 57.02% | +11.35 | +2.18 to +20.06 |
+| Baseline | 50–60% | 112 | 54.06% | 56.25% | +2.19 | -7.05 to +11.02 |
+| Baseline | 60–70% | 19 | 64.39% | 73.68% | +9.29 | -13.18 to +23.80 |
+| Adjusted | 20–30% | 7 | 27.56% | 14.29% | -13.27 | -24.99 to +23.75 |
+| Adjusted | 30–40% | 25 | 36.66% | 48.00% | +11.34 | -6.63 to +29.84 |
+| Adjusted | 40–50% | 96 | 45.44% | 55.21% | +9.77 | -0.19 to +19.33 |
+| Adjusted | 50–60% | 96 | 54.95% | 61.46% | +6.50 | -3.49 to +15.62 |
+| Adjusted | 60–70% | 31 | 63.73% | 58.06% | -5.66 | -22.96 to +9.86 |
+| Adjusted | 70–80% | 10 | 72.61% | 80.00% | +7.39 | -23.59 to +21.72 |
+
 ## Operational safeguards
 
 The single collector reserves the maximum possible charge on disk before each paid request. It stops at 45 credits per game or 675 per Central-time slate by default, and verifies at least 100 credits remain after the next request using the quota-free sports endpoint. A missing balance stops paid requests. A lost response leaves the conservative debit in place. The reserve check uses the latest provider balance and cannot lock out other clients using the same API key.

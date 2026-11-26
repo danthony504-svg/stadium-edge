@@ -164,7 +164,12 @@ const secondsRemaining = (clock?: string) => {
 };
 const fairPrice = (p: number) => Math.round(p >= .5 ? -100 * p / (1 - p) : 100 * (1 - p) / p);
 
-export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonly OpeningGame[], quotes: readonly Quote[], now: number, usagePriorStrength = DEFAULT_FIRST_BASKET_USAGE_PRIOR) {
+type OpeningTipDraw = (rule: Rule, tip: number, teamFirstSensitivity: number) => void;
+
+export function priceFirstBasket(
+  snapshot: FirstBasketSnapshot, records: readonly OpeningGame[], quotes: readonly Quote[],
+  now: number, usagePriorStrength = DEFAULT_FIRST_BASKET_USAGE_PRIOR, traceTipDraw?: OpeningTipDraw,
+) {
   if (!Number.isFinite(usagePriorStrength) || usagePriorStrength < 0) throw new RangeError("Invalid usage prior strength");
   if (!validateFirstBasketSnapshot(snapshot) || snapshot.availableAt > now) return { status: "waiting_for_starters" } as const;
   if (now >= snapshot.startsAt) return { status: "started" } as const;
@@ -268,6 +273,10 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
         return beta(scoring + (rule === "points" ? 6 : 5), stat.total - scoring + 6, random);
       });
       const homeFirst = teamScoresFirst(rates[0]!, rates[1]!, homeStarts)!;
+      if (traceTipDraw) {
+        const teamFirstSwing = teamScoresFirst(rates[0]!, rates[1]!, 1)! - teamScoresFirst(rates[0]!, rates[1]!, 0)!;
+        traceTipDraw(rule, tip, teamFirstSwing * (2 * keepsBall - 1));
+      }
       first[rule].push(homeFirst);
       for (const side of [0, 1] as const) {
         const mass = masses[side]!;
