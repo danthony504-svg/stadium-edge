@@ -115,6 +115,7 @@ export async function fetchSimulatorOdds(sport: string, signal?: AbortSignal): P
 
 export type GameRosterPlayer = {
   name: string;
+  position?: string | null;
   athleteId: string | null;
   teamId: string;
   headshot: string | null;
@@ -137,6 +138,7 @@ type EspnRosterAthlete = {
   id?: string | number;
   fullName?: string;
   displayName?: string;
+  position?: { abbreviation?: string };
   headshot?: { href?: string } | string;
 };
 
@@ -184,6 +186,7 @@ async function fetchEspnRosterDirect(
           const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
           players.push({
             name,
+            position: a.position?.abbreviation ?? null,
             athleteId: a.id != null ? String(a.id) : null,
             teamId,
             headshot: href ?? null,

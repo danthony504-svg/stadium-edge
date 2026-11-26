@@ -3,7 +3,8 @@
  * Report-only — no production patches, no threshold invention.
  *
  *   EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com \
- *   node --import ./scripts/coachE2ERegisterHooks.mjs ./scripts/coach5legPerfProfile.ts
+ *   node --import ./scripts/coachE2ERegisterHooks.mjs \
+ *        --import ../stadium-mobile/test/register-hooks.mjs ./scripts/coach5legPerfProfile.ts
  */
 import { buildCoachParlay } from "../../stadium-mobile/lib/coach/buildParlay.ts";
 import { API_BASE } from "../../stadium-mobile/lib/apiBase.ts";

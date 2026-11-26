@@ -79,11 +79,11 @@ test("simulator picks require a simulated majority on the exact line", () => {
   assert.deepEqual(simulatorPropPick(row({ hitProbability: 0.62 })), { side: "Over", probability: 0.62 });
 });
 
-test("prop results show model reasons and evidence without price metrics", () => {
-  const source = readFileSync(new URL("../app/(tabs)/simulator.tsx", import.meta.url), "utf8");
-  assert.match(source, /Simulator Picks/);
-  assert.match(source, /simulatorPropPick\(r\)/);
-  assert.match(source, /propSimulationEvidence\(r\)/);
-  assert.match(source, /propSimulationSummaryLabel\(propResults\)/);
-  assert.doesNotMatch(source, /label="(?:Selected odds|Price break-even)"/);
+test("Simulator shows the player box score at the end of the replay without a prop picker", () => {
+  const screen = readFileSync(new URL("../app/(tabs)/simulator.tsx", import.meta.url), "utf8");
+  const replay = readFileSync(new URL("../components/NflDriveReplay.tsx", import.meta.url), "utf8");
+  assert.match(screen, /endOfGame=\{playerBoxScore\}/);
+  assert.match(screen, /!showReplay \? playerBoxScore : null/);
+  assert.match(replay, /complete \? endOfGame : null/);
+  assert.doesNotMatch(screen + replay, /add player props|loadSimulatorProps|fetchSimulatorPropSimulationsBatch/i);
 });
