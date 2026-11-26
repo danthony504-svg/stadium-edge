@@ -851,7 +851,8 @@ function SimulatorScreen() {
                       return market === "spread" || market === "total";
                     })]]))}
                   />
-                ) : playerBoxScore}
+                ) : null}
+                {playerBoxScore}
               </View>
             ) : null}
 
