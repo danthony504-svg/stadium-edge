@@ -5,6 +5,8 @@ import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js"
 import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propSimRunner.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
+import { eventSimReview } from "../lib/sportSim/eventSimReview.js";
+import { nbaPossessionReview } from "../lib/sportSim/nbaPossessionReview.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
@@ -190,6 +192,27 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       error: `insufficient ${sport} matchup data for simulation — browse posted lines only`,
     });
     return;
+  }
+
+  if (req.body?.eventSimulationReview === true || req.body?.nbaPossessionReview === true) {
+    try {
+      const request = {
+        eventId: String(req.body?.eventId ?? ""), homeId: homeTeamId || homeTeam, awayId: awayTeamId || awayTeam, retainOutcomes,
+        queries: (coverQueries ?? []).flatMap(query => {
+          const { kind, period, ...fields } = query;
+          return kind === "raceTo" || (period && period !== "fg") ? [] : [{ ...fields, kind }];
+        }).slice(0, 100),
+      };
+      const reviewed = sport === "nba" || sport === "wnba"
+        ? await nbaPossessionReview({ ...request, sport })
+        : await eventSimReview({ ...request, sport });
+      if (reviewed) {
+        res.json({ sport, homeTeam: homeTeam || null, awayTeam: awayTeam || null, ...reviewed });
+        return;
+      }
+    } catch (error) {
+      req.log.warn({ error }, "Event simulation review unavailable");
+    }
   }
 
   if (sport === "tennis") {

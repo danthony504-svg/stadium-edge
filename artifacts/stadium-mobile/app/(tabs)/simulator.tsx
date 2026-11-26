@@ -15,7 +15,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SimulatorReviewDemo } from "@/components/SimulatorReviewDemo";
 import { SimulatorPlayerBoxScore, supportsSimulatorBoxScore } from "@/components/SimulatorPlayerBoxScore";
+import { EventSimulationSummary, NbaPossessionSummary } from "@/components/NbaPossessionSummary";
 import { GameReplay, supportsGameReplay } from "@/components/NflDriveReplay";
 import { AppHeader } from "@/components/AppHeader";
 import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
@@ -360,9 +362,21 @@ function SimulatorScreen() {
 
   const replayData = useMemo(() => {
     if (!gameResult || !supportsGameReplay(sport)) return null;
+    if (gameResult.eventSimulation) {
+      const { representative } = gameResult.eventSimulation;
+      const note = representative.tiebreak ? ` · decided by ${representative.tiebreak}` : "";
+      return { sport, sampledPeriods: representative.periods, sampledCaption: `Median modeled margin${note}` };
+    }
+    if (sport === "nba" || sport === "wnba") {
+      const periods = gameResult.nbaPossessions?.representative.periods;
+      return periods?.length ? { sport, sampledPeriods: periods.map((p, i) => ({
+        ...p, label: i < 4 ? `Q${i + 1}` : `OT ${i - 3}`,
+      })) } : null;
+    }
     if (gameResult.driveReplay?.length) {
       return { sport, drives: gameResult.driveReplay };
     }
+    if (["nfl", "mlb", "nhl", "soccer", "tennis"].includes(sport)) return null;
     const finalScore = selectRepresentativeReplayScore(gameResult);
     return finalScore ? { sport, finalScore } : null;
   }, [gameResult, sport]);
@@ -370,7 +384,7 @@ function SimulatorScreen() {
   const showReplay = replayData != null;
 
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    if (!gameResult || (gameResult.nbaPossessions || gameResult.eventSimulation) || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
     const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
     return buildGameFourQuestions({
       gameLabel,
@@ -382,7 +396,7 @@ function SimulatorScreen() {
   }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
 
   const scoringInput = useMemo(() => {
-    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    if (!gameResult || (gameResult.nbaPossessions || gameResult.eventSimulation) || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
@@ -593,6 +607,8 @@ function SimulatorScreen() {
           coverQueries,
           retainOutcomes: true,
           includeDriveReplay: sport === "nfl",
+          eventSimulationReview: ["nfl", "nba", "wnba", "mlb", "nhl", "soccer", "tennis"].includes(sport),
+          eventId: game.id,
         }, signal);
         if (signal.aborted) return;
         if (gr) {
@@ -646,7 +662,9 @@ function SimulatorScreen() {
     void runSimulation();
   }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, setGameResult]);
 
-  const playerBoxScore = gameResult && ranAt != null && game?.homeTeamId && game.awayTeamId &&
+  const nbaPossessions = gameResult?.nbaPossessions;
+  const eventSimulation = gameResult?.eventSimulation;
+  const playerBoxScore = !nbaPossessions && !eventSimulation && gameResult && ranAt != null && game?.homeTeamId && game.awayTeamId &&
     game.startsAt && supportsSimulatorBoxScore(sport) ? (
     <SimulatorPlayerBoxScore
       key={gameScope}
@@ -726,6 +744,7 @@ function SimulatorScreen() {
           <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
         }
       >
+        <SimulatorReviewDemo />
         {/* Sport pills */}
         <ScrollView
           horizontal
@@ -814,7 +833,25 @@ function SimulatorScreen() {
                   away={game.awayAbbr ?? game.awayTeam ?? "Away"}
                   home={game.homeAbbr ?? game.homeTeam ?? "Home"}
                 />
-                {playerBoxScore}
+                {eventSimulation ? (
+                  <EventSimulationSummary data={eventSimulation}
+                    home={game.homeAbbr ?? game.homeTeam ?? "Home"} away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                    drawProbability={sport === "soccer" ? gameResult.tieProbability : null}
+                    lines={coverQueriesFromEvalLines(new Map([[gameLabel, gameOddsLines.filter(line =>
+                      ["spread", "total", "total games"].includes(line.market.toLowerCase()),
+                    )]]))}
+                  />
+                ) : nbaPossessions ? (
+                  <NbaPossessionSummary
+                    data={nbaPossessions}
+                    home={game.homeAbbr ?? game.homeTeam ?? "Home"}
+                    away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                    lines={coverQueriesFromEvalLines(new Map([[gameLabel, gameOddsLines.filter(line => {
+                      const market = line.market.toLowerCase();
+                      return market === "spread" || market === "total";
+                    })]]))}
+                  />
+                ) : playerBoxScore}
               </View>
             ) : null}
 

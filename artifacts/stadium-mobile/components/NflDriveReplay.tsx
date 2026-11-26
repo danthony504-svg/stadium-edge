@@ -28,7 +28,8 @@ export type ReplaySport =
   | "ncaab"
   | "nhl"
   | "mlb"
-  | "soccer";
+  | "soccer"
+  | "tennis";
 
 type Drive = NonNullable<GameSimulationResult["driveReplay"]>[number];
 
@@ -44,6 +45,8 @@ type Props = {
   footer?: ReactNode;
   drives?: Drive[];
   finalScore?: { away: number; home: number };
+  sampledPeriods?: { label: string; away: number; home: number }[];
+  sampledCaption?: string;
 };
 
 type SportReplayConfig = {
@@ -129,14 +132,23 @@ function sportConfig(sport: ReplaySport, hasDrives: boolean): SportReplayConfig 
 }
 
 export function supportsGameReplay(sport: string): sport is ReplaySport {
-  return ["nfl", "ncaaf", "nba", "wnba", "ncaab", "nhl", "mlb", "soccer"].includes(sport);
+  return ["nfl", "ncaaf", "nba", "wnba", "ncaab", "nhl", "mlb", "soccer", "tennis"].includes(sport);
 }
 
 export function GameReplay(replay: Props) {
   const drives = replay.drives ?? [];
   const isDriveSport =
     (replay.sport === "nfl" || replay.sport === "ncaaf") && drives.length > 0;
-  const cfg = sportConfig(replay.sport, isDriveSport);
+  const sampledPeriods = replay.sampledPeriods;
+  const base = sportConfig(replay.sport, isDriveSport);
+  const cfg = sampledPeriods?.length ? {
+    ...base,
+    label: "Simulated scoring replay",
+    segments: ["Start", ...sampledPeriods.map(period => period.label)],
+    nextLabel: "Next period",
+    clockFor: (cursor: number, total: number) => cursor >= total ? "Final" :
+      cursor === 0 ? "Start" : `End of ${sampledPeriods[cursor - 1]!.label}`,
+  } : base;
   const stepCount = isDriveSport
     ? Math.max(1, drives.length)
     : Math.max(1, cfg.segments.length - 1);
@@ -174,12 +186,20 @@ export function GameReplay(replay: Props) {
       for (const drive of drives.slice(0, cursor)) out[drive.side] += drive.points;
       return out;
     }
+    if (sampledPeriods?.length) {
+      const out = { away: 0, home: 0 };
+      for (const period of sampledPeriods.slice(0, cursor)) {
+        out.away += period.away;
+        out.home += period.home;
+      }
+      return out;
+    }
     const final = replay.finalScore ?? { away: 0, home: 0 };
     return {
       away: Math.round(final.away * position),
       home: Math.round(final.home * position),
     };
-  }, [isDriveSport, drives, cursor, replay.finalScore, position]);
+  }, [isDriveSport, drives, sampledPeriods, cursor, replay.finalScore, position]);
 
   const latest = isDriveSport && cursor ? drives[cursor - 1] : undefined;
   const driveText = latest
@@ -310,12 +330,14 @@ export function GameReplay(replay: Props) {
           progress={position}
         />
       ) : null}
-      {cfg.surface === "court" ? <ReplayCourt progress={position} /> : null}
+      {cfg.surface === "court" && replay.sport !== "tennis" ? <ReplayCourt progress={position} /> : null}
       {cfg.surface === "rink" ? <ReplayRink progress={position} /> : null}
       {cfg.surface === "diamond" ? <ReplayDiamond progress={position} /> : null}
       {cfg.surface === "pitch" ? <ReplayPitch progress={position} /> : null}
 
-      {!isDriveSport ? (
+      {sampledPeriods?.length ? (
+        <Text style={styles.caption}>{replay.sampledCaption ?? "Simulated periods · median final margin"}</Text>
+      ) : !isDriveSport ? (
         <Text style={styles.caption}>
           Illustrative {cfg.segments.length ? "period" : "score"} progression from one simulated final
         </Text>
