@@ -305,6 +305,13 @@ export async function runServerBoardScan(
   built: BuiltChatContext,
   opts?: {
     deepSim?: boolean;
+    onPropDecision?: (decision: {
+      entry: PropPoolEntry;
+      hitProbability: number | null;
+      grade?: string | null;
+      rankScore: number;
+      exclusion: "missing_simulation" | "below_scan_probability" | "staging_quality" | null;
+    }) => void;
     onPartial?: (partial: FullBoardScanResult, tickets: SlateTicketsIndex) => void | Promise<void>;
   },
 ): Promise<ServerBoardScanBundle> {
@@ -373,13 +380,26 @@ export async function runServerBoardScan(
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
     const minHit = propSims.get(k) ?? null;
     const edge = e.edge ?? 0;
-    if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
-    if (minHit != null && minHit < 0.52 && edge <= 0) continue;
+    if (edge <= 0 && (minHit ?? 0) < 0.52) {
+      if (opts?.onPropDecision) {
+        const score = serverPickFinalAiScore(minHit, e.odds, e.edge);
+        opts.onPropDecision({
+          entry: e, hitProbability: minHit, grade: score?.grade,
+          rankScore: rankScoreForPick(pick, minHit),
+          exclusion: minHit == null ? "missing_simulation" : "below_scan_probability",
+        });
+      }
+      continue;
+    }
     if (e.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge;
     if (minHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }
     const score = rankScoreForPick(pick, minHit);
+    opts?.onPropDecision?.({
+      entry: e, hitProbability: minHit, grade: pick.finalAiScore?.grade, rankScore: score,
+      exclusion: serverBoardLegQualifies(pick, pick.finalAiScore) ? null : "staging_quality",
+    });
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
