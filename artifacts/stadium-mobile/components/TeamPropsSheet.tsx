@@ -750,7 +750,7 @@ export function TeamPropsSheet({
   );
 }
 
-function ConsiderPickCard({
+export function ConsiderPickCard({
   pick,
   sport,
   eventProps,

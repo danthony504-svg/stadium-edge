@@ -557,6 +557,11 @@ function OtaDebugScreenInner() {
           gap: 16,
         }}
       >
+        {diag.channel?.toLowerCase() === "preview" && (
+          <Pressable accessibilityRole="button" onPress={() => router.push("/matchup-preview" as never)}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Open Towns matchup fixture</Text>
+          </Pressable>
+        )}
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
           Temporary read-only probe for stale Coach UI.{" "}
           <Text style={{ fontFamily: FONT.semibold }}>
