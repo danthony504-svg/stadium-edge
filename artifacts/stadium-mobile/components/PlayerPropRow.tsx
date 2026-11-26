@@ -52,12 +52,14 @@ function PropChip({
   side,
   line,
   price,
+  showPrices,
   added,
   onPress,
 }: {
   side: "Over" | "Under";
   line: number | null;
   price: number | null;
+  showPrices: boolean;
   added: boolean;
   onPress: () => void;
 }) {
@@ -83,6 +85,8 @@ function PropChip({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: added }}
       style={({ pressed }) => ({
         flex: 1,
         borderRadius: 10,
@@ -92,6 +96,8 @@ function PropChip({
         paddingVertical: 8,
         paddingHorizontal: 8,
         alignItems: "center",
+        justifyContent: "center",
+        minHeight: showPrices ? undefined : 44,
         gap: 1,
         opacity: pressed ? 0.85 : 1,
       })}
@@ -100,7 +106,7 @@ function PropChip({
         style={{
           color: added ? colors.primary : colors.mutedForeground,
           fontFamily: FONT.bold,
-          fontSize: 10,
+          fontSize: showPrices ? 10 : 12,
           letterSpacing: 0.5,
           textTransform: "uppercase",
         }}
@@ -108,26 +114,30 @@ function PropChip({
         {side}
         {line != null ? ` ${line}` : ""}
       </Text>
-      <Text
-        style={{
-          color: added ? colors.primary : colors.foreground,
-          fontFamily: FONT.bold,
-          fontSize: 14,
-        }}
-      >
-        {formatAmerican(price)}
-      </Text>
-      {/* Implied probability of the posted price — a real, deterministic
-          conversion of the odds, not a model number. */}
-      <Text
-        style={{
-          color: colors.mutedForeground,
-          fontFamily: FONT.medium,
-          fontSize: 9,
-        }}
-      >
-        {Math.round(impliedProb(price) * 100)}%
-      </Text>
+      {showPrices && (
+        <>
+          <Text
+            style={{
+              color: added ? colors.primary : colors.foreground,
+              fontFamily: FONT.bold,
+              fontSize: 14,
+            }}
+          >
+            {formatAmerican(price)}
+          </Text>
+          {/* Implied probability of the posted price — a real, deterministic
+              conversion of the odds, not a model number. */}
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 9,
+            }}
+          >
+            {Math.round(impliedProb(price) * 100)}%
+          </Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -137,12 +147,14 @@ export function PropRow({
   alts,
   gameLabel,
   sport,
+  showPrices = true,
   onOpen,
 }: {
   prop: PlayerProp;
   alts: PlayerProp[];
   gameLabel: string;
   sport: string;
+  showPrices?: boolean;
   onOpen: () => void;
 }) {
   const colors = useColors();
@@ -225,6 +237,7 @@ export function PropRow({
           side="Over"
           line={prop.line}
           price={prop.overPrice}
+          showPrices={showPrices}
           added={overAdded}
           onPress={() => prop.overPrice != null && add(overPick, prop.overPrice)}
         />
@@ -232,6 +245,7 @@ export function PropRow({
           side="Under"
           line={prop.line}
           price={prop.underPrice}
+          showPrices={showPrices}
           added={underAdded}
           onPress={() => prop.underPrice != null && add(underPick, prop.underPrice)}
         />
@@ -262,6 +276,7 @@ export function PropRow({
                       side="Over"
                       line={a.line}
                       price={a.overPrice}
+                      showPrices={showPrices}
                       added={hasLeg(gameLabel, "Player Prop", aOver)}
                       onPress={() => a.overPrice != null && add(aOver, a.overPrice)}
                     />
@@ -269,6 +284,7 @@ export function PropRow({
                       side="Under"
                       line={a.line}
                       price={a.underPrice}
+                      showPrices={showPrices}
                       added={hasLeg(gameLabel, "Player Prop", aUnder)}
                       onPress={() => a.underPrice != null && add(aUnder, a.underPrice)}
                     />

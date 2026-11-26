@@ -1,10 +1,11 @@
 import { propsBrowseDeadline, PROPS_EVENT_BUDGET_MS, PROPS_OPTIONAL_IDS_BUDGET_MS } from "@/lib/propsBrowseDeadline";
 import Feather from "@expo/vector-icons/Feather";
 import { postedMarketKeys } from "@/lib/postedMarketCategories";
+import { topPlayersByPosition } from "@/lib/topPlayersByPosition";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -99,12 +100,6 @@ const REC_CAP = 6; // cards shown in the rail
 // is genuinely "value", not noise; empty (hidden) when nothing qualifies.
 const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
 const VALUE_CAP = 8; // cards shown in the value rail
-
-// Build category rows from actual posted markets for the selected sport.
-// Never show MLB-only categories on NBA/NHL/NFL or imply a market exists before it loads.
-function categoriesForPostedMarkets(games: GameProps[]): { label: string; icon: ComponentProps<typeof Feather>["name"]; markets: string[] }[] {
-  return postedMarketKeys(games).map((market) => ({ label: propMarketLabel(market), icon: "activity", markets: [market] }));
-}
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
@@ -1158,35 +1153,13 @@ function PropsScreen() {
     });
   };
 
-  const popularPlayers = useMemo(() => {
-    if (isBrowseSport) return [] as { g: GameProps; prop: PlayerProp; team: string | null }[];
-    const out: { g: GameProps; prop: PlayerProp; team: string | null }[] = [];
-    const seen = new Set<string>();
-    for (const g of propsQ.data?.games ?? []) {
-      for (const p of g.props) {
-        const key = p.player.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ g, prop: p, team: teamAbbrFor(p, g.teams) });
-        if (out.length >= 10) return out;
-      }
-    }
-    return out;
-  }, [propsQ.data, isBrowseSport]);
-
-  const postedCategories = useMemo(() => categoriesForPostedMarkets(propsQ.data?.games ?? []), [propsQ.data]);
+  const postedMarkets = useMemo(() => postedMarketKeys(propsQ.data?.games ?? []), [propsQ.data]);
+  const positionGroups = useMemo(() => {
+    if (isBrowseSport || searching || propsMode !== "player") return [];
+    const games = (propsQ.data?.games ?? []).filter((game) => game.sport === sport);
+    return topPlayersByPosition(games, marketFilter);
+  }, [propsQ.data, sport, marketFilter, isBrowseSport, searching, propsMode]);
   useEffect(() => { setMarketFilter(null); }, [sport]);
-
-  const openCategory = (markets: string[]) => {
-    if (isBrowseSport) return;
-    for (const g of propsQ.data?.games ?? []) {
-      const hit = g.props.find((p) => markets.includes(p.market));
-      if (hit) {
-        openSheet(g, hit);
-        return;
-      }
-    }
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -1450,12 +1423,11 @@ function PropsScreen() {
           <View style={{ marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
             <Text style={{ color: colors.mutedForeground, marginBottom: 8 }}>Filter posted {sport.toUpperCase()} markets</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-              {[{ label: "All markets", markets: [] as string[] }, ...postedCategories].map((cat) => {
-                const key = cat.markets[0] ?? null;
+              {[null, ...postedMarkets].map((key) => {
                 const active = marketFilter === key;
                 return (
                   <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => setMarketFilter(key)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: active ? colors.primary : colors.border }}>
-                    <Text style={{ color: active ? colors.primary : colors.foreground, fontSize: 12 }}>{cat.label}</Text>
+                    <Text style={{ color: active ? colors.primary : colors.foreground, fontSize: 12 }}>{key ? propMarketLabel(key) : "All markets"}</Text>
                   </Pressable>
                 );
               })}
@@ -1616,113 +1588,54 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching && propsMode === "player" && popularPlayers.length > 0 ? (
-          <View style={{ marginBottom: 22 }}>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.bold,
-                fontSize: 11,
-                letterSpacing: 0.7,
-                paddingHorizontal: 16,
-                marginBottom: 10,
-                textTransform: "uppercase",
-              }}
-            >
-              Popular Players
+        {!searching && propsMode === "player" && !isBrowseSport && totalProps > 0 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18, gap: 10 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.7, textTransform: "uppercase" }}>
+              Top Players by Position
             </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-            >
-              {popularPlayers.map(({ g, prop, team }) => (
-                <Pressable
-                  key={`${g.gameLabel}-${prop.player}-${prop.market}`}
-                  onPress={() => openSheet(g, prop)}
-                  style={({ pressed }) => ({
-                    width: 92,
-                    minHeight: 124,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    backgroundColor: colors.card,
-                    padding: 10,
-                    alignItems: "center",
-                    gap: 7,
-                    opacity: pressed ? 0.8 : 1,
-                  })}
-                >
-                  <Avatar headshot={prop.headshot} name={prop.player} />
-                  <Text
-                    style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11, textAlign: "center" }}
-                    numberOfLines={2}
-                  >
-                    {prop.player}
-                  </Text>
-                  <Text
-                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, textAlign: "center" }}
-                    numberOfLines={1}
-                  >
-                    {[team, propMarketLabel(prop.market)].filter(Boolean).join(" · ")}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-            <View style={{ flexDirection: "row", gap: 7, justifyContent: "center", marginTop: 12 }}>
-              {[0, 1, 2, 3, 4].map((i) => (
-                <View
-                  key={i}
-                  style={{
-                    width: i === 0 ? 8 : 6,
-                    height: i === 0 ? 8 : 6,
-                    borderRadius: 4,
-                    backgroundColor: i === 0 ? colors.primary : colors.border,
-                  }}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {!searching && propsMode === "player" ? (
-          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.bold,
-                fontSize: 11,
-                letterSpacing: 0.7,
-                marginBottom: 10,
-                textTransform: "uppercase",
-              }}
-            >
-              Popular Prop Categories
+            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+              {positionGroups.length === 0
+                ? "Verified positions unavailable for these props."
+                : marketFilter
+                  ? `${propMarketLabel(marketFilter)} · Highest posted lines first where available`
+                  : "Most posted markets first"}
             </Text>
-            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
-              {postedCategories.map((cat, i) => (
-                <Pressable
-                  key={cat.label}
-                  onPress={() => openCategory(cat.markets)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 13,
-                    paddingHorizontal: 14,
-                    paddingVertical: 14,
-                    backgroundColor: pressed ? colors.surface : colors.card,
-                    borderTopWidth: i === 0 ? 0 : 1,
-                    borderTopColor: colors.border,
-                  })}
-                >
-                  <Feather name={cat.icon} size={19} color={colors.primary} />
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
-                    {cat.label}
-                  </Text>
-                  <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-                </Pressable>
-              ))}
-            </View>
+            {positionGroups.map(({ position, players }) => (
+              <View key={position} style={{ gap: 6 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>{position}</Text>
+                {players.map(({ game, prop, marketCount }) => {
+                  const team = teamAbbrFor(prop, game.teams);
+                  const summary = marketFilter && prop.line != null
+                    ? `${prop.line} · ${propMarketLabel(prop.market)}`
+                    : `${marketCount} posted market${marketCount === 1 ? "" : "s"}`;
+                  return (
+                    <Pressable
+                      key={prop.athleteId}
+                      accessibilityRole="button"
+                      onPress={() => openSheet(game, prop)}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: pressed ? colors.surface : colors.card,
+                      })}
+                    >
+                      <Avatar headshot={prop.headshot} name={prop.player} />
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>{prop.player}</Text>
+                        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{[team, summary].filter(Boolean).join(" · ")}</Text>
+                      </View>
+                      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -2031,6 +1944,7 @@ function PropsScreen() {
                       .sort((a, b) => (a.line ?? 0) - (b.line ?? 0))}
                     gameLabel={g.gameLabel}
                     sport={sport}
+                    showPrices={false}
                     onOpen={() => openSheet(g, p)}
                   />
                 ))}
