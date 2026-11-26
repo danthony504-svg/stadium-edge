@@ -1,7 +1,7 @@
 import { DEFAULT_FIRST_BASKET_USAGE_PRIOR, firstScore, openingGameSummary, priceFirstBasket, type OpeningGame } from "./nbaFirstBasketModel.js";
 import type { FirstBasketEvaluationCase } from "./nbaFirstBasketBacktest.js";
 
-const priorGrid = [5, 15, DEFAULT_FIRST_BASKET_USAGE_PRIOR, 70];
+const priorGrid = [5, 15, 35, 70];
 
 export function tuneFirstBasketUsage(input: {
   history: readonly OpeningGame[];

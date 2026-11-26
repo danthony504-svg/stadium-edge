@@ -67,7 +67,7 @@ export type Quote = {
 const other = (side: Side): Side => side === 0 ? 1 : 0;
 const validSide = (side: unknown): side is Side => side === 0 || side === 1;
 const POSTERIOR_DRAWS = 4096;
-export const DEFAULT_FIRST_BASKET_USAGE_PRIOR = 35;
+export const DEFAULT_FIRST_BASKET_USAGE_PRIOR = 70;
 const OPENING_CLOCK_SECONDS = 10 * 60;
 const validClock = (clock: string) => /^(?:12:00(?:\.0+)?|(?:1[01]|[0-9]):[0-5]\d(?:\.\d+)?)$/.test(clock);
 const validTime = (value: number) => Number.isFinite(value) && value > 0;
@@ -234,28 +234,35 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
   let draw = 0;
   const keyOf = (rule: Rule, market: Market, playerId: string, method?: Method) =>
     JSON.stringify([rule, market, playerId, method]);
-  const record = (key: string, value: number) => {
-    let values = samples.get(key);
-    if (!values) {
-      values = new Float64Array(POSTERIOR_DRAWS);
-      samples.set(key, values);
-    }
-    values[draw] = value;
+  const newSample = (rule: Rule, market: Market, playerId: string, method?: Method) => {
+    const values = new Float64Array(POSTERIOR_DRAWS);
+    samples.set(keyOf(rule, market, playerId, method), values);
+    return values;
   };
+  const rules = ["points", "field_goal"] as const;
+  const buffers = rules.map(rule => teams.map(team => team.starters.map(player => ({
+    game: newSample(rule, "player_first_basket", player.id),
+    team: newSample(rule, "player_first_team_basket", player.id),
+    methods: methods.map(method => newSample(rule, "player_method_of_first_basket", player.id, method)),
+  }))));
+  const priorShapes = teams.map((team, side) => methods.map((_, method) => {
+    const stat = stats[side]!;
+    return team.starters.map(player => .25 + player.usage[method]! * usagePriorStrength + (stat.shots.get(player.id)?.[method] ?? 0));
+  }));
   for (; draw < POSTERIOR_DRAWS; draw++) {
     const tip = pairs.reduce((sum, pair) => sum + pair.weight * beta(pair.wins, pair.losses, random), 0);
     const keepsBall = beta(retained, lost, random);
     const homeStarts = tip * keepsBall + (1 - tip) * (1 - keepsBall);
     tips.push(tip);
     starts.push(homeStarts);
-    const masses = teams.map((team, i) => methods.map((_, j) => {
+    const masses = teams.map((_, i) => methods.map((_, j) => {
       const stat = stats[i]!;
-      const weights = team.starters.map(player => gamma(.25 + player.usage[j]! * usagePriorStrength + (stat.shots.get(player.id)?.[j] ?? 0), random));
+      const weights = priorShapes[i]![j]!.map(shape => gamma(shape, random));
       const denominator = weights.reduce((sum, weight) => sum + weight, 0);
       const methodMass = gamma([3, 12, 6][j]! + stat.made[j]!, random);
       return weights.map(weight => methodMass * weight / denominator);
     }));
-    for (const rule of ["points", "field_goal"] as const) {
+    for (const [ruleIndex, rule] of rules.entries()) {
       const rates = stats.map(stat => {
         const scoring = rule === "points" ? stat.points : stat.fieldGoals;
         return beta(scoring + (rule === "points" ? 6 : 5), stat.total - scoring + 6, random);
@@ -267,13 +274,14 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
         const eligible = rule === "points" ? mass : mass.slice(1);
         const denominator = eligible.flat().reduce((sum, weight) => sum + weight, 0);
         const teamFirst = side === 0 ? homeFirst : 1 - homeFirst;
-        teams[side].starters.forEach((player, j) => {
+        for (const [j, bucket] of buffers[ruleIndex]![side]!.entries()) {
           const share = eligible.reduce((sum, list) => sum + list[j]!, 0) / denominator;
-          record(keyOf(rule, "player_first_basket", player.id), share * teamFirst);
-          record(keyOf(rule, "player_first_team_basket", player.id), share);
-          methods.forEach((method, k) => record(keyOf(rule, "player_method_of_first_basket", player.id, method),
-            method === "FT" && rule === "field_goal" ? 0 : mass[k]![j]! / denominator * teamFirst));
-        });
+          bucket.game[draw] = share * teamFirst;
+          bucket.team[draw] = share;
+          for (const [k, method] of methods.entries()) {
+            bucket.methods[k]![draw] = method === "FT" && rule === "field_goal" ? 0 : mass[k]![j]! / denominator * teamFirst;
+          }
+        }
       }
     }
   }

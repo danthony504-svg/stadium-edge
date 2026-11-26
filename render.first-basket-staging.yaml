@@ -1,0 +1,35 @@
+services:
+  - type: worker
+    name: stadium-edge-first-basket-staging
+    runtime: node
+    plan: 0.5c-512mb
+    numInstances: 1
+    branch: codex/nba-first-basket-review
+    autoDeployTrigger: "off"
+    buildCommand: npm exec --yes --package=esbuild@0.27.3 -- esbuild artifacts/api-server/scripts/stageNbaFirstBasket.ts --bundle --platform=node --format=esm --outfile=dist/stage-nba-first-basket.mjs
+    startCommand: node dist/stage-nba-first-basket.mjs
+    disk:
+      name: first-basket-archive
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NBA_FIRST_BASKET_ARCHIVE_DIR
+        value: /var/data/first-basket
+      - key: NBA_FIRST_BASKET_CAPTURE
+        value: /var/data/input/first-basket.json
+      - key: NBA_FIRST_BASKET_GAME_CREDIT_BUDGET
+        value: "45"
+      - key: NBA_FIRST_BASKET_ODDS_RESERVE
+        value: "100"
+      - key: NBA_FIRST_BASKET_CAPTURE_URL
+        sync: false
+      - key: NBA_FIRST_BASKET_CAPTURE_TOKEN
+        sync: false
+      - key: ODDS_API_KEY
+        sync: false
+      - key: NBA_FIRST_BASKET_ALERT_WEBHOOK
+        sync: false
+      - key: NBA_FIRST_BASKET_HEARTBEAT_URL
+        sync: false

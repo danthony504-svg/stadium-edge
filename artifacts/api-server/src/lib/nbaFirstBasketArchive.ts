@@ -19,7 +19,7 @@ export type FirstBasketArchiveRecord = LineupRecord | OddsRecord | PollRecord;
 
 export function archiveLineupKey(game: FirstBasketSnapshot, at: number) {
   const fives = game.confirmedAt != null && at - game.confirmedAt <= 45 * MINUTE
-    ? [game.home, game.away].map(team => team.starters.map(player => player.id).sort().join(",")).join(":")
+    ? `${game.confirmedAt}:${[game.home, game.away].map(team => team.starters.map(player => player.id).sort().join(",")).join(":")}`
     : "pending";
   return `${game.oddsEventId ?? ""}:${fives}`;
 }
@@ -81,7 +81,7 @@ export function oddsQuotaHeaders(headers: Headers) {
   return { credits: read("x-requests-last"), remaining: read("x-requests-remaining") };
 }
 
-function offsetDay(day: string, offset: number) {
+export function offsetDay(day: string, offset: number) {
   const time = Date.parse(`${day}T00:00:00Z`);
   if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== day) throw new RangeError("Invalid report date");
   return new Date(time + offset * 86_400_000).toISOString().slice(0, 10);

@@ -1,7 +1,7 @@
 import { archiveOddsPlan, MINUTE, oddsQuotaHeaders, readFirstBasketArchiveDay, slateDate, storeFirstBasketRecord, type OddsRecord } from "./nbaFirstBasketArchive.js";
 import { firstBasketMarkets, validateFirstBasketSnapshot, type FirstBasketSnapshot } from "./nbaFirstBasketModel.js";
 import type { RawFirstBasketOdds } from "./nbaFirstBasketOdds.js";
-import type { FirstBasketCapture } from "./nbaFirstBasketService.js";
+import type { FirstBasketCapture } from "./nbaFirstBasketInput.js";
 
 export async function collectFirstBasket(root: string, input: FirstBasketCapture, options: {
   now: () => number;

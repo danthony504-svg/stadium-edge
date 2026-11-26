@@ -9,6 +9,7 @@ import { firstBasketQuotes } from "../src/lib/nbaFirstBasketOdds.ts";
 import { archivedFirstBasketCases, backtestNbaFirstBasket } from "../src/lib/nbaFirstBasketBacktest.ts";
 import { archiveOddsPlan, firstBasketWeek, MINUTE, readFirstBasketArchiveDay, slateDate } from "../src/lib/nbaFirstBasketArchive.ts";
 import { collectFirstBasket } from "../src/lib/nbaFirstBasketCollector.ts";
+import { auditFirstBasketSlate, stagingFirstBasketWeek } from "../src/lib/nbaFirstBasketStaging.ts";
 import { tuneFirstBasketUsage } from "../src/lib/nbaFirstBasketTuneUsage.ts";
 import { replayFirstBasket } from "../src/lib/nbaFirstBasketReplay.ts";
 import { getFirstBasketModel, getFirstBasketOpening } from "../src/lib/nbaFirstBasketService.ts";
@@ -316,4 +317,40 @@ test("walk-forward usage tuning keeps the final time block out of selection", ()
   assert.equal(result.holdout.selected.games, 1);
   assert.deepEqual(result.development.map(row => row.folds.map(fold => fold.games)), [[1, 1], [1, 1]]);
   assert.deepEqual(tuneFirstBasketUsage({ history: [past], cases: cases.slice(0, 1) }).holdout, null);
+});
+
+test("staging distinguishes missing slates from off nights and gates quota and scratch repricing", async () => {
+  const old = { kind: "lineup" as const, at: now, snapshot };
+  const cancelled = { kind: "lineup" as const, at: now + 2_000,
+    snapshot: { ...snapshot, availableAt: now + 2_000, confirmedAt: null } };
+  const restored = { kind: "lineup" as const, at: now + 5_000,
+    snapshot: { ...snapshot, availableAt: now + 5_000, confirmedAt: now + 5_000 } };
+  const quote = { kind: "odds" as const, eventId: snapshot.eventId, at: now + 1_000,
+    key: archiveOddsPlan(snapshot, now, undefined)!.key, status: 200, credits: 3,
+    remaining: 110, response: oddsData([book]) };
+  const newQuote = { ...quote, at: now + 6_000, key: archiveOddsPlan(restored.snapshot, now + 6_000, undefined)!.key };
+  const limits = { creditsPerGame: 6, reserve: 100 };
+  assert.notEqual(newQuote.key, quote.key);
+  const noReprice = auditFirstBasketSlate([old, cancelled, restored, quote], [snapshot.eventId], limits);
+  assert.equal(noReprice.passed, false);
+  assert.equal(noReprice.missingNight, true);
+  assert.deepEqual(noReprice.missingEventIds, [snapshot.eventId]);
+  const good = auditFirstBasketSlate([old, cancelled, restored, quote, newQuote], [snapshot.eventId], limits);
+  assert.equal(good.passed, true);
+  assert.equal(good.games[0]!.credits, 6);
+  assert.deepEqual(good.games[0]!.changedStarters, [{
+    confirmedAt: now + 5_000, pendingRevisionRecorded: true, repriced: true,
+  }]);
+  assert.equal(auditFirstBasketSlate([old, cancelled, restored, quote, { ...newQuote, remaining: 99 }], [snapshot.eventId], limits).passed, false);
+  assert.equal(auditFirstBasketSlate([], [], limits).missingNight, false);
+  const root = await mkdtemp(join(tmpdir(), "first-basket-staging-week-"));
+  try {
+    const through = slateDate(now);
+    const week = await stagingFirstBasketWeek(root, through, limits, async day => day === through ? [snapshot.eventId] : []);
+    assert.equal(week.nights.length, 7);
+    assert.equal(week.nights.at(-1)!.missingNight, true);
+    assert.equal(week.go, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
