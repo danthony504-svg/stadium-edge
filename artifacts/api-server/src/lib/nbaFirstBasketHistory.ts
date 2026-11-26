@@ -15,7 +15,7 @@ export function nbaFirstBasketRecentStarter(
 ) {
   const candidates = [];
   for (const { teamId, games } of teams) {
-    const starts = new Map<string, { player: string; hits: number; starts: number }>();
+    const starts = new Map<string, { athleteId: string; teamId: string; player: string; hits: number; starts: number }>();
     let latestStarters: Set<string> | undefined;
     for (const { eventId, summary } of games) {
       const opening = resolveNbaOpeningScore(summary, eventId);
@@ -32,7 +32,7 @@ export function nbaFirstBasketRecentStarter(
       if (starters.size !== 5) continue;
       latestStarters ??= new Set(starters.keys());
       for (const [id, player] of starters) {
-        const entry = starts.get(id) ?? { player, hits: 0, starts: 0 };
+        const entry = starts.get(id) ?? { athleteId: id, teamId, player, hits: 0, starts: 0 };
         entry.starts++;
         if (opening.firstMadeFieldGoal.teamId === teamId && opening.firstMadeFieldGoal.playerId === id) entry.hits++;
         starts.set(id, entry);
