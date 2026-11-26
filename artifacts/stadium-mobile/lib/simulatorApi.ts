@@ -361,6 +361,8 @@ export async function fetchSimulatorGameOutcome(
     }>;
     retainOutcomes?: boolean;
     includeDriveReplay?: boolean;
+    nbaPossessionReview?: boolean;
+    eventId?: string;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

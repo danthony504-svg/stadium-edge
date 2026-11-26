@@ -2462,7 +2462,30 @@ export async function fetchPropSimulations(
   return { hits: out, playerHistories, historyShared, historyCoalesced };
 }
 
+export type NbaReplayPlayer = {
+  id: string; name: string; minutes: number; points: number; shots: number;
+  assists: number; rebounds: number; fouls: number;
+};
+
+export type NbaPossessionDetails = {
+  ratingDraws: number;
+  gamesPerRating: number;
+  homeWinRange80: [number, number];
+  marginRange80: [number, number];
+  totalRange80: [number, number];
+  lines: Record<string, { win: number; push: number; ci80: [number, number] }>;
+  marginHistogram: { from: number; through: number; count: number }[];
+  marketHomeMargin: number | null;
+  representative: {
+    margin: number; percentile: number;
+    periods: { home: number; away: number }[];
+    home: NbaReplayPlayer[];
+    away: NbaReplayPlayer[];
+  };
+};
+
 export type GameSimulationResult = {
+  nbaPossessions?: NbaPossessionDetails;
   driveReplay?: { side: "home" | "away"; points: number }[];
   sport: string;
   simulations: number;
@@ -2473,7 +2496,7 @@ export type GameSimulationResult = {
   awayProjectedScore?: number;
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
-  confidenceScore: number;
+  confidenceScore: number | null;
   methodRates?: {
     away: { ko: number; tko: number; sub: number; decision: number };
     home: { ko: number; tko: number; sub: number; decision: number };

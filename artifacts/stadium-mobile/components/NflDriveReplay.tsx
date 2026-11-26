@@ -44,6 +44,7 @@ type Props = {
   footer?: ReactNode;
   drives?: Drive[];
   finalScore?: { away: number; home: number };
+  nbaPeriods?: { away: number; home: number }[];
 };
 
 type SportReplayConfig = {
@@ -136,7 +137,14 @@ export function GameReplay(replay: Props) {
   const drives = replay.drives ?? [];
   const isDriveSport =
     (replay.sport === "nfl" || replay.sport === "ncaaf") && drives.length > 0;
-  const cfg = sportConfig(replay.sport, isDriveSport);
+  const nbaPeriods = replay.nbaPeriods;
+  const cfg = nbaPeriods?.length ? {
+    ...sportConfig("nba", false),
+    segments: ["Tipoff", ...nbaPeriods.map((_, index) => index < 4 ? `Q${index + 1}` : `OT${index - 3}`)],
+    nextLabel: "Next period",
+    clockFor: (cursor: number, total: number) => cursor >= total ? "Final" :
+      cursor === 0 ? "Tipoff" : cursor <= 4 ? `End of Q${cursor}` : `End of OT${cursor - 4}`,
+  } : sportConfig(replay.sport, isDriveSport);
   const stepCount = isDriveSport
     ? Math.max(1, drives.length)
     : Math.max(1, cfg.segments.length - 1);
@@ -174,12 +182,20 @@ export function GameReplay(replay: Props) {
       for (const drive of drives.slice(0, cursor)) out[drive.side] += drive.points;
       return out;
     }
+    if (nbaPeriods?.length) {
+      const out = { away: 0, home: 0 };
+      for (const period of nbaPeriods.slice(0, cursor)) {
+        out.away += period.away;
+        out.home += period.home;
+      }
+      return out;
+    }
     const final = replay.finalScore ?? { away: 0, home: 0 };
     return {
       away: Math.round(final.away * position),
       home: Math.round(final.home * position),
     };
-  }, [isDriveSport, drives, cursor, replay.finalScore, position]);
+  }, [isDriveSport, drives, nbaPeriods, cursor, replay.finalScore, position]);
 
   const latest = isDriveSport && cursor ? drives[cursor - 1] : undefined;
   const driveText = latest
@@ -315,7 +331,9 @@ export function GameReplay(replay: Props) {
       {cfg.surface === "diamond" ? <ReplayDiamond progress={position} /> : null}
       {cfg.surface === "pitch" ? <ReplayPitch progress={position} /> : null}
 
-      {!isDriveSport ? (
+      {nbaPeriods?.length ? (
+        <Text style={styles.caption}>Simulated periods · median final margin</Text>
+      ) : !isDriveSport ? (
         <Text style={styles.caption}>
           Illustrative {cfg.segments.length ? "period" : "score"} progression from one simulated final
         </Text>
