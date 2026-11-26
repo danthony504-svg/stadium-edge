@@ -1,3 +1,4 @@
+import { pairedGameLossBootstrap } from "./nbaFirstBasketIntervals.js";
 import { DEFAULT_FIRST_BASKET_USAGE_PRIOR, firstScore, openingGameSummary, priceFirstBasket, type OpeningGame } from "./nbaFirstBasketModel.js";
 import type { FirstBasketEvaluationCase } from "./nbaFirstBasketBacktest.js";
 
@@ -7,7 +8,10 @@ export function tuneFirstBasketUsage(input: {
   history: readonly OpeningGame[];
   cases: readonly FirstBasketEvaluationCase[];
   strengths?: readonly number[];
+  baselineStrength?: number;
 }) {
+  const baselineStrength = input.baselineStrength ?? DEFAULT_FIRST_BASKET_USAGE_PRIOR;
+  if (!Number.isFinite(baselineStrength) || baselineStrength < 0) throw new RangeError("Invalid baseline strength");
   const games = [...input.cases].sort((a, b) => a.snapshot.startsAt - b.snapshot.startsAt);
   const strengths = [...new Set(input.strengths ?? priorGrid)];
   if (!strengths.length || strengths.some(strength => !Number.isFinite(strength) || strength < 0)) {
@@ -28,7 +32,7 @@ export function tuneFirstBasketUsage(input: {
     }
     records.push(final);
   }
-  const score = (strength: number, startBlock: number, endBlock: number) => {
+  const score = (strength: number, startBlock: number, endBlock: number, byGame?: Map<string, number[]>) => {
     let count = 0, loss = 0;
     let evaluatedGames = 0;
     for (const { snapshot, final } of games) {
@@ -36,7 +40,7 @@ export function tuneFirstBasketUsage(input: {
       if (block < startBlock || block >= endBlock) continue;
       const prediction = priceFirstBasket(snapshot, records, [], snapshot.availableAt, strength);
       if (prediction.status !== "ready") continue;
-      let used = false;
+      const gameLoss = [];
       for (const side of [0, 1] as const) {
         const scorer = firstScore(final, "field_goal", side);
         if (!scorer) continue;
@@ -44,10 +48,14 @@ export function tuneFirstBasketUsage(input: {
           item.market === "player_first_team_basket" && item.playerId === scorer.playerId);
         if (!outcome || ![snapshot.home, snapshot.away][side]!.starters.some(player => player.id === scorer.playerId)) continue;
         count++;
-        loss -= Math.log(Math.max(1e-12, outcome.probability));
-        used = true;
+        const scorerLoss = -Math.log(Math.max(1e-12, outcome.probability));
+        loss += scorerLoss;
+        gameLoss.push(scorerLoss);
       }
-      if (used) evaluatedGames++;
+      if (gameLoss.length) {
+        evaluatedGames++;
+        byGame?.set(snapshot.eventId, gameLoss);
+      }
     }
     return { strength, games: evaluatedGames, outcomes: count, logLoss: count ? loss / count : null };
   };
@@ -58,11 +66,19 @@ export function tuneFirstBasketUsage(input: {
     return { strength, folds, outcomes, logLoss: outcomes ? loss / outcomes : null };
   });
   const selected = development.filter(result => result.logLoss != null).sort((a, b) =>
-    a.logLoss! - b.logLoss! || Math.abs(a.strength - DEFAULT_FIRST_BASKET_USAGE_PRIOR) -
-    Math.abs(b.strength - DEFAULT_FIRST_BASKET_USAGE_PRIOR))[0];
+    a.logLoss! - b.logLoss! || Math.abs(a.strength - baselineStrength) -
+    Math.abs(b.strength - baselineStrength))[0];
   if (!selected) return { selectedStrength: null, development, holdout: null };
-  const holdout = score(selected.strength, tuningBlocks, blockCount);
+  const selectedGames = new Map<string, number[]>();
+  const baselineGames = new Map<string, number[]>();
+  const holdout = score(selected.strength, tuningBlocks, blockCount, selectedGames);
+  const baseline = selected.strength === baselineStrength ? holdout : score(baselineStrength, tuningBlocks, blockCount, baselineGames);
+  const counterparts = selected.strength === baselineStrength ? selectedGames : baselineGames;
+  const pairs = [...selectedGames].flatMap(([id, values]) => {
+    const previous = counterparts.get(id);
+    if (!previous || previous.length !== values.length) return [];
+    return [{ baselineLoss: previous.reduce((a, b) => a + b, 0), selectedLoss: values.reduce((a, b) => a + b, 0), outcomes: values.length }];
+  });
   return { selectedStrength: selected.strength, development,
-    holdout: { selected: holdout, baseline: selected.strength === DEFAULT_FIRST_BASKET_USAGE_PRIOR
-      ? holdout : score(DEFAULT_FIRST_BASKET_USAGE_PRIOR, tuningBlocks, blockCount) } };
+    holdout: { selected: holdout, baseline, pairedGain: pairedGameLossBootstrap(pairs) } };
 }

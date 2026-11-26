@@ -1,3 +1,4 @@
+import { pairedGameLossBootstrap, wilson95 } from "../src/lib/nbaFirstBasketIntervals.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
@@ -9,7 +10,7 @@ import { firstBasketQuotes } from "../src/lib/nbaFirstBasketOdds.ts";
 import { archivedFirstBasketCases, backtestNbaFirstBasket } from "../src/lib/nbaFirstBasketBacktest.ts";
 import { archiveOddsPlan, firstBasketWeek, MINUTE, readFirstBasketArchiveDay, slateDate } from "../src/lib/nbaFirstBasketArchive.ts";
 import { collectFirstBasket } from "../src/lib/nbaFirstBasketCollector.ts";
-import { auditFirstBasketSlate, stagingFirstBasketWeek } from "../src/lib/nbaFirstBasketStaging.ts";
+import { auditFirstBasketSlate, createFirstBasketMonitoredPoll, stagingFirstBasketWeek } from "../src/lib/nbaFirstBasketStaging.ts";
 import { tuneFirstBasketUsage } from "../src/lib/nbaFirstBasketTuneUsage.ts";
 import { replayFirstBasket } from "../src/lib/nbaFirstBasketReplay.ts";
 import { getFirstBasketModel, getFirstBasketOpening } from "../src/lib/nbaFirstBasketService.ts";
@@ -260,7 +261,8 @@ test("collector records raw quotes and actual quota across restarts and only ena
     let remaining = 200;
     const prices = { ...oddsData([book]), commence_time: new Date(game.startsAt).toISOString() };
     const poll = () => collectFirstBasket(root, capture, {
-      now: () => wall, fastReserve: 100,
+      now: () => wall, fastReserve: 100, readRemaining: async () => remaining,
+      limits: { creditsPerGame: 45, creditsPerSlate: 675, reserve: 100 },
       requestOdds: async () => new Response(JSON.stringify(prices), { headers: {
         "x-requests-last": "3", "x-requests-remaining": String(remaining -= 3),
       } }),
@@ -353,4 +355,96 @@ test("staging distinguishes missing slates from off nights and gates quota and s
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("Wilson intervals and game-cluster bootstrap preserve sample size and gain sign", () => {
+  assert.equal(wilson95(0, 0), null);
+  assert.ok(wilson95(20, 40)![1] - wilson95(20, 40)![0] >
+    wilson95(200, 400)![1] - wilson95(200, 400)![0]);
+  const pairs = [{ baselineLoss: 2, selectedLoss: 1, outcomes: 2 },
+    { baselineLoss: 2, selectedLoss: 1.5, outcomes: 1 }];
+  const result = pairedGameLossBootstrap(pairs, 100);
+  assert.equal(result?.games, 2);
+  assert.equal(result?.outcomes, 3);
+  assert.equal(result?.gain, .5);
+  assert.deepEqual(result?.interval95, [.5, .5]);
+});
+
+test("reserve and hard caps stop before provider calls, including after an uncertain debit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "first-basket-hard-quota-"));
+  try {
+    let wall = now;
+    const game = { ...snapshot, startsAt: wall + 20 * MINUTE };
+    const capture = { snapshots: [game], history: [] };
+    let remaining: number | null = 102;
+    let calls = 0;
+    const poll = (input = capture, slate = 3) => collectFirstBasket(root, input, {
+      now: () => wall, limits: { creditsPerGame: 3, creditsPerSlate: slate, reserve: 100 },
+      readRemaining: async () => remaining,
+      requestOdds: async () => {
+        calls++;
+        const persisted = await readFirstBasketArchiveDay(root, slateDate(game.startsAt), "odds");
+        assert.ok(persisted.some(row => row.kind === "odds" && row.credits === null && row.reservedCredits === 3));
+        throw new Error("FAKE_ODDS_KEY should never be stored");
+      },
+    });
+    assert.equal((await poll()).stops.reserve, 1);
+    remaining = null;
+    assert.equal((await poll()).stops.quotaUnavailable, 1);
+    assert.equal(calls, 0);
+    remaining = 500;
+    assert.equal((await poll()).requests, 1);
+    wall += 4 * MINUTE;
+    assert.equal((await poll()).stops.game, 1);
+    const other = { ...game, eventId: "other", oddsEventId: "b".repeat(32) };
+    assert.equal((await poll({ ...capture, snapshots: [other] })).stops.slate, 1);
+    assert.equal(calls, 1);
+    const raw = JSON.stringify(await readFirstBasketArchiveDay(root, slateDate(game.startsAt), "odds"));
+    assert.ok(!raw.includes("FAKE_ODDS_KEY"));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the archive retains unconfirmed pricing counts and drops credential material in odds payloads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "first-basket-safe-quotes-"));
+  try {
+    const game = { ...snapshot, confirmedAt: null, startsAt: now + MINUTE };
+    const secret = "FAKE_PROVIDER_TOKEN_TEST_ONLY";
+    const data = { ...oddsData([book]), apiKey: secret, request: `https://example.com/?token=${secret}`,
+      bookmakers: [...oddsData([book]).bookmakers!, { key: secret, markets: [] }] };
+    await collectFirstBasket(root, { snapshots: [game], history: [] }, {
+      now: () => now, limits: { creditsPerGame: 45, creditsPerSlate: 675, reserve: 100 },
+      readRemaining: async () => 500, secrets: [secret],
+      requestOdds: async () => Response.json(data, { headers: { "x-requests-last": "3", "x-requests-remaining": "497" } }),
+    });
+    const records = await readFirstBasketArchiveDay(root, slateDate(now), "odds");
+    assert.ok(!JSON.stringify(records).includes(secret));
+    assert.ok(!JSON.stringify(records).includes("https://example.com"));
+    const report = await firstBasketWeek(root, slateDate(now));
+    assert.deepEqual(report.pricingLineups, { confirmed: 0, unconfirmed: 1, unknown: 0, unconfirmedRate: 1 });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("low disk alerts once per incident and withheld heartbeats expose failed polls", async () => {
+  let space = 100, alerts = 0, pulses = 0, polls = 0;
+  let fail = false;
+  const poll = createFirstBasketMonitoredPoll({
+    freeBytes: async () => space, minimumBytes: 64,
+    alert: async () => { alerts++; },
+    heartbeat: async () => { pulses++; },
+    collect: async () => { polls++; if (fail) throw new Error("capture failed"); },
+  });
+  assert.equal(await poll(), "healthy");
+  space = 63;
+  assert.equal(await poll(), "disk_stop");
+  assert.equal(await poll(), "disk_stop");
+  assert.deepEqual([alerts, pulses, polls], [1, 1, 1]);
+  space = 100;
+  fail = true;
+  await assert.rejects(poll(), /capture failed/);
+  assert.equal(pulses, 1);
+  fail = false;
+  assert.equal(await poll(), "healthy");
+  space = 63;
+  assert.equal(await poll(), "disk_stop");
+  assert.deepEqual([alerts, pulses, polls], [2, 2, 3]);
 });

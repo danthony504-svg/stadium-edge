@@ -22,7 +22,7 @@ Without an archive configured, the backend uses an existing `ODDS_API_KEY` to fe
 
 ## Pre-release collector and grade cap
 
-On an isolated backend, mount a writable durable `NBA_FIRST_BASKET_ARCHIVE_DIR` shared by the API and a single collector. Configure the normalized lineup capture path and existing Odds API credentials. Run `scripts/collectNbaFirstBasket.ts --watch` to record the provider's complete response for every observed request, confirmed lineups, scratch revisions, and provider quota headers. The app reads archived prices in this mode, avoiding a parallel upstream polling stream. With only a lineup feed, the collector can archive lineups without an Odds API key. There are no provider requests outside the final 45 minutes.
+On an isolated backend, mount a writable durable `NBA_FIRST_BASKET_ARCHIVE_DIR` shared by the API and a single collector. Configure the normalized lineup capture path and existing Odds API credentials. Run `scripts/collectNbaFirstBasket.ts --watch` to record the provider's event, book, market, quote, and timestamp fields for every observed request, confirmed lineups, scratch revisions, and provider quota headers. The app reads archived prices in this mode, avoiding a parallel upstream polling stream. With only a lineup feed, the collector can archive lineups without an Odds API key. There are no provider requests outside the final 45 minutes.
 
 Leave `NBA_FIRST_BASKET_FAST_RESERVE` unset for three-minute odds polling. A positive reserve allows one-minute polling in the final ten minutes only while a current provider quota reading leaves the reserve after the next request. Market counts and cold starts can vary. With all three markets returned in one region, continuous one-minute polls in the last ten minutes can reach 66 total credits per game on a stable lineup versus 45 at the default cadence. Scratches can add requests to both schedules. `scripts/collectNbaFirstBasket.ts --week YYYY-MM-DD` reports seven Central-time slate days, separating unobserved days and calls without quota headers from measured credits.
 
@@ -36,7 +36,7 @@ Run stage one on at least a season of verified play-by-play and as-of lineups. R
 
 Set the existing Odds API key, the authenticated normalized lineup capture URL and token, the missing-night alert webhook, and the external dead-man heartbeat URL in Render. The worker polls the lineup source before collection and only refreshes the feed file after a successful authenticated response. Its daily audit checks an independent NBA schedule so a missing capture cannot be mistaken for an off night. Configure the external monitor to alert when several consecutive one-minute heartbeats are missed, including during a worker-wide outage. The webhook expects a JSON object with a `text` field.
 
-The pre-release credit defaults are 45 credits per game inclusive of scratches and a 100-credit remaining reserve, configurable on the staging worker. Fast refresh remains disabled. Run the bundled worker with `--week YYYY-MM-DD` for the seven-day go/no-go audit against the schedule, provider credit headers, and confirmed lineup revisions. A missing pre-tip quote, a pending scratch, an unrepriced revision, an unknown credit balance, or a budget violation fails that game's audit. The archive records confirmation revision as part of the quote key so a re-confirmation of the same five also fetches again.
+The pre-release credit defaults are 45 credits per game inclusive of scratches, 675 per slate, and a 100-credit remaining reserve, configurable on the staging worker. Fast refresh remains disabled. Run the bundled worker with `--week YYYY-MM-DD` for the seven-day go/no-go audit against the schedule, provider credit headers, and confirmed lineup revisions. A missing pre-tip quote, a pending scratch, an unrepriced revision, an unknown credit balance, or a budget violation fails that game's audit. The archive records confirmation revision as part of the quote key so a re-confirmation of the same five also fetches again.
 
 Render persistent disk documentation: https://render.com/docs/disks#disk-snapshots
 
@@ -54,3 +54,59 @@ Normalized 1,200 of 1,230 reported games. The importer excluded 27 with unbound 
 Selection used 943 games across the first four chronological blocks. The final block contains 241 games and 480 team scorer outcomes. The selected strength of 70 is the strongest candidate in the tested grid. Tip-win calibration missed the under-two-percentage-point target in both 500+ game bins, at 2.36 and 5.54 points. Team-first-points errors in its two 500+ game bins were 2.63 and 2.32 points. First-team-field-goal errors in its two 500+ game bins were 2.50 and 0.53 points. No closing-field comparison was run.
 
 Public research tables: https://github.com/ramirobentes/nba_data
+
+## 2025–26 uncertainty checks
+
+Wilson 95% intervals are for observed frequencies. Signed error intervals subtract the mean forecast in that bin. These are per-bin intervals and do not adjust for repeated teams, multiple bins, or uncertainty in the archived labels. Empty bins report zero games with null intervals in the backtest.
+
+### Season replay
+
+| Market | Forecast bin | Games | Mean forecast | Observed | Observed 95% | Observed minus forecast 95% (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Tip win | 20–30% | 4 | 27.26% | 0.00% | 0.00–48.99% | -27.26 to 21.72 |
+| Tip win | 30–40% | 63 | 37.33% | 28.57% | 18.90–40.70% | -18.43 to 3.37 |
+| Tip win | 40–50% | 501 | 46.27% | 43.91% | 39.63–48.29% | -6.64 to 2.02 |
+| Tip win | 50–60% | 549 | 53.66% | 59.20% | 55.04–63.23% | 1.38 to 9.57 |
+| Tip win | 60–70% | 65 | 63.00% | 87.69% | 77.55–93.63% | 14.55 to 30.63 |
+| Tip win | 70–80% | 2 | 71.56% | 100.00% | 34.24–100.00% | -37.32 to 28.44 |
+| First points | 30–40% | 45 | 38.01% | 46.67% | 32.94–60.92% | -5.08 to 22.91 |
+| First points | 40–50% | 537 | 46.35% | 48.98% | 44.77–53.20% | -1.57 to 6.85 |
+| First points | 50–60% | 567 | 53.77% | 56.08% | 51.97–60.12% | -1.80 to 6.35 |
+| First points | 60–70% | 35 | 62.31% | 57.14% | 40.86–72.02% | -21.45 to 9.70 |
+| First field goal | 30–40% | 40 | 37.96% | 47.50% | 32.94–62.50% | -5.02 to 24.54 |
+| First field goal | 40–50% | 544 | 46.21% | 48.71% | 44.54–52.91% | -1.67 to 6.70 |
+| First field goal | 50–60% | 560 | 53.76% | 54.29% | 50.14–58.37% | -3.61 to 4.61 |
+| First field goal | 60–70% | 40 | 62.24% | 55.00% | 39.83–69.29% | -22.41 to 7.05 |
+
+### Final time block
+
+| Market | Forecast bin | Games | Mean forecast | Observed | Observed 95% | Observed minus forecast 95% (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Tip win | 20–30% | 3 | 26.41% | 0.00% | 0.00–56.15% | -26.41 to 29.74 |
+| Tip win | 30–40% | 18 | 37.31% | 38.89% | 20.31–61.38% | -17.00 to 24.08 |
+| Tip win | 40–50% | 104 | 46.04% | 48.08% | 38.72–57.58% | -7.33 to 11.53 |
+| Tip win | 50–60% | 100 | 53.75% | 62.00% | 52.21–70.90% | -1.54 to 17.15 |
+| Tip win | 60–70% | 14 | 64.29% | 100.00% | 78.47–100.00% | 14.18 to 35.71 |
+| Tip win | 70–80% | 2 | 71.56% | 100.00% | 34.24–100.00% | -37.32 to 28.44 |
+| First points | 30–40% | 17 | 37.24% | 29.41% | 13.28–53.13% | -23.96 to 15.89 |
+| First points | 40–50% | 102 | 46.41% | 47.06% | 37.66–56.68% | -8.75 to 10.27 |
+| First points | 50–60% | 114 | 53.98% | 56.14% | 46.98–64.90% | -7.00 to 10.92 |
+| First points | 60–70% | 8 | 63.22% | 62.50% | 30.57–86.32% | -32.64 to 23.10 |
+| First field goal | 30–40% | 13 | 36.72% | 23.08% | 8.18–50.26% | -28.54 to 13.53 |
+| First field goal | 40–50% | 108 | 46.14% | 50.00% | 40.73–59.27% | -5.40 to 13.13 |
+| First field goal | 50–60% | 109 | 54.11% | 54.13% | 44.79–63.18% | -9.32 to 9.07 |
+| First field goal | 60–70% | 11 | 62.06% | 63.64% | 35.38–84.83% | -26.68 to 22.78 |
+
+The paired bootstrap resampled 241 holdout games with their 480 scorer outcomes together, over 20,000 replicates. The 35-to-70 prior change improved log loss by 0.00823, with a 95% interval of 0.00083 to 0.01566. The relative gain was 0.515% with a 95% interval of 0.053% to 0.968%. This measures uncertainty on the retained sample and uses the same model and scoring rules.
+
+The processed archive labels the tip winner as the first-possession team in 1,200 of 1,200 games, with a Wilson 95% interval of 99.68% to 100%. Both labels come from the same play-by-play archive and the import reconstructs the initial jump from the recovered jump-ball record. The perfect agreement needs independently labeled jump and possession data before treating it as a league retention estimate. The tip and team-first equations run before player allocation, so changing the player usage prior cannot fix those team-level errors.
+
+## Operational safeguards
+
+The single collector reserves the maximum possible charge on disk before each paid request. It stops at 45 credits per game or 675 per Central-time slate by default, and verifies at least 100 credits remain after the next request using the quota-free sports endpoint. A missing balance stops paid requests. A lost response leaves the conservative debit in place. The reserve check uses the latest provider balance and cannot lock out other clients using the same API key.
+
+Below 64 MiB free, the worker sends a low-disk alert, skips the collector, and withholds the success heartbeat. A failed collection or unreadable quota also withholds the heartbeat. The worker suppresses repeat disk alerts until space recovers. The dead-man receiver and alert delivery require a live endpoint test after deployment.
+
+Quote archives retain only event, bookmaker, market, outcome and timestamp fields. They exclude configured secrets, request URLs, and provider exceptions. Route telemetry records the event ID and confirmed, unconfirmed, unknown, or excluded status without recording quote values or user identifiers. The archive separately reports the confirmation rate among observed collector pricing attempts. Unknown statuses stay outside the rate denominator. The live API deploy checked on November 26 still contains the legacy history route and has no First Basket pricing endpoint, so there is no production pricing-time rate yet.
+
+The Odds API quota documentation: https://the-odds-api.com/liveapi/guides/v4/index.html#response-headers

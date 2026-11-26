@@ -1,3 +1,4 @@
+import { wilson95 } from "./nbaFirstBasketIntervals.js";
 import { firstScore, openingGameSummary, priceFirstBasket, type FirstBasketSnapshot, type OpeningGame, type Rule, type Side } from "./nbaFirstBasketModel.js";
 import { archiveLineupKey, MINUTE, type FirstBasketArchiveRecord } from "./nbaFirstBasketArchive.js";
 import { firstBasketQuotes, type RawFirstBasketOdds } from "./nbaFirstBasketOdds.js";
@@ -33,7 +34,7 @@ export function archivedFirstBasketCases(records: readonly FirstBasketArchiveRec
 type Binary = { probability: number; outcome: number };
 const logLoss = (p: number) => -Math.log(Math.max(1e-12, p));
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-function calibration(rows: Binary[]) {
+export function firstBasketCalibration(rows: Binary[]) {
   return {
     games: rows.length,
     brier: mean(rows.map(row => (row.probability - row.outcome) ** 2)),
@@ -42,11 +43,21 @@ function calibration(rows: Binary[]) {
       const bucket = rows.filter(row => Math.min(9, Math.floor(row.probability * 10)) === i);
       const predicted = mean(bucket.map(row => row.probability));
       const actual = mean(bucket.map(row => row.outcome));
+      const observed95 = wilson95(bucket.reduce((hits, row) => hits + row.outcome, 0), bucket.length);
+      const signedGap95Pp = observed95 && predicted != null
+        ? observed95.map(bound => 100 * (bound - predicted)) as [number, number] : null;
       const absoluteGapPp = predicted != null && actual != null ? Math.abs(predicted - actual) * 100 : null;
-      return { lower: i / 10, games: bucket.length, predicted, actual, absoluteGapPp,
+      return { lower: i / 10, games: bucket.length, predicted, actual, observed95, signedGap95Pp, absoluteGapPp,
         belowTwoPointTarget: absoluteGapPp == null ? null : absoluteGapPp < 2 };
     }),
   };
+}
+
+export function firstBasketTipRetention(records: readonly OpeningGame[]) {
+  const games = [...new Map(records.filter(openingGameSummary).map(record => [record.eventId, record])).values()];
+  const retained = games.filter(record => record.tipWinner === record.firstPossession).length;
+  return { games: games.length, retained, rate: games.length ? retained / games.length : null,
+    interval95: wilson95(retained, games.length) };
 }
 
 export function backtestNbaFirstBasket(input: {
@@ -116,10 +127,11 @@ export function backtestNbaFirstBasket(input: {
   return {
     suppliedGames: seen.size, skipped,
     stage1: {
+      tipWinnerFirstPossession: firstBasketTipRetention(input.cases.map(item => item.final)),
       targetGapPp: 2,
       firstGameAt: evaluatedStarts.length ? Math.min(...evaluatedStarts) : null,
       lastGameAt: evaluatedStarts.length ? Math.max(...evaluatedStarts) : null,
-      tip: calibration(tip), firstPoints: calibration(firstPoints), firstFieldGoal: calibration(firstFieldGoal),
+      tip: firstBasketCalibration(tip), firstPoints: firstBasketCalibration(firstPoints), firstFieldGoal: firstBasketCalibration(firstFieldGoal),
     },
     stage2: {
       gamesWithClosingFields,

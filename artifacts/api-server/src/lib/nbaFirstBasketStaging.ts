@@ -1,6 +1,6 @@
-import { rename, rm, writeFile } from "node:fs/promises";
+import { rename, rm, statfs, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { archiveLineupKey, MINUTE, offsetDay, readFirstBasketArchiveDay, slateDate, type FirstBasketArchiveRecord } from "./nbaFirstBasketArchive.js";
+import { archiveLineupKey, firstBasketPricingLineups, MINUTE, offsetDay, readFirstBasketArchiveDay, slateDate, type FirstBasketArchiveRecord } from "./nbaFirstBasketArchive.js";
 
 import { firstBasketQuotes } from "./nbaFirstBasketOdds.js";
 
@@ -8,7 +8,7 @@ type Odds = Extract<FirstBasketArchiveRecord, { kind: "odds" }>;
 type Lineup = Extract<FirstBasketArchiveRecord, { kind: "lineup" }>;
 
 export function auditFirstBasketSlate(records: readonly FirstBasketArchiveRecord[], expected: readonly string[], limits: {
-  creditsPerGame: number; reserve: number;
+  creditsPerGame: number; reserve: number; creditsPerSlate?: number;
 }) {
   const games = [...new Set(expected)].map(eventId => {
     const calls = records.filter((row): row is Odds => row.kind === "odds" && row.eventId === eventId);
@@ -51,15 +51,19 @@ export function auditFirstBasketSlate(records: readonly FirstBasketArchiveRecord
       aboveReserve: calls.length > 0 && calls.every(call => call.remaining != null && call.remaining >= limits.reserve),
     };
   });
+  const allCalls = records.filter((row): row is Odds => row.kind === "odds");
+  const debited = allCalls.reduce((sum, call) => sum + (call.credits ?? call.reservedCredits ?? 3), 0);
+  const slateWithinBudget = limits.creditsPerSlate == null || debited <= limits.creditsPerSlate;
   const expectedIds = new Set(expected);
   const unmatchedOddsEventIds = [...new Set(records.flatMap(row =>
     row.kind === "odds" && !expectedIds.has(row.eventId) ? [row.eventId] : []))];
   return {
-    expectedGames: games.length, unmatchedOddsEventIds,
+    expectedGames: games.length, unmatchedOddsEventIds, debitedCredits: debited, slateWithinBudget,
+    pricingLineups: firstBasketPricingLineups(allCalls),
     missingNight: games.length > 0 && games.every(game => !game.recorded),
     missingEventIds: games.filter(game => !game.recorded).map(game => game.eventId),
     games,
-    passed: !unmatchedOddsEventIds.length && games.every(game => game.recorded && game.withinBudget && game.aboveReserve &&
+    passed: slateWithinBudget && !unmatchedOddsEventIds.length && games.every(game => game.recorded && game.withinBudget && game.aboveReserve &&
       !game.pendingScratch && game.changedStarters.every(scratch => scratch.repriced)),
   };
 }
@@ -82,7 +86,7 @@ export async function expectedFirstBasketGames(day: string) {
   }))];
 }
 
-export async function stagingFirstBasketWeek(root: string, day: string, limits: { creditsPerGame: number; reserve: number },
+export async function stagingFirstBasketWeek(root: string, day: string, limits: { creditsPerGame: number; reserve: number; creditsPerSlate?: number },
   schedule = expectedFirstBasketGames) {
   const nights = await Promise.all(Array.from({ length: 7 }, (_, i) => offsetDay(day, i - 6)).map(async date => {
     const [records, expected] = await Promise.all([readFirstBasketArchiveDay(root, date), schedule(date)]);
@@ -91,7 +95,7 @@ export async function stagingFirstBasketWeek(root: string, day: string, limits: 
   return { nights, go: nights.some(night => night.expectedGames > 0) && nights.every(night => night.passed) };
 }
 
-export async function refreshStagingFirstBasketCapture(destination: string, url: string, token: string) {
+export async function refreshStagingFirstBasketCapture(destination: string, url: string, token: string, additionalSecrets: readonly string[] = []) {
   if (new URL(url).protocol !== "https:") throw new Error("The First Basket lineup source requires HTTPS");
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(10_000),
@@ -99,6 +103,9 @@ export async function refreshStagingFirstBasketCapture(destination: string, url:
   if (!response.ok) throw new Error("First Basket lineup capture fetch failed");
   const input = await response.text();
   if (Buffer.byteLength(input) > 20_000_000) throw new Error("First Basket lineup capture exceeds size limit");
+  if ([token, url, ...additionalSecrets].some(secret => secret && (input.includes(secret) || input.includes(JSON.stringify(secret).slice(1, -1))))) {
+    throw new Error("Lineup capture contained a configured secret");
+  }
   const parsed = JSON.parse(input);
   if (!Array.isArray(parsed?.snapshots) || !Array.isArray(parsed.history)) throw new Error("Invalid First Basket lineup capture");
   const temporary = `${destination}.${randomUUID()}.tmp`;
@@ -108,4 +115,31 @@ export async function refreshStagingFirstBasketCapture(destination: string, url:
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+export async function firstBasketDiskFree(path: string) {
+  const space = await statfs(path);
+  return space.bavail * space.bsize;
+}
+
+/** A failed poll or a disk stop deliberately withholds the success heartbeat. */
+export function createFirstBasketMonitoredPoll(dependencies: {
+  freeBytes: () => Promise<number>; minimumBytes: number;
+  collect: () => Promise<void>; alert: () => Promise<void>; heartbeat: () => Promise<void>;
+}) {
+  let diskAlerted = false;
+  return async () => {
+    const bytes = await dependencies.freeBytes();
+    if (bytes < dependencies.minimumBytes) {
+      if (!diskAlerted) {
+        await dependencies.alert();
+        diskAlerted = true;
+      }
+      return "disk_stop" as const;
+    }
+    diskAlerted = false;
+    await dependencies.collect();
+    await dependencies.heartbeat();
+    return "healthy" as const;
+  };
 }

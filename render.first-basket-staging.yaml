@@ -21,6 +21,10 @@ services:
         value: /var/data/input/first-basket.json
       - key: NBA_FIRST_BASKET_GAME_CREDIT_BUDGET
         value: "45"
+      - key: NBA_FIRST_BASKET_SLATE_CREDIT_BUDGET
+        value: "675"
+      - key: NBA_FIRST_BASKET_MIN_FREE_MIB
+        value: "64"
       - key: NBA_FIRST_BASKET_ODDS_RESERVE
         value: "100"
       - key: NBA_FIRST_BASKET_CAPTURE_URL

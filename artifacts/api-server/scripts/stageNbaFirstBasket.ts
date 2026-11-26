@@ -3,9 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { MINUTE, offsetDay, readFirstBasketArchiveDay, slateDate } from "../src/lib/nbaFirstBasketArchive.js";
-import { collectFirstBasket, fetchFirstBasketArchiveOdds } from "../src/lib/nbaFirstBasketCollector.js";
+import { collectFirstBasket, fetchFirstBasketArchiveOdds, firstBasketRemainingCredits } from "../src/lib/nbaFirstBasketCollector.js";
 import { readFirstBasketCapture } from "../src/lib/nbaFirstBasketInput.js";
-import { auditFirstBasketSlate, expectedFirstBasketGames, refreshStagingFirstBasketCapture, stagingFirstBasketWeek } from "../src/lib/nbaFirstBasketStaging.js";
+import { auditFirstBasketSlate, createFirstBasketMonitoredPoll, expectedFirstBasketGames, firstBasketDiskFree, refreshStagingFirstBasketCapture, stagingFirstBasketWeek } from "../src/lib/nbaFirstBasketStaging.js";
 
 function required(name: string) {
   const value = process.env[name];
@@ -28,7 +28,11 @@ async function signal(url: string, body?: { text: string }) {
   if (!response.ok) throw new Error("First Basket monitoring endpoint returned an error");
 }
 const root = required("NBA_FIRST_BASKET_ARCHIVE_DIR");
-const limits = { creditsPerGame: positive("NBA_FIRST_BASKET_GAME_CREDIT_BUDGET", 45), reserve: positive("NBA_FIRST_BASKET_ODDS_RESERVE", 100) };
+const limits = {
+  creditsPerGame: positive("NBA_FIRST_BASKET_GAME_CREDIT_BUDGET", 45),
+  creditsPerSlate: positive("NBA_FIRST_BASKET_SLATE_CREDIT_BUDGET", 675),
+  reserve: positive("NBA_FIRST_BASKET_ODDS_RESERVE", 100),
+};
 if (process.argv[2] === "--week") {
   console.log(JSON.stringify(await stagingFirstBasketWeek(root, process.argv[3] ?? offsetDay(slateDate(Date.now()), -1), limits), null, 2));
 } else {
@@ -51,17 +55,29 @@ if (process.argv[2] === "--week") {
   process.once("SIGTERM", () => { stopping = true; wait.abort(); });
   process.once("SIGINT", () => { stopping = true; wait.abort(); });
   let nextAuditAttempt = 0;
+  const secrets = [source, sourceToken, oddsKey, alert, heartbeat];
+  const poll = createFirstBasketMonitoredPoll({
+    freeBytes: () => firstBasketDiskFree(root),
+    minimumBytes: positive("NBA_FIRST_BASKET_MIN_FREE_MIB", 64) * 1024 * 1024,
+    alert: () => signal(alert, { text: "Stadium Edge First Basket staging stopped collection because archive disk space is below its configured minimum." }),
+    heartbeat: () => signal(heartbeat),
+    collect: async () => {
+      await refreshStagingFirstBasketCapture(file, source, sourceToken, secrets);
+      const input = await readFirstBasketCapture();
+      if (!input) throw new Error("Missing lineup capture");
+      const result = await collectFirstBasket(root, input, { now: Date.now, fastReserve, limits, secrets,
+        readRemaining: () => firstBasketRemainingCredits(oddsKey),
+        requestOdds: id => fetchFirstBasketArchiveOdds(oddsKey, id) });
+      console.log(JSON.stringify({ at: Date.now(), ...result }));
+      if (result.stops.quotaUnavailable > 0) throw new Error("Quota read unavailable");
+    },
+  });
   while (!stopping) {
     const at = Date.now();
     wait = new AbortController();
     try {
-      await refreshStagingFirstBasketCapture(file, source, sourceToken);
-      const input = await readFirstBasketCapture();
-      if (!input) throw new Error("Missing lineup capture");
-      const result = await collectFirstBasket(root, input, { now: Date.now, fastReserve,
-        requestOdds: id => fetchFirstBasketArchiveOdds(oddsKey, id) });
-      console.log(JSON.stringify({ at, ...result }));
-      await signal(heartbeat);
+      const status = await poll();
+      if (status === "disk_stop") console.error(JSON.stringify({ at, status: "first_basket_disk_stop" }));
     } catch {
       console.error(JSON.stringify({ at, status: "first_basket_poll_failed" }));
     }

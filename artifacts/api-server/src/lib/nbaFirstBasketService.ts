@@ -57,19 +57,19 @@ export async function reviewFirstBasket(input: Matchup, source: {
   odds: (plan: OddsPlan, game: FirstBasketSnapshot, at: number) => Promise<RawFirstBasketOdds | null>;
 }) {
   const data = await source.capture();
-  if (!data) return { status: "waiting_for_starters" } as const;
+  if (!data) return { status: "waiting_for_starters", lineupStatus: "unknown" } as const;
   const now = source.now();
   const game = latestMatchingSnapshot(data, input, now);
-  if (!game || !validateFirstBasketSnapshot(game)) return { status: "waiting_for_starters" } as const;
+  if (!game || !validateFirstBasketSnapshot(game)) return { status: "waiting_for_starters", lineupStatus: "unknown" } as const;
   if (now >= game.startsAt) return { status: "started" } as const;
-  if (game.confirmedAt === null || now - game.confirmedAt > PREGAME_WINDOW_MS) return { status: "waiting_for_starters" } as const;
+  if (game.confirmedAt === null || now - game.confirmedAt > PREGAME_WINDOW_MS) return { status: "waiting_for_starters", lineupStatus: "unconfirmed" } as const;
   const plan = firstBasketOddsPlan(game, now);
   const odds = plan ? await source.odds(plan, game, now).catch(() => null) : null;
   const current = source.now();
   const latest = plan ? await source.capture() : data;
-  if (!latest || latestMatchingSnapshot(latest, input, current) !== game) return { status: "waiting_for_starters" } as const;
+  if (!latest || latestMatchingSnapshot(latest, input, current) !== game) return { status: "waiting_for_starters", lineupStatus: "unconfirmed" } as const;
   if (current >= game.startsAt) return { status: "started" } as const;
-  if (current - game.confirmedAt > PREGAME_WINDOW_MS) return { status: "waiting_for_starters" } as const;
+  if (current - game.confirmedAt > PREGAME_WINDOW_MS) return { status: "waiting_for_starters", lineupStatus: "unconfirmed" } as const;
   const quotes = odds ? firstBasketQuotes(game, odds, current) : [];
   const quoteKey = JSON.stringify(quotes);
   const hit = readyBoard.get(game);

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { firstBasketMarkets, type FirstBasketSnapshot } from "./nbaFirstBasketModel.js";
 import type { RawFirstBasketOdds } from "./nbaFirstBasketOdds.js";
@@ -12,6 +12,7 @@ const dayPattern = /^\d{4}-\d{2}-\d{2}$/;
 type LineupRecord = { kind: "lineup"; at: number; snapshot: FirstBasketSnapshot };
 export type OddsRecord = {
   kind: "odds"; at: number; eventId: string; key: string;
+  attemptId?: string; reservedCredits?: number; pricingLineupStatus?: "confirmed" | "unconfirmed";
   status: number | null; credits: number | null; remaining: number | null; response: RawFirstBasketOdds | null;
 };
 type PollRecord = { kind: "poll"; at: number; eventsSeen: number };
@@ -38,9 +39,12 @@ export async function storeFirstBasketRecord(root: string, record: FirstBasketAr
   if (!dayPattern.test(day)) throw new RangeError("Invalid archive day");
   const folder = join(root, day);
   await mkdir(folder, { recursive: true, mode: 0o700 });
+  if (record.kind === "odds" && record.attemptId && !/^[a-f0-9-]+$/.test(record.attemptId)) {
+    throw new RangeError("Invalid archived odds attempt ID");
+  }
   const name = record.kind === "lineup"
     ? `lineup-${createHash("sha256").update(JSON.stringify(record.snapshot)).digest("hex")}`
-    : `${record.kind}-${record.at}-${randomUUID()}`;
+    : record.kind === "odds" && record.attemptId ? `odds-${record.attemptId}` : `${record.kind}-${record.at}-${randomUUID()}`;
   const destination = join(folder, `${name}.json`);
   if (record.kind === "lineup") {
     const existing = await readFile(destination, "utf8").catch((error: NodeJS.ErrnoException) => {
@@ -51,8 +55,13 @@ export async function storeFirstBasketRecord(root: string, record: FirstBasketAr
   }
   const temporary = join(folder, `.tmp-${randomUUID()}`);
   try {
-    await writeFile(temporary, JSON.stringify(record) + "\n", { flag: "wx", mode: 0o600 });
+    await writeFile(temporary, JSON.stringify(record) + "\n", { flag: "wx", mode: 0o600, flush: record.kind === "odds" });
     await rename(temporary, destination);
+    if (record.kind === "odds") {
+      const directory = await open(folder, "r");
+      try { await directory.sync(); }
+      finally { await directory.close(); }
+    }
   } finally {
     await rm(temporary, { force: true });
   }
@@ -98,11 +107,24 @@ export async function firstBasketWeek(root: string, through: string) {
     const knownCredits = calls.reduce((sum, call) => sum + (call.credits ?? 0), 0);
     const callsWithoutQuota = calls.filter(call => call.credits == null).length;
     nights.push({ day, observed, polls: polls.length, games: new Set(calls.map(call => call.eventId)).size,
-      requests: calls.length, lineups: records.filter(record => record.kind === "lineup").length,
+      requests: calls.length, pricingLineups: firstBasketPricingLineups(calls), lineups: records.filter(record => record.kind === "lineup").length,
       reportedCredits: observed ? knownCredits : null, callsWithoutQuota });
   }
   const measuredNights = nights.filter(night => night.observed).length;
   const callsWithoutQuota = nights.reduce((sum, night) => sum + night.callsWithoutQuota, 0);
-  return { nights, measuredNights, nightsWithQuota: nights.filter(night => night.requests > night.callsWithoutQuota).length, callsWithoutQuota,
+  const pricingLineups = nights.reduce((total, night) => ({
+    confirmed: total.confirmed + night.pricingLineups.confirmed,
+    unconfirmed: total.unconfirmed + night.pricingLineups.unconfirmed,
+    unknown: total.unknown + night.pricingLineups.unknown,
+  }), { confirmed: 0, unconfirmed: 0, unknown: 0 });
+  return { nights, measuredNights, pricingLineups: { ...pricingLineups,
+    unconfirmedRate: pricingLineups.confirmed + pricingLineups.unconfirmed
+      ? pricingLineups.unconfirmed / (pricingLineups.confirmed + pricingLineups.unconfirmed) : null }, nightsWithQuota: nights.filter(night => night.requests > night.callsWithoutQuota).length, callsWithoutQuota,
     reportedCredits: measuredNights ? nights.reduce((sum, night) => sum + (night.reportedCredits ?? 0), 0) : null };
+}
+
+export function firstBasketPricingLineups(calls: readonly OddsRecord[]) {
+  const confirmed = calls.filter(call => call.pricingLineupStatus === "confirmed").length;
+  const unconfirmed = calls.filter(call => call.pricingLineupStatus === "unconfirmed").length;
+  return { confirmed, unconfirmed, unknown: calls.length - confirmed - unconfirmed };
 }

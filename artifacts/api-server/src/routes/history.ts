@@ -353,8 +353,13 @@ router.get("/sports/nba-first-basket-model",
       return;
     }
     try {
-      res.json(await getFirstBasketModel({ eventId, homeTeamId, awayTeamId }));
+      const result = await getFirstBasketModel({ eventId, homeTeamId, awayTeamId });
+      const lineupStatus = "lineupStatus" in result ? result.lineupStatus
+        : result.status === "ready" || result.status === "insufficient_history" ? "confirmed" : "excluded";
+      req.log.info({ eventId, outcome: result.status, lineupStatus }, "First Basket pricing attempt");
+      res.json(result);
     } catch {
+      req.log.warn({ eventId, outcome: "unavailable", lineupStatus: "unknown" }, "First Basket pricing attempt");
       res.status(503).json({ error: "First Basket data is unavailable" });
     }
   },
