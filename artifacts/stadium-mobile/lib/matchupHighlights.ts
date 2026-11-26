@@ -1,7 +1,7 @@
 /** Compact descriptive evidence, never a probability or play-calling adjustment. */
 export function matchupHighlights(observations: string[], runContext?: string | null): string[] {
   const recent = observations.find(t => t.startsWith("Exact-market history:"));
-  const comparable = observations.find(t => t.startsWith("Comparable RBs vs "));
+  const comparable = observations.find(t => t.startsWith("Comparable "));
   const position = observations.find(t => t.includes("allowed at least one opposing"));
   const defense = observations.find(t => t.includes("opposing team production allowed") || t.includes("Broader passing context") || / allows .*\/game/.test(t));
   const opportunity = observations.find(t => /^(Playing time:|Pass attempts:|Carries:|Targets:)/.test(t));

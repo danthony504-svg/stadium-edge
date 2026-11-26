@@ -1,5 +1,5 @@
 import type {AllowanceBox} from './positionAllowance.js';
-export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]; carries?:number[]}>};
+export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]; carries?:number[]; minutes?:number[]; fieldGoalAttempts?:Array<number|null>}>};
 const markets:Record<string,string>={PTS:'player_points',REB:'player_rebounds',AST:'player_assists',BLK:'player_blocks',STL:'player_steals','3PT':'player_threes'};
 /** Complete opposing active-player boxes only; any unknown position stays unknown. */
 export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cutoff=Date.now()):PositionThresholdRow[]{
@@ -10,9 +10,17 @@ export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cuto
   const opponents=box.boxscore?.players?.filter(x=>x.team?.id===ids.find(x=>x!==teamId))??[];if(opponents.length!==1)continue;
   const groups=opponents[0]!.statistics?.filter(g=>g.labels?.includes('MIN'))??[];if(groups.length!==1)continue;
   const g=groups[0]!,labels=g.labels!,mi=labels.indexOf('MIN');if(labels.lastIndexOf('MIN')!==mi)continue;
-  const active=[] as Array<{position:string;stats:string[]}>;const athletes=new Set<string>();let complete=true;
+  const shotIndex=labels.indexOf('FG');
+  const active=[] as Array<{position:string;stats:string[];minutes:number;attempts:number|null}>;const athletes=new Set<string>();let complete=true;
   for(const a of g.athletes??[]){if(a.didNotPlay)continue;const raw=a.stats?.[mi];if(!raw||!/^\d+(?::[0-5]\d|\.\d+)?$/.test(raw)){complete=false;break;}if(Number(raw.split(':')[0])===0&&(!raw.includes(':')||Number(raw.split(':')[1])===0))continue;
-   const aid=a.athlete?.id,pos=a.athlete?.position?.abbreviation?.toUpperCase();if(!aid||athletes.has(aid)||!pos||!['PG','SG','SF','PF','C','G','F'].includes(pos)){complete=false;break;}athletes.add(aid);active.push({position:pos,stats:a.stats!});
+   const aid=a.athlete?.id,pos=a.athlete?.position?.abbreviation?.toUpperCase();if(!aid||athletes.has(aid)||!pos||!['PG','SG','SF','PF','C','G','F'].includes(pos)){complete=false;break;}athletes.add(aid);
+   const [whole, seconds] = raw.split(':');
+   const minutes = Number(whole) + Number(seconds ?? 0) / 60;
+   const shot = shotIndex >= 0 && labels.lastIndexOf('FG') === shotIndex
+     ? a.stats?.[shotIndex]?.match(/^(\d+)-(\d+)$/)
+     : null;
+   const attempts = shot && Number(shot[1]) <= Number(shot[2]) ? Number(shot[2]) : null;
+   active.push({position:pos,stats:a.stats!,minutes,attempts});
   }
   if(!complete||!active.length)continue;seen.add(id);
   for(const [label,market] of Object.entries(markets)){
@@ -23,7 +31,7 @@ export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cuto
     // Generic G/F cannot establish a specific PG/SG/SF/PF denominator.
     if(['PG','SG'].includes(position)&&active.some(a=>a.position==='G'))continue;
     if(['SF','PF'].includes(position)&&active.some(a=>a.position==='F'))continue;
-    const key=position+':'+market,b:PositionThresholdRow=bins.get(key)??{position,market,games:[]};b.games.push({eventId:id,date,values:values.filter((_,j)=>matches(active[j]!.position)) as number[]});bins.set(key,b);
+    const key=position+':'+market,b:PositionThresholdRow=bins.get(key)??{position,market,games:[]};b.games.push({eventId:id,date,values:values.filter((_,j)=>matches(active[j]!.position)) as number[],minutes:active.filter(a=>matches(a.position)).map(a=>a.minutes),fieldGoalAttempts:active.filter(a=>matches(a.position)).map(a=>a.attempts)});bins.set(key,b);
    }
   }
  }

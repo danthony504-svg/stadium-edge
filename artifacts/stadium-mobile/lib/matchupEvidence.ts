@@ -206,11 +206,57 @@ export function explainMatchup(o: {
   const positional = positionRows?.rows.find(r => r.position === position && r.market === o.market && r.games >= 3 && r.minutes > 0 && Number.isFinite(r.per36) && r.per36 >= 0 && Date.parse(r.lastGame) < cutoff && Date.parse(r.firstGame) <= Date.parse(r.lastGame));
   const positionContext = positional ? `${o.opponentName}: opposing ${position} players produced ${positional.per36.toFixed(1)} ${o.market.replace(/^player_/, "").replace(/_/g," ")} per 36 pooled minutes (based on ${positional.games} games; ${positional.appearances} player appearances; ${positional.minutes} minutes; ${positional.firstGame.slice(0,10)}–${positional.lastGame.slice(0,10)}). Observed primary-position production, not a league rank or individual-player forecast. Source: ${positionRows!.source}.` : null;
   const positionGroup = ["PG","SG","G"].includes(position??"") ? "G" : ["SF","PF","F"].includes(position??"") ? "F" : position;
-  const positionHistory = positionRows?.thresholds?.find(r=>r.position===positionGroup&&r.market===o.market.replace(/_alternate$/, ""));
+  const positionHistory = positionRows?.thresholds?.find(r=>!r.games.some(game => game.carries) && r.position===positionGroup&&r.market===o.market.replace(/_alternate$/, ""));
   const positionGames = positionHistory?.games;
   if (positionGames && positionGames.length>=3 && new Set(positionGames.map(g=>g.eventId)).size===positionGames.length && positionGames.every(g=>g.eventId&&Number.isFinite(Date.parse(g.date))&&Date.parse(g.date)<cutoff&&g.values.every(v=>Number.isFinite(v)&&v>=0))) {
     const cleared=positionGames.filter(g=>g.values.some(v=>v>o.line)).length;
     observations.push(`${o.opponentName} allowed at least one opposing ${positionGroup==="G"?"guard":positionGroup==="F"?"forward":positionGroup} to exceed ${o.line} ${o.market.replace(/^player_/, "").replace(/_/g," ")} in ${cleared}/${positionGames.length} completed games with complete verified position/stat records. Each game counts once; this is not the selected player's hit probability.`);
+  }
+  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport) && position) {
+    const playerWorkloads = games.flatMap(({ stats }) => {
+      const minutes = stats?.MIN?.match(/^(\d+(?:\.\d+)?)(?::([0-5]\d))?$/);
+      const split = stats?.FG?.match(/^(\d+)-(\d+)$/);
+      const attempts = new Set([
+        ambiguous.has("fieldGoalsAttempted") ? undefined : stats?.fieldGoalsAttempted,
+        ambiguous.has("FGA") ? undefined : stats?.FGA,
+        !ambiguous.has("FG") && split && Number(split[1]) <= Number(split[2]) ? split[2] : undefined,
+      ].filter((value) => typeof value === "string" && /^\d+$/.test(value)).map(Number));
+      if (!minutes || ambiguous.has("MIN") || attempts.size !== 1) return [];
+      const playingTime = Number(minutes[1]) + Number(minutes[2] ?? 0) / 60;
+      return playingTime > 0 ? [{ minutes: playingTime, attempts: [...attempts][0]! }] : [];
+    });
+    const sample = positionRows?.thresholds?.find(
+      (row) => row.position === position && row.market === o.market.replace(/_alternate$/, ""),
+    )?.games ?? [];
+    const average = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+    const typicalMinutes = average(playerWorkloads.map((row) => row.minutes));
+    const typicalAttempts = average(playerWorkloads.map((row) => row.attempts));
+    const appearances = playerWorkloads.length < 3 || new Set(sample.map((game) => game.eventId)).size !== sample.length
+      ? []
+      : sample.flatMap((game) => {
+          if (!game.eventId || !(Date.parse(game.date) < cutoff) ||
+              game.minutes?.length !== game.values.length || game.fieldGoalAttempts?.length !== game.values.length) return [];
+          return game.values.flatMap((value, index) => {
+            const minutes = game.minutes![index]!;
+            const attempts = game.fieldGoalAttempts![index];
+            if (!Number.isFinite(value) || !Number.isFinite(minutes) || minutes <= 0 ||
+                attempts == null || !Number.isInteger(attempts) || attempts < 0 ||
+                Math.abs(minutes - typicalMinutes) > Math.max(4, typicalMinutes * 0.2) ||
+                Math.abs(attempts - typicalAttempts) > Math.max(2, typicalAttempts * 0.25)) return [];
+            return [{ value, minutes, attempts, eventId: game.eventId }];
+          });
+        });
+    const gameCount = new Set(appearances.map((row) => row.eventId)).size;
+    if (gameCount >= 3) {
+      const over = appearances.filter((row) => row.value > o.line).length;
+      const under = appearances.filter((row) => row.value < o.line).length;
+      const pushes = appearances.length - over - under;
+      observations.push(
+        `Comparable ${position} players vs ${o.opponentName}: ${over} over, ${under} under, ${pushes} exactly at ${o.line} across ${appearances.length} appearances in ${gameCount} games. They averaged ${average(appearances.map((row) => row.value)).toFixed(1)} for this stat, with ${average(appearances.map((row) => row.minutes)).toFixed(1)} minutes and ${average(appearances.map((row) => row.attempts)).toFixed(1)} field-goal attempts per game. Matched to the player’s recent workload.`,
+      );
+    } else {
+      missing.push("Comparable basketball matchup: fewer than 3 verified games with similar minutes and shot volume.");
+    }
   }
   if (["nfl", "ncaaf"].includes(o.sport) && ["RB", "HB"].includes(position ?? "") &&
       /^player_rush_yds(?:_alternate)?$/.test(o.market)) {

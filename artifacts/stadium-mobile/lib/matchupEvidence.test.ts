@@ -220,3 +220,24 @@ test("rushing comps use similar carry volume, pregame dates, and the exact thres
   assert.ok(evidence.observations.some((note) =>
     note.includes("1/3 appearances went over 100") && note.includes("20.0 carries (4.02 yards per carry)")));
 });
+
+test("basketball comps require the same position and similar minutes and shot volume", () => {
+  const player = history();
+  player.recent = player.recent.map(game => ({ ...game, stats: { PTS: "26", MIN: "30:00", FG: "8-16" } }));
+  const games = [28, 26, 15, 40].map((value, index) => ({
+    eventId: String(index),
+    date: index === 3 ? "2026-10-29" : `2026-10-${21 + index}`,
+    values: [value, 40, 40],
+    minutes: [30, 10, 30],
+    fieldGoalAttempts: [16, 16, 4],
+  }));
+  const positionAllowances = {
+    source: "ESPN", receivedAt: base.startsAt, rows: [],
+    thresholds: [{ position: "SG", market: "player_points", games }],
+  };
+  const options = { ...base, position: "SG", line: 26, history: player,
+    opponentDefense: { ...def, positionAllowances } };
+  const evidence = explainMatchup(options);
+  assert.ok(evidence.observations.some(note => note.includes("1 over, 1 under, 1 exactly at 26 across 3 appearances in 3 games")));
+  assert.ok(explainMatchup({ ...options, position: "PG" }).missing.some(note => note.startsWith("Comparable basketball matchup")));
+});

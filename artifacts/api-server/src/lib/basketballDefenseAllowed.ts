@@ -7,7 +7,7 @@ export async function basketballDefenseAllowed(sport:string,teamId:string):Promi
  if(!football && !['nba','wnba','ncaab'].includes(sport))return null;
  const path=ESPN_SPORT_PATHS[sport];
  const read=async(url:string)=>{const r=await fetch(url,{signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error('Evidence source unavailable');return r.json();};
- return cachedJson(`position-allowed:${sport}:${teamId}:v3`,60*60*1000,async()=>{
+ return cachedJson(`position-allowed:${sport}:${teamId}:v4`,60*60*1000,async()=>{
   const schedule=await read(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${encodeURIComponent(teamId)}/schedule`) as {events?:Array<{id?:string;date?:string;competitions?:Array<{status?:{type?:{completed?:boolean}}}>}>};
   const now=Date.now();
   const events=[...new Map((schedule.events??[]).filter(e=>e.id&&e.date&&Date.parse(e.date)<now&&e.competitions?.[0]?.status?.type?.completed).map(e=>[e.id,e])).values()].sort((a,b)=>Date.parse(b.date!)-Date.parse(a.date!)).slice(0,8);
