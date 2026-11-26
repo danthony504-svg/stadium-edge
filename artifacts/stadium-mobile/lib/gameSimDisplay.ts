@@ -1,5 +1,6 @@
 // Game Simulator display helpers — win-prob normalization, weather copy, summary.
 
+import { impliedProb } from "./format.ts";
 import type { GameSimulationResult } from "./api.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 import {
@@ -79,22 +80,27 @@ export type SimulationSummary = {
   edgePct: number | null;
   fairOdds: number | null;
   bookOdds: number | null;
+  simHit: number | null;
+  breakEven: number | null;
   recommendation: string;
 };
 
 export function buildSimulationSummary(
   bestLine: EvaluatedGameLine | null | undefined,
   recommendation: GameSimRecommendation | null,
+  leanOnly = false,
 ): SimulationSummary {
   const metrics = bestLine ? deriveGameSimLineMetrics(bestLine) : null;
   return {
-    bestBet: bestLine?.entry.pick ?? null,
-    grade: metrics?.grade ?? null,
+    bestBet: bestLine ? `${bestLine.entry.pick} · ${bestLine.entry.market}` : null,
+    grade: metrics ? (leanOnly ? "Lean" : metrics.grade) : null,
     confidence: metrics?.confidencePct ?? null,
     edgePct: metrics?.edgePct ?? null,
     fairOdds: metrics?.fairOdds ?? null,
     bookOdds: metrics?.bookOdds ?? null,
-    recommendation: recommendationSummaryLabel(recommendation),
+    simHit: metrics?.simHit ?? null,
+    breakEven: metrics ? impliedProb(metrics.bookOdds) : null,
+    recommendation: recommendation?.label === "Lean" ? "Lean" : recommendationSummaryLabel(recommendation),
   };
 }
 

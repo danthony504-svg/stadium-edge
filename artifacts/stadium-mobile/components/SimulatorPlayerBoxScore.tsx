@@ -261,7 +261,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
         Simulated Player Box Score
       </Text>
       <Text style={{ color: "#9db4cc", fontSize: 12, fontFamily: FONT.body }}>
-        Player projections use recent form, head-to-head history, and team matchup data where available. The replay score comes from the team simulation.
+        Player projections use recent form and team matchup data where available. The replay score comes from the team simulation.
       </Text>
       {(isFootball || ["nba", "wnba", "ncaab"].includes(sport)) && (
         <SimulatorPropProjections key={eventId} sport={sport} eventId={eventId} startsAt={startsAt}
@@ -321,8 +321,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
                     ? stats.flatMap(({ label, adjustment }) => adjustment
                       ? [`${label} matchup · team ${adjustment.scored.toFixed(1)}/game · opponent allows ${adjustment.allowed.toFixed(1)}/game`]
                       : []).join("\n")
-                    : stats.some(({ matchupGames }) => matchupGames > 0)
-                      ? "Includes head-to-head history" : "Recent form · matchup data unavailable"}
+                    : "Recent form"}
                 </Text> : null}
               </View>
             );

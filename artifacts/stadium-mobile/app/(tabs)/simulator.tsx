@@ -67,7 +67,8 @@ import {
   weatherSettingLabel,
   type SimulationSummary,
 } from "@/lib/gameSimDisplay";
-import { formatAmerican } from "@/lib/format";
+import { formatAmerican, impliedProb } from "@/lib/format";
+import { soccerSimulatorMoneyline } from "@/lib/soccerSimulatorMoneyline";
 import { SPORTS } from "@/lib/sports";
 import {
   cachedSimGames,
@@ -384,7 +385,7 @@ function SimulatorScreen() {
   const showReplay = replayData != null;
 
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
-    if (!gameResult || (gameResult.nbaPossessions || gameResult.eventSimulation) || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    if (!gameResult || sport === "soccer" || gameResult.nbaPossessions || gameResult.eventSimulation || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
     const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
     return buildGameFourQuestions({
       gameLabel,
@@ -393,19 +394,19 @@ function SimulatorScreen() {
       sim: gameResult,
       oddsLines,
     });
-  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines, sport]);
 
   const scoringInput = useMemo(() => {
     if (!gameResult || (gameResult.nbaPossessions || gameResult.eventSimulation) || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
     return {
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
-      evalLines: gameOddsLines,
+      evalLines: sport === "soccer" ? gameOddsLines.filter(line => !/moneyline/i.test(line.market)) : gameOddsLines,
       gameSim: gameResult,
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
     };
-  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries, sport]);
   const [linePageSize, setLinePageSize] = useState(20);
   const [scoredLines, setScoredLines] = useState<{
     input: NonNullable<typeof scoringInput>;
@@ -427,15 +428,21 @@ function SimulatorScreen() {
   }, [scoringInput]);
   const gameLineRecs = scoredLines?.input === scoringInput ? scoredLines.recommendations : null;
 
-  const gameSimRecommendation = useMemo(() => {
-    if (!gameResult || !gameLineRecs) return null;
-    return classifyGameSimRecommendation(gameLineRecs, gameResult);
-  }, [gameResult, gameLineRecs]);
-
   const displayBestLines = useMemo(() => {
     if (!gameLineRecs) return [];
     return gameLineRecs.ranked.filter(qualifiesForBestLines);
   }, [gameLineRecs]);
+
+  const gameSimRecommendation = useMemo(() => {
+    const best = displayBestLines[0];
+    if (!gameResult || !best) return null;
+    const recommendation = classifyGameSimRecommendation({ overall: best, byTeam: { away: null, home: null } }, gameResult);
+    if (sport === "soccer" && ["strong", "small_edge"].includes(recommendation.tier)) {
+      return { ...recommendation, tier: "small_edge" as const, label: "Lean", emoji: "🟡",
+        detail: "Verified soccer rosters, pregame player stats, and settled results are required for a higher grade." };
+    }
+    return recommendation;
+  }, [gameResult, displayBestLines, sport]);
 
   const normalizedWin = useMemo(
     () => (gameResult ? normalizeGameWinDisplay(gameResult) : null),
@@ -443,8 +450,8 @@ function SimulatorScreen() {
   );
 
   const simulationSummary = useMemo(
-    () => buildSimulationSummary(displayBestLines[0], gameSimRecommendation),
-    [displayBestLines, gameSimRecommendation],
+    () => buildSimulationSummary(displayBestLines[0], gameSimRecommendation, sport === "soccer"),
+    [displayBestLines, gameSimRecommendation, sport],
   );
 
   const bestLinesAnalyzing = gameResult ? !!scoringInput && scoredLines?.input !== scoringInput : running;
@@ -835,7 +842,7 @@ function SimulatorScreen() {
                 />
                 {eventSimulation ? (
                   <EventSimulationSummary data={eventSimulation}
-                    home={game.homeAbbr ?? game.homeTeam ?? "Home"} away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                    home={game.homeTeam ?? game.homeAbbr ?? "Home"} away={game.awayTeam ?? game.awayAbbr ?? "Away"}
                     drawProbability={sport === "soccer" ? gameResult.tieProbability : null}
                     lines={coverQueriesFromEvalLines(new Map([[gameLabel, gameOddsLines.filter(line =>
                       ["spread", "total", "total games"].includes(line.market.toLowerCase()),
@@ -844,8 +851,8 @@ function SimulatorScreen() {
                 ) : nbaPossessions ? (
                   <NbaPossessionSummary
                     data={nbaPossessions}
-                    home={game.homeAbbr ?? game.homeTeam ?? "Home"}
-                    away={game.awayAbbr ?? game.awayTeam ?? "Away"}
+                    home={game.homeTeam ?? game.homeAbbr ?? "Home"}
+                    away={game.awayTeam ?? game.awayAbbr ?? "Away"}
                     lines={coverQueriesFromEvalLines(new Map([[gameLabel, gameOddsLines.filter(line => {
                       const market = line.market.toLowerCase();
                       return market === "spread" || market === "total";
@@ -959,6 +966,7 @@ function SimulatorScreen() {
                             awayPct={normalizedWin.awayPct}
                             homePct={normalizedWin.homePct}
                             tiePct={normalizedWin.tiePct}
+                            tiedLabel={sport === "soccer" ? "Draw" : "Tie"}
                             awayLabel={game.awayAbbr ?? game.awayTeam}
                             homeLabel={game.homeAbbr ?? game.homeTeam}
                           />
@@ -977,6 +985,7 @@ function SimulatorScreen() {
                         />
                       </Card>
                     ) : null}
+                    {sport === "soccer" && <SoccerMoneylineCard game={matchedOddsGame} sim={gameResult} />}
                     {gameSimRecommendation ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 6 }}>
@@ -986,7 +995,7 @@ function SimulatorScreen() {
                           {gameSimRecommendation.emoji} {gameSimRecommendation.label}
                         </Text>
                         <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, marginTop: 4, lineHeight: 17 }}>
-                          {gameSimRecommendation.detail}
+                          {simulationSummary.bestBet} · {gameSimRecommendation.detail}
                         </Text>
                       </Card>
                     ) : null}
@@ -1005,7 +1014,7 @@ function SimulatorScreen() {
                           Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — only lines with full sim hit, fair odds, EV, edge, grade, and confidence are shown.
                         </Text>
                         {displayBestLines.slice(0, linePageSize).map((row, index) => (
-                          <RecommendedLineRow key={`${row.entry.market}|${row.entry.pick}|${index}`} row={row} />
+                          <RecommendedLineRow key={`${row.entry.market}|${row.entry.pick}|${index}`} row={row} leanOnly={sport === "soccer"} />
                         ))}
                         {linePageSize < displayBestLines.length ? (
                           <Pressable
@@ -1059,7 +1068,9 @@ function SimulatorScreen() {
                 How it works
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
-                Deep simulations target {SIM_COUNT.toLocaleString()} Monte Carlo draws. The player box score samples recent game logs.
+                Deep simulations target {SIM_COUNT.toLocaleString()} Monte Carlo draws.
+                The event-engine review runs 400 rating sets × 25 games. Hit-chance ranges account for the sampling noise within each rating set.
+                Player rotations use pregame lineup inputs where available.
                 Model edge is the estimated hit chance minus the price's break-even chance, in percentage points.
                 For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
                 The Final AI Score rolls those answers together with matchup, form, injuries, and line shopping.
@@ -1110,6 +1121,22 @@ function SettingRow({
   );
 }
 
+function SoccerMoneylineCard({ game, sim }: { game: OddsGame | null; sim: GameSimulationResult }) {
+  const colors = useColors();
+  const lines = soccerSimulatorMoneyline(game, sim);
+  return (
+    <Card style={{ marginBottom: 12, gap: 8 }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>90-minute moneyline (3-way)</Text>
+      {lines.length ? lines.map(line => (
+        <SummaryLine key={line.name} label={`${line.name} · ${formatAmerican(line.odds)} · ${line.grade}`}
+          value={`${(line.probability * 100).toFixed(1)}% model · ${(line.breakEven * 100).toFixed(1)}% break-even`} />
+      )) : (
+        <Text style={{ color: colors.mutedForeground }}>Three-way quote or model probabilities unavailable.</Text>
+      )}
+    </Card>
+  );
+}
+
 function SimulationSummaryCard({
   analyzing,
   linesScanStep,
@@ -1156,6 +1183,9 @@ function SimulationSummaryCard({
       ) : hasBet ? (
         <View style={{ gap: 6 }}>
           <SummaryLine label="Best Bet" value={summary.bestBet!} />
+          {summary.simHit != null && summary.breakEven != null && (
+            <SummaryLine label="Model vs. break-even" value={`${(summary.simHit * 100).toFixed(1)}% vs. ${(summary.breakEven * 100).toFixed(1)}%`} />
+          )}
           <SummaryLine label="AI Grade" value={summary.grade!} />
           {summary.confidence != null ? (
             <SummaryLine label="Confidence" value={String(summary.confidence)} />
@@ -1249,11 +1279,11 @@ function BestLinesLoadingCard({
   );
 }
 
-function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
+function RecommendedLineRow({ row, leanOnly }: { row: EvaluatedGameLine; leanOnly: boolean }) {
   const colors = useColors();
   const metrics = deriveGameSimLineMetrics(row);
   if (!metrics) return null;
-  const badge = finalAiScoreLabel(row.finalAiScore);
+  const badge = leanOnly ? "Lean" : finalAiScoreLabel(row.finalAiScore);
   const edgeColor = metrics.edgePct >= 0 ? colors.success : colors.destructive;
   const evColor = metrics.evPct >= 0 ? colors.success : colors.destructive;
   return (
@@ -1302,6 +1332,7 @@ function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
           value={formatAmerican(metrics.fairOdds)}
         />
         <MiniStat label="Book Odds" value={formatAmerican(metrics.bookOdds)} />
+        <MiniStat label="Break-even" value={`${(impliedProb(metrics.bookOdds) * 100).toFixed(1)}%`} />
         <MiniStat
           label="EV"
           value={`${metrics.evPct > 0 ? "+" : ""}${metrics.evPct}%`}
@@ -1417,12 +1448,14 @@ function WinBar({
   awayPct,
   homePct,
   tiePct,
+  tiedLabel,
   awayLabel,
   homeLabel,
 }: {
   awayPct: number;
   homePct: number;
   tiePct?: number;
+  tiedLabel: string;
   awayLabel: string;
   homeLabel: string;
 }) {
@@ -1448,7 +1481,7 @@ function WinBar({
       </Text>
       {showTie ? (
         <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: FONT.body }}>
-          Tie / push {(tie * 100).toFixed(1)}%
+          {tiedLabel} {(tie * 100).toFixed(1)}%
         </Text>
       ) : null}
     </View>

@@ -185,7 +185,7 @@ export function hasCompleteEvaluatedLine(row: EvaluatedLineMetrics | EvaluatedGa
 /** Best Lines surface only complete lines with sim-confirmed positive edge. */
 export function qualifiesForBestLines(row: EvaluatedGameLine): boolean {
   const m = deriveGameSimLineMetrics(row);
-  return m != null && m.edgePct > 0;
+  return m != null && m.edgePct > 0 && m.evPct > 0;
 }
 
 export const NO_POSITIVE_EDGE_MESSAGE = "No positive betting edge found";

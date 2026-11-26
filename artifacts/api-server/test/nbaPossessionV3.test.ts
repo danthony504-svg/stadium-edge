@@ -86,6 +86,11 @@ test("backtest scores paired closing forecasts, counts pushes and rejects post-t
   assert.equal(result.win.paired, 1);
   assert.equal(result.cover.settled, 0);
   assert.equal(result.pushes, 1);
+  assert.equal(result.closingMargin.games, 1);
+  assert.equal(result.closingMargin.actualMeanError, -1);
+  assert.equal(result.closingMargin.actualErrorSd, null);
+  assert.equal(result.closingMargin.actualPushRate, 0);
+  assert.ok(result.closingMargin.simulatedPushRate! > 0);
   assert.throws(() => backtestNbaPossessions([{ ...captured, close: { ...captured.close, availableAt: 310 } }]), /invalid/i);
 });
 

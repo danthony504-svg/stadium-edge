@@ -1,4 +1,6 @@
 /** Snapshot-only NBA possession simulation. No live data or client requests inside a draw. */
+import { ratingHitRange80 } from "./ratingHitRange.js";
+
 export const NBA_POSSESSION_VERSION = "nba-possession-v3";
 const RATING_DRAWS = 400;
 const GAMES_PER_RATING = 25;
@@ -325,7 +327,7 @@ export function nbaLineProbability(draws: NbaDraws, query: NbaLine) {
       (query.kind !== "ml" && !Number.isFinite(query.line)) ||
       ((query.kind === "total" || query.kind === "teamTotal") && !["over", "under"].includes(query.totalSide ?? ""))) return null;
   let wins = 0, pushes = 0;
-  const groupRates = [];
+  const samples = [];
   for (let block = 0; block < RATING_DRAWS; block++) {
     let winsInBlock = 0;
     for (let i = 0; i < GAMES_PER_RATING; i++) {
@@ -335,18 +337,10 @@ export function nbaLineProbability(draws: NbaDraws, query: NbaLine) {
       if (value === 0) pushes++;
     }
     wins += winsInBlock;
-    groupRates.push(winsInBlock / GAMES_PER_RATING);
+    samples.push({ hits: winsInBlock, games: GAMES_PER_RATING });
   }
   const win = wins / DRAWS;
-  const groupVariance = groupRates.reduce((sum, rate) => sum + (rate - win) ** 2, 0) / (RATING_DRAWS - 1);
-  // Correct group-rate variance for finite games per rating. The resulting range is exploratory.
-  const between = Math.max(0, (groupVariance - win * (1 - win) / GAMES_PER_RATING) / (1 - 1 / GAMES_PER_RATING));
-  const factor = groupVariance > 0 ? Math.sqrt(between / groupVariance) : 0;
-  const sorted = groupRates.sort((a, b) => a - b);
-  return { win, push: pushes / DRAWS, ci80: [
-    clamp(win + (percentile(sorted, 0.1) - win) * factor, 0, 1),
-    clamp(win + (percentile(sorted, 0.9) - win) * factor, 0, 1),
-  ] };
+  return { win, push: pushes / DRAWS, ci80: ratingHitRange80(samples, win) };
 }
 
 export function summarizeNbaDraws(draws: NbaDraws, queries: readonly NbaLine[] = [], retainOutcomes = true) {

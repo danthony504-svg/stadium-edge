@@ -1,4 +1,5 @@
-import { cap, normal, playEvent, prepareEvent, rng, type EventSnapshot, type Period, type Ratings } from "./eventKernels.js";
+import { normal, playEvent, prepareEvent, rng, type EventSnapshot, type Period, type Ratings } from "./eventKernels.js";
+import { ratingHitRange80 } from "./ratingHitRange.js";
 import type { NbaLine } from "./nbaPossessionV3.js";
 
 const GROUPS = 400;
@@ -44,7 +45,7 @@ export function researchLine(draws: Draws, q: NbaLine) {
   if ((q.kind === "spread" || q.kind === "ml" || q.kind === "teamTotal") && !q.teamSide) return null;
   if (q.kind !== "ml" && !Number.isFinite(q.line)) return null;
   if ((q.kind === "total" || q.kind === "teamTotal") && !q.totalSide) return null;
-  const groups: number[] = [];
+  const samples = [];
   let wins = 0, pushes = 0, voids = 0;
   for (let block = 0; block < GROUPS; block++) {
     let w = 0, available = 0;
@@ -62,18 +63,14 @@ export function researchLine(draws: Draws, q: NbaLine) {
       if (value === 0 && q.kind !== "ml") pushes++;
     }
     wins += w;
-    if (available) groups.push(w / available);
+    if (available) samples.push({ hits: w, games: available });
   }
   const count = RUNS - voids;
-  if (!count || !groups.length) return null;
+  if (!count) return null;
   const win = wins / count;
-  const observed = groups.reduce((s, p) => s + (p - win) ** 2, 0) / groups.length;
-  const within = win * (1 - win) / (count / GROUPS);
-  const scale = Math.sqrt(observed > 0 ? Math.max(0, observed - within) / observed : 0);
-  groups.sort(asc);
   return {
     win, push: pushes / count, void: voids / RUNS,
-    ci80: [cap(win + (quantile(groups, .1) - win) * scale, 0, 1), cap(win + (quantile(groups, .9) - win) * scale, 0, 1)],
+    ci80: ratingHitRange80(samples, win),
   };
 }
 

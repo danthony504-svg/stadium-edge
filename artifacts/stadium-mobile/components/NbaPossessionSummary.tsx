@@ -16,11 +16,11 @@ function ModelDistribution({ data, home, away, lines, drawProbability }: Matchup
   const colors = useColors();
   const spread = lines.find(line => line.kind === "spread" && line.teamSide === "home") ??
     lines.find(line => line.kind === "spread" && line.teamSide === "away");
-  const postedMargin = spread?.line == null ? null : spread.line * (spread.teamSide === "home" ? -1 : 1);
+  const lineMargin = spread?.line == null ? null : spread.line * (spread.teamSide === "home" ? -1 : 1);
   const totalLine = !spread && "totalHistogram" in data ? lines.find(line => line.kind === "total")?.line : null;
   const marginChart = totalLine == null || !("totalHistogram" in data);
   const histogram = marginChart || !("totalHistogram" in data) ? data.marginHistogram : data.totalHistogram;
-  const marker = marginChart ? postedMargin : totalLine;
+  const marker = marginChart ? lineMargin : totalLine;
   const range = marginChart ? data.marginRange80 : data.totalRange80;
   const start = Math.min(histogram[0]?.from ?? 0, marker ?? Infinity);
   const end = Math.max((histogram.at(-1)?.through ?? 0) + 1, marker ?? -Infinity);
@@ -39,8 +39,8 @@ function ModelDistribution({ data, home, away, lines, drawProbability }: Matchup
           })}
           {marker != null && <Line x1={x(marker)} x2={x(marker)} y1={0} y2={98} stroke={colors.foreground} strokeWidth={2} />}
         </Svg>
-        <Text style={detail}>{start} to {end - 1}{marker != null ? ` · posted ${marginChart ? "spread" : "total"} marker at ${marker}` : ""}</Text>
-        <Text style={detail}>{home} win chance · 80% range {data.homeWinRange80?.map(percent).join(" to ") ?? "unavailable"}</Text>
+        <Text style={detail}>{start} to {end - 1}{marker != null ? ` · ${marginChart ? "spread" : "total"} marker at ${marker}` : ""}</Text>
+        <Text style={detail}>{home} win chance · 80% rating range {data.homeWinRange80?.map(percent).join(" to ") ?? "unavailable"}</Text>
         {lines.map(line => {
           const result = data.lines[line.id];
           if (!result || line.line == null) return null;
@@ -48,7 +48,7 @@ function ModelDistribution({ data, home, away, lines, drawProbability }: Matchup
             ? `${line.teamSide === "home" ? home : away} ${signed(line.line)}`
             : `${line.totalSide === "over" ? "Over" : "Under"} ${line.line}`;
           return <Text key={line.id} style={detail}>
-            {label} · {percent(result.win)} hit · 80% range {result.ci80.map(percent).join(" to ")}
+            {label} · {percent(result.win)} hit · 80% rating range {result.ci80.map(percent).join(" to ")}
             {Number.isInteger(line.line) ? ` · ${percent(result.push)} push` : ""}
           </Text>;
         })}
@@ -56,12 +56,14 @@ function ModelDistribution({ data, home, away, lines, drawProbability }: Matchup
         {"retirementProbability" in data && data.retirementProbability > 0 && (
           <Text style={detail}>Retirement in simulation · {percent(data.retirementProbability)}. Line estimates use completed matches.</Text>
         )}
-        <Text style={detail}>Research estimates · 400 rating sets × 25 games</Text>
+        <Text style={detail}>Exploratory model estimates</Text>
       </Card>
   );
 }
 
-export function NbaPossessionSummary({ data, home, away, lines }: Matchup & { data: NbaPossessionDetails }) {
+export function NbaPossessionSummary({ data, home, away, lines, showPlayers = true }: Matchup & {
+  data: NbaPossessionDetails; showPlayers?: boolean;
+}) {
   const colors = useColors();
   const headline = { color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 };
   const detail = { color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 };
@@ -70,10 +72,11 @@ export function NbaPossessionSummary({ data, home, away, lines }: Matchup & { da
       <ModelDistribution data={data} home={home} away={away} lines={lines} />
       <Card style={{ gap: 8 }}>
         <Text style={headline}>Replay box score</Text>
+        {!showPlayers && <Text style={detail}>Player rows require a verified roster and pregame rotation.</Text>}
         {(["away", "home"] as const).map(side => (
           <View key={side} style={{ gap: 4 }}>
             <Text style={headline}>{side === "home" ? home : away} · {data.representative[side].reduce((sum, player) => sum + player.points, 0)} points</Text>
-            {data.representative[side].filter(player => player.minutes > 0).map(player => (
+            {showPlayers && data.representative[side].filter(player => player.minutes > 0).map(player => (
               <Text key={player.id} style={detail}>{player.name} · {player.minutes} MIN · {player.points} PTS · {player.rebounds} REB · {player.assists} AST</Text>
             ))}
           </View>
@@ -90,8 +93,8 @@ const statLabels: Record<string, string> = {
   doubleFaults: "DF", games: "GAMES", sets: "SETS",
 };
 
-export function EventSimulationSummary({ data, home, away, lines, drawProbability }: Matchup & {
-  data: EventSimulationDetails; drawProbability: number | null;
+export function EventSimulationSummary({ data, home, away, lines, drawProbability, showPlayers = true }: Matchup & {
+  data: EventSimulationDetails; showPlayers?: boolean; drawProbability: number | null;
 }) {
   const colors = useColors();
   const detail = { color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 };
@@ -102,7 +105,7 @@ export function EventSimulationSummary({ data, home, away, lines, drawProbabilit
         <Text style={{ ...detail, color: colors.foreground }}>Set scores · {home} first</Text>
         {data.setScoreRates.map(row => <Text key={row.score} style={detail}>{row.score} · {percent(row.probability)}</Text>)}
       </Card>}
-      {data.representative.teams.map((team, i) => (
+      {showPlayers && data.representative.teams.map((team, i) => (
         <Card key={i} style={{ gap: 4 }}>
           <Text style={{ ...detail, color: colors.foreground }}>{i === 0 ? home : away} replay stats</Text>
           {team.filter(player => Object.keys(player.stats).length > 0).map(player =>

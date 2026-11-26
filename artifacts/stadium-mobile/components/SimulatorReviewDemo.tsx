@@ -19,8 +19,8 @@ export function SimulatorReviewDemo() {
   if (!example) return null;
 
   const { sport, lines, result } = example;
-  const home = sport === "tennis" ? "Player A" : "Home";
-  const away = sport === "tennis" ? "Player B" : "Away";
+  const home = sport === "tennis" ? "Player A" : "Blue";
+  const away = sport === "tennis" ? "Player B" : "Gold";
   const event = result.eventSimulation?.representative;
   const periods = event?.periods ?? result.nbaPossessions?.representative.periods.map((period, i) => ({
     ...period, label: i < 4 ? `Q${i + 1}` : `OT ${i - 3}`,
@@ -50,11 +50,11 @@ export function SimulatorReviewDemo() {
               sampledCaption={event?.tiebreak ? `Median modeled margin · decided by ${event.tiebreak}` : "Median modeled margin"} />
           )}
           {result.eventSimulation && (
-            <EventSimulationSummary data={result.eventSimulation} home={home} away={away} lines={lines}
+            <EventSimulationSummary data={result.eventSimulation} home={home} away={away} lines={lines} showPlayers={false}
               drawProbability={sport === "soccer" ? result.tieProbability : null} />
           )}
           {result.nbaPossessions && (
-            <NbaPossessionSummary data={result.nbaPossessions} home={home} away={away} lines={lines} />
+            <NbaPossessionSummary data={result.nbaPossessions} home={home} away={away} lines={lines} showPlayers={false} />
           )}
         </>
       )}
