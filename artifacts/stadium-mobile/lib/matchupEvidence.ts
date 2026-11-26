@@ -212,6 +212,34 @@ export function explainMatchup(o: {
     const cleared=positionGames.filter(g=>g.values.some(v=>v>o.line)).length;
     observations.push(`${o.opponentName} allowed at least one opposing ${positionGroup==="G"?"guard":positionGroup==="F"?"forward":positionGroup} to exceed ${o.line} ${o.market.replace(/^player_/, "").replace(/_/g," ")} in ${cleared}/${positionGames.length} completed games with complete verified position/stat records. Each game counts once; this is not the selected player's hit probability.`);
   }
+  if (["nfl", "ncaaf"].includes(o.sport) && ["RB", "HB"].includes(position ?? "") &&
+      /^player_rush_yds(?:_alternate)?$/.test(o.market)) {
+    const workloads = games.map((game) => Number(game.stats?.rushingAttempts ?? NaN))
+      .filter((carries) => Number.isInteger(carries) && carries > 0);
+    const typical = workloads.length >= 3 ? workloads.reduce((sum, n) => sum + n, 0) / workloads.length : null;
+    const sample = positionRows?.thresholds?.find((row) => row.position === "RB" && row.market === "player_rush_yds");
+    const matchupGames = sample?.games ?? [];
+    const uniqueGames = new Set(matchupGames.map((game) => game.eventId));
+    const appearances = typical == null || uniqueGames.size !== matchupGames.length ? [] : matchupGames.flatMap((game) => {
+      if (!game.eventId || !(Date.parse(game.date) < cutoff) || game.carries?.length !== game.values.length) return [];
+      return game.values.flatMap((yards, i) => {
+        const carries = game.carries![i]!;
+        if (!Number.isInteger(carries) || carries <= 0 || !Number.isFinite(yards) ||
+            Math.abs(carries - typical) > Math.max(2, typical * 0.25)) return [];
+        return [{ yards, carries, eventId: game.eventId }];
+      });
+    });
+    const gameCount = new Set(appearances.map((row) => row.eventId)).size;
+    if (gameCount >= 3) {
+      const yards = appearances.reduce((sum, row) => sum + row.yards, 0);
+      const carries = appearances.reduce((sum, row) => sum + row.carries, 0);
+      const clears = appearances.filter((row) => row.yards > o.line).length;
+      observations.push(`Comparable RBs vs ${o.opponentName}: ${clears}/${appearances.length} appearances went over ${o.line} rushing yards across ${gameCount} games. They averaged ${(yards / appearances.length).toFixed(1)} yards on ${(carries / appearances.length).toFixed(1)} carries (${(yards / carries).toFixed(2)} yards per carry). Matched to the player’s recent carry volume. Expected carries are unconfirmed.`);
+      cautions.push("Comparable RB results describe the matchup. The projection impact is unverified.");
+    } else {
+      missing.push("Comparable RB matchup: fewer than 3 verified games with similar carry volume.");
+    }
+  }
   if (positionContext) observations.push(positionContext);
   else missing.push("Verified primary-position opponent allowance unavailable or fewer than 3 completed games.");
   const defense = marketDefenseContext(
