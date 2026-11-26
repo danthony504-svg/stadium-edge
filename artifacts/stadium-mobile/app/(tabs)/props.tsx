@@ -1,7 +1,7 @@
 import { propsBrowseDeadline, PROPS_EVENT_BUDGET_MS, PROPS_OPTIONAL_IDS_BUDGET_MS } from "@/lib/propsBrowseDeadline";
 import Feather from "@expo/vector-icons/Feather";
 import { postedMarketKeys } from "@/lib/postedMarketCategories";
-import { topPlayersByPosition } from "@/lib/topPlayersByPosition";
+import { positionRankingCandidates, topPlayersByPosition } from "@/lib/topPlayersByPosition";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -25,7 +25,7 @@ import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { MiniStat } from "@/components/PropVisuals";
-import { Avatar, PropRow } from "@/components/PlayerPropRow";
+import { Avatar } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
@@ -34,6 +34,7 @@ import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   fetchPropSimulations,
+  fetchPropSimulationsBatch,
   fetchUpsetSpots,
   getGames,
   getOdds,
@@ -47,6 +48,7 @@ import {
   type PlayerProp,
   type PlayerSearchResult,
   type PropPoolEntry,
+  type PropSimulationResult,
 } from "@/lib/api";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
@@ -91,6 +93,7 @@ const DEFAULT_SEARCH_MARKET: Record<string, string> = {
 // AI RECOMMENDED grading. The "AI grade" is NOT a fabricated model rating (the
 // app has no edge/confidence feed) — it's a transparent letter derived ONLY from
 // how often the player has cleared THIS posted line in their real recent games.
+const SHOW_RECOMMENDED_PROPS = false;
 const REC_CAP = 6; // cards shown in the rail
 
 // VALUE (+EV) rail. A prop is "mispriced" when the best posted price beats the
@@ -134,8 +137,7 @@ type GameProps = {
   sport: string;
   // Main lines only — one row per (player, market) for the list/search/count.
   props: PlayerProp[];
-  // Mains + alternate-ladder rungs — used by the per-row "alt lines" expander
-  // and passed to the props sheet so it can price any real rung.
+  // Main and alternate lines used by the player detail sheet.
   allProps: PlayerProp[];
   teams: TeamInfo | null;
 };
@@ -202,8 +204,7 @@ async function fetchAllProps(
           child,
         ), signal, PROPS_EVENT_BUDGET_MS);
         // Keep every priced line. Mains drive the list rows (one per player +
-        // market); the full set (incl. alternate rungs) feeds the per-row alt
-        // expander and the props sheet.
+        // market); the full set also includes alternate lines for the props sheet.
         const all = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
         const mains = all.filter((p) => !p.alt);
         return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, sport, props: mains, allProps: all, teams: ids };
@@ -745,7 +746,7 @@ function PropsScreen() {
     .join(",");
   const gradesQ = useQuery({
     queryKey: ["prop-grades", sport, gradeKey],
-    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
+    enabled: SHOW_RECOMMENDED_PROPS && propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) =>
       gradePropCands(
@@ -781,7 +782,7 @@ function PropsScreen() {
 
   const simRankQ = useQuery({
     queryKey: ["props-sim-rank", sport, gradeKey],
-    enabled: propsMode === "player" && !searching && gradeCandidates.length > 0,
+    enabled: SHOW_RECOMMENDED_PROPS && propsMode === "player" && !searching && gradeCandidates.length > 0,
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
       const picks = gradeCandidates.map((c) => c.pick);
@@ -796,7 +797,7 @@ function PropsScreen() {
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
     queryKey: ["props-upsets", sport],
-    enabled: propsMode === "player" && !searching && !isBrowseSport,
+    enabled: SHOW_RECOMMENDED_PROPS && propsMode === "player" && !searching && !isBrowseSport,
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 5 * 60_000,
   });
@@ -1154,11 +1155,49 @@ function PropsScreen() {
   };
 
   const postedMarkets = useMemo(() => postedMarketKeys(propsQ.data?.games ?? []), [propsQ.data]);
-  const positionGroups = useMemo(() => {
+  const positionBoards = useMemo(() => {
     if (isBrowseSport || searching || propsMode !== "player") return [];
-    const games = (propsQ.data?.games ?? []).filter((game) => game.sport === sport);
-    return topPlayersByPosition(games, marketFilter);
-  }, [propsQ.data, sport, marketFilter, isBrowseSport, searching, propsMode]);
+    return filtered
+      .filter(game => game.sport === sport && Date.parse(game.startsAt) > Date.now())
+      .map(game => ({ game, candidates: positionRankingCandidates(game.props) }))
+      .filter(board => board.candidates.length > 0);
+  }, [filtered, sport, isBrowseSport, searching, propsMode]);
+
+  const positionSimQueries = useQueries({
+    queries: positionBoards.map(({ game, candidates }) => {
+      const requests = candidates.map(({ prop, athleteId, line, side }) => ({
+        player: prop.player, athleteId, market: prop.market, line, side, playerTeamId: prop.playerTeamId,
+      }));
+      const [awayTeam, homeTeam] = game.gameLabel.split(" @ ");
+      const opts = {
+        awayTeam, homeTeam, startsAt: game.startsAt,
+        homeTeamId: game.teams?.homeTeamId, awayTeamId: game.teams?.awayTeamId,
+        tier: "quick" as const,
+      };
+      return {
+        queryKey: ["props-position-sim", game.sport, opts, requests],
+        staleTime: 5 * 60_000,
+        retry: false,
+        queryFn: async ({ signal }: { signal: AbortSignal }) => {
+          const simulations: PropSimulationResult[] = [];
+          const batchSize = 40;
+          for (let i = 0; i < requests.length; i += batchSize) {
+            const chunk = requests.slice(i, i + batchSize);
+            const batch = await fetchPropSimulationsBatch(game.sport, chunk, opts, signal);
+            if (batch.props.length !== chunk.length) throw new Error("Incomplete player prop simulation response");
+            simulations.push(...batch.props);
+          }
+          return simulations;
+        },
+      };
+    }),
+  });
+  const positionGroups = topPlayersByPosition(positionBoards.flatMap((board, index) => {
+    const simulations = positionSimQueries[index]?.data;
+    return simulations && Date.parse(board.game.startsAt) > Date.now() ? [{ ...board, simulations }] : [];
+  }));
+  const positionSimsPending = positionSimQueries.some(result => result.isPending);
+  const positionSimsFailed = positionSimQueries.some(result => result.isError);
   useEffect(() => { setMarketFilter(null); }, [sport]);
 
   return (
@@ -1438,7 +1477,7 @@ function PropsScreen() {
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
             hidden while searching. */}
-        {false && !query.trim() && recommended.length > 0 ? (
+        {SHOW_RECOMMENDED_PROPS && !query.trim() && recommended.length > 0 ? (
           <View style={{ marginBottom: 18 }}>
             <Text
               style={{
@@ -1594,23 +1633,28 @@ function PropsScreen() {
               Top Players by Position
             </Text>
             <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
-              {positionGroups.length === 0
-                ? "Verified positions unavailable for these props."
-                : marketFilter
-                  ? `${propMarketLabel(marketFilter)} · Highest posted lines first where available`
-                  : "Most posted markets first"}
+              {marketFilter
+                ? `${propMarketLabel(marketFilter)} · Estimated hit chance`
+                : "Ranked by estimated hit chance on posted main lines"}
             </Text>
+            {positionSimsPending && <Loading label="Simulating posted props…" />}
+            {!positionSimsPending && !positionSimsFailed && positionGroups.length === 0 && (
+              <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                No upcoming props with a verified position and a simulation estimate.
+              </Text>
+            )}
+            {positionSimsFailed && <ErrorState onRetry={() => {
+              for (const result of positionSimQueries) if (result.isError) void result.refetch();
+            }} />}
             {positionGroups.map(({ position, players }) => (
               <View key={position} style={{ gap: 6 }}>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>{position}</Text>
-                {players.map(({ game, prop, marketCount }) => {
+                {players.map(({ game, prop, athleteId, line, side, probability, sampleGames }) => {
                   const team = teamAbbrFor(prop, game.teams);
-                  const summary = marketFilter && prop.line != null
-                    ? `${prop.line} · ${propMarketLabel(prop.market)}`
-                    : `${marketCount} posted market${marketCount === 1 ? "" : "s"}`;
+                  const summary = `${side} ${line} ${propMarketLabel(prop.market)}`;
                   return (
                     <Pressable
-                      key={prop.athleteId}
+                      key={athleteId}
                       accessibilityRole="button"
                       onPress={() => openSheet(game, prop)}
                       style={({ pressed }) => ({
@@ -1629,7 +1673,9 @@ function PropsScreen() {
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>{prop.player}</Text>
                         <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{[team, summary].filter(Boolean).join(" · ")}</Text>
+                        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{sampleGames} history games</Text>
                       </View>
+                      <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 14 }}>{(probability * 100).toFixed(1)}%</Text>
                       <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
                     </Pressable>
                   );
@@ -1924,33 +1970,7 @@ function PropsScreen() {
               title="No props in the window"
               subtitle={`No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
             />
-          ) : (
-            filtered.map((g, gi) => (
-              <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
-                    {g.gameLabel}
-                  </Text>
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                    {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
-                  </Text>
-                </View>
-                {g.props.map((p, idx) => (
-                  <PropRow
-                    key={`${p.player}-${p.market}-${p.line}-${idx}`}
-                    prop={p}
-                    alts={g.allProps
-                      .filter((a) => a.alt && a.player === p.player && a.market === p.market)
-                      .sort((a, b) => (a.line ?? 0) - (b.line ?? 0))}
-                    gameLabel={g.gameLabel}
-                    sport={sport}
-                    showPrices={false}
-                    onOpen={() => openSheet(g, p)}
-                  />
-                ))}
-              </View>
-            ))
-          )}
+          ) : null}
           {/* Load-more footer: only in the browse view, when more pickable games
               remain than we've loaded. Tapping (or scrolling near the bottom)
               pulls the next batch; a spinner shows while it's in flight. */}
