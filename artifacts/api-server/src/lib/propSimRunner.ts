@@ -584,7 +584,7 @@ export async function runPropSims(
     }
 
     const comparableMatchup = preparedComparableMatchup(primaryReq, gameCtx, historyCache);
-    const ctx = { ...baseContext, comparableMatchup };
+    const ctx = { ...baseContext, comparableMatchup, expectedCarries: parts.expectedCarries };
     const cacheFingerprint = comparableDistributionFingerprint(fingerprint, comparableMatchup);
     const distKey = propDistributionCacheKey(parts, cacheFingerprint, tier, simCount);
 
@@ -840,7 +840,7 @@ export async function warmDeepSims(
         const again = await getCachedPropDistribution(deepKey);
         if (again?.samples?.length) return again;
 
-        const ctx = { ...propSimulationContextFromCached(cachedCtx!, primaryReq, gctx), comparableMatchup };
+        const ctx = { ...propSimulationContextFromCached(cachedCtx!, primaryReq, gctx), comparableMatchup, expectedCarries: parts.expectedCarries };
         const groupLines = [
           ...new Set(
             group

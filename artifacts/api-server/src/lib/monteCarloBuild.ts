@@ -1,3 +1,4 @@
+import { supportedProjectedCarries } from "./comparablePropMatchup.js";
 import { scoringSignalKey, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import {
   computeAmbiguous,
@@ -59,6 +60,7 @@ export type SimPropRequest = {
   playerTeamId?: string | null;
   /** ESPN roster role; not a claimed confirmed starter. */
   position?: string | null;
+  expectedCarries?: number | null;
   /** Extra alt rungs scored on the same 10k draw as `line`. */
   additionalLines?: number[];
 };
@@ -368,6 +370,7 @@ export function sharedDistributionPartsForProp(
     market: req.market,
     athleteId: req.athleteId,
     opponentTeamId: req.opponentTeamId,
+    expectedCarries: supportedProjectedCarries(req.sport, req.market, req.expectedCarries),
     isHome,
     homeTeamId: req.homeTeamId,
     awayTeamId: req.awayTeamId,

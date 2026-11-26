@@ -1,4 +1,4 @@
-import type { ComparablePropMatchup } from "./comparablePropMatchup.js";
+import { supportedProjectedCarries, type ComparablePropMatchup } from "./comparablePropMatchup.js";
 // Monte Carlo prop simulator — 10,000 draws per prop using real game-log samples,
 // pace, minutes, injuries, matchup splits, weather (MLB), and recent form.
 // Outputs hit probability, most-likely stat line, and a confidence score.
@@ -73,6 +73,7 @@ export type PropSimulationContext = {
   matchupExplain?: string | null;
   matchupSample?: number;
   comparableMatchup?: ComparablePropMatchup;
+  expectedCarries?: number | null;
   combinedPreSimExplain?: string | null;
   /** Skip soft home/away blend — already captured in venueFamilyMult. */
   suppressSoftVenueBlend?: boolean;
@@ -293,7 +294,10 @@ export function buildProjectionMean(ctx: PropSimulationContext, baselineOnly = f
     }
   }
 
-  return Math.max(0, mean * (ctx.comparableMatchup?.multiplier ?? 1));
+  const reference = ctx.comparableMatchup?.recentCarries;
+  const expected = supportedProjectedCarries(ctx.sport, ctx.market, ctx.expectedCarries);
+  const workload = reference != null && reference > 0 && expected != null ? expected / reference : 1;
+  return Math.max(0, mean * (ctx.comparableMatchup?.multiplier ?? 1) * workload);
 }
 
 /**
@@ -336,7 +340,25 @@ export function explainProjection(ctx: PropSimulationContext) {
   if (comparable?.status === "applied" && comparable.multiplier !== 1) {
     reasons.push(`Comparable opponents matched by position and ${comparable.workload} (${comparable.games} games, ${comparable.appearances} appearances) ×${comparable.multiplier.toFixed(3)}`);
   }
-  return { baseline, adjusted, reasons, comparable, opponentHistoryGames: Math.max(ctx.matchupSample ?? 0, versus.length) };
+  const recentCarries = comparable?.recentCarries;
+  const expectedCarries = supportedProjectedCarries(ctx.sport, ctx.market, ctx.expectedCarries);
+  let workloadComparison;
+  if (recentCarries != null && recentCarries > 0 && expectedCarries != null && comparable) {
+    const referenceContext = { ...ctx, expectedCarries: null };
+    const withRecentCarries = buildProjectionMean(referenceContext)!;
+    const withoutComparableAdjustment = buildProjectionMean({
+      ...referenceContext, comparableMatchup: { ...comparable, multiplier: 1 },
+    })!;
+    const matchupPenalty = Math.max(0, withoutComparableAdjustment - withRecentCarries);
+    const yardsGained = adjusted - withRecentCarries;
+    workloadComparison = {
+      recentCarries, expectedCarries, withRecentCarries, matchupPenalty, yardsGained,
+      offset: matchupPenalty === 0 || yardsGained <= 0 ? "none" as const
+        : yardsGained + 1e-9 >= matchupPenalty ? "full" as const : "partial" as const,
+    };
+    reasons.push(`Expected carries: ${expectedCarries} compared with ${recentCarries.toFixed(1)} recently`);
+  }
+  return { baseline, adjusted, reasons, comparable, workloadComparison, opponentHistoryGames: Math.max(ctx.matchupSample ?? 0, versus.length) };
 }
 
 /** Hit rate from fixed samples — Over = P(X > line), Under = P(X < line). */

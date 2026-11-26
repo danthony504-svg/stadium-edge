@@ -2137,7 +2137,17 @@ export type PropSimulationResult = {
     adjusted: number;
     reasons: string[];
     opponentHistoryGames: number;
+    workloadComparison?: {
+      recentCarries: number;
+      expectedCarries: number;
+      withRecentCarries: number;
+      matchupPenalty: number;
+      yardsGained: number;
+      offset: "none" | "partial" | "full";
+    };
     comparable?: {
+      snapshotId?: string;
+      recentCarries?: number;
       status: "applied" | "limited" | "missing" | "unsupported";
       games: number;
       appearances: number;
@@ -2666,6 +2676,7 @@ export async function fetchPropSimulationsBatch(
     homeTeamId?: string | null;
     awayTeamId?: string | null;
     additionalLines?: number[];
+    expectedCarries?: number | null;
   }>,
   opts?: {
     homeTeam?: string;
@@ -2706,6 +2717,7 @@ async function fetchPropSimulationsBatchUnlim(
     homeTeamId?: string | null;
     awayTeamId?: string | null;
     additionalLines?: number[];
+    expectedCarries?: number | null;
   }>,
   opts?: {
     homeTeam?: string;

@@ -5,6 +5,7 @@ export const COMPARABLE_MATCHUP_VERSION = "comparable-workload-v1";
 
 export type ComparablePropMatchup = {
   snapshotId?: string;
+  recentCarries?: number;
   status: "applied" | "limited" | "missing" | "unsupported";
   games: number;
   appearances: number;
@@ -61,6 +62,7 @@ export function comparablePropMatchup(input: {
 
   const average = (values: number[]) => values.reduce((sum, n) => sum + n, 0) / values.length;
   const volume = average(player.map(p => p.volume));
+  if (rushing) result.recentCarries = volume;
   const minutes = average(player.map(p => p.minutes));
   const seen = new Set<string>();
   const peerValues: number[] = [];
@@ -94,4 +96,11 @@ export function comparablePropMatchup(input: {
 export function comparableDistributionFingerprint(base: string, matchup: ComparablePropMatchup): string {
   const evidence = createHash("sha256").update(JSON.stringify(matchup)).digest("hex");
   return `${base}:${COMPARABLE_MATCHUP_VERSION}:${evidence}`;
+}
+
+/** Scenario inputs are explicit and currently supported only for full-game RB rushing yards. */
+export function supportedProjectedCarries(sport: string, market: string, value: unknown): number | null {
+  return (sport === "nfl" || sport === "ncaaf") && /^player_rush_yds(?:_alternate)?$/.test(market) &&
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 60
+    ? value : null;
 }

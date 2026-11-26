@@ -1,8 +1,9 @@
+import { propSharedDistributionKey } from "../src/lib/propSharedDistribution.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { comparableDistributionFingerprint, comparablePropMatchup } from "../src/lib/comparablePropMatchup.js";
 import { serverPickFinalAiScore, serverPickRankScore } from "../src/lib/coachSlatePickScore.js";
-import { scoreSharedDistribution, scoreTargetsFromSamples } from "../src/lib/monteCarlo.js";
+import { explainProjection, scoreSharedDistribution, scoreTargetsFromSamples } from "../src/lib/monteCarlo.js";
 
 const base = {
   sport: "nfl",
@@ -157,4 +158,38 @@ test("server board scan excludes the tough matchup and stages the favorable one"
   ] as const) {
     console.log(label, { ...fresh.decision, entry: undefined, freshMs: fresh.milliseconds, cachedMs: cached.milliseconds });
   }
+});
+
+test("projected carries independently offset a fixed rushing matchup penalty", () => {
+  const comparableMatchup = comparablePropMatchup({ ...base, thresholds: snapshot(50) });
+  const ctx = {
+    sport: "nfl", market: base.market, line: 100, side: "Over" as const,
+    recentValues: [100, 100, 100, 100, 100], discrete: true, comparableMatchup,
+  };
+  const targets = [{ line: ctx.line, side: ctx.side }];
+  const former = scoreSharedDistribution(ctx, targets, 10_000, { seed: 12345 });
+  const withCarries = (expectedCarries: number) => {
+    const scenario = { ...ctx, expectedCarries };
+    return {
+      breakdown: explainProjection(scenario)!,
+      hit: scoreSharedDistribution(scenario, targets, 10_000, { seed: 12345 }).results[0]?.hitProbability,
+    };
+  };
+  const partial = withCarries(21);
+  const full = withCarries(24);
+  assert.equal(partial.breakdown.workloadComparison?.offset, "partial");
+  assert.equal(full.breakdown.workloadComparison?.offset, "full");
+  assert.ok(Math.abs(full.breakdown.adjusted - 110.4) < 1e-9);
+  assert.ok(Math.abs(full.breakdown.workloadComparison!.yardsGained - 18.4) < 1e-9);
+  assert.equal(full.breakdown.workloadComparison?.matchupPenalty, 8);
+  assert.equal(full.breakdown.comparable?.snapshotId, comparableMatchup.snapshotId);
+  assert.equal(former.results[0]?.hitProbability, 0.224);
+  assert.ok(partial.hit! > former.results[0]!.hitProbability! && full.hit! > partial.hit!);
+  const key = { sport: ctx.sport, market: ctx.market, player: "Fixture Back" };
+  assert.notEqual(propSharedDistributionKey({ ...key, expectedCarries: 21 }),
+    propSharedDistributionKey({ ...key, expectedCarries: 24 }));
+  console.log("Workload fixture", {
+    original: former.results[0]?.hitProbability, partial: partial.hit, full: full.hit,
+    adjustedAt21: partial.breakdown.adjusted, adjustedAt24: full.breakdown.adjusted,
+  });
 });

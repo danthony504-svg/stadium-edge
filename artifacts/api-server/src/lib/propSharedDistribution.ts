@@ -17,6 +17,7 @@ export type PropSharedDistributionParts = {
   player: string;
   market: string;
   athleteId?: string | null;
+  expectedCarries?: number | null;
   opponentTeamId?: string | null;
   isHome?: boolean | null;
   homeTeamId?: string | null;
@@ -59,5 +60,6 @@ export function propSharedDistributionKey(parts: PropSharedDistributionParts): s
     String(parts.ownKeyInjuries ?? 0),
     wx(parts.weatherImpact),
     String(parts.opportunityShiftFingerprint ?? ""),
+    ...(parts.expectedCarries == null ? [] : [`carries=${parts.expectedCarries}`]),
   ].join("|");
 }
