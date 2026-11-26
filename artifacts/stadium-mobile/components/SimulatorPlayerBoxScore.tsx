@@ -135,12 +135,17 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
   });
   const players = sides.flatMap((side) => side.players.slice(0, limit));
   const histories = useQueries({
-    queries: players.map(({ athleteId, teamId }) => ({
-      queryKey: ["sim-box-history", sport, athleteId, teamId === awayTeamId ? homeTeamId : awayTeamId],
-      queryFn: ({ signal }: { signal: AbortSignal }) => fetchSimulatorPlayerHistory({ sport, athleteId, opponentTeamId: teamId === awayTeamId ? homeTeamId : awayTeamId }, signal),
-      staleTime: 10 * 60_000,
-      retry: false,
-    })),
+    queries: players.map(({ athleteId, teamId, name }) => {
+      const opponentTeamId = teamId === awayTeamId ? homeTeamId : awayTeamId;
+      const opponentName = teamId === awayTeamId ? home : away;
+      return {
+        queryKey: ["sim-box-history", sport, athleteId, name, opponentTeamId, opponentName],
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          fetchSimulatorPlayerHistory({ sport, athleteId, name, opponentTeamId, opponentName }, signal),
+        staleTime: 10 * 60_000,
+        retry: false,
+      };
+    }),
   });
   const historyByPlayer = new Map(players.map((player, i) => [player.athleteId, histories[i]]));
   const cutoff = Math.min(run, Date.parse(startsAt));
@@ -206,8 +211,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
         Simulated Player Box Score
       </Text>
       <Text style={{ color: "#9db4cc", fontSize: 12, fontFamily: FONT.body }}>
-        Player lines are sampled from recent games
-        {isFootball ? " (passing, rushing, receiving)" : ""} and are independent of the replay score.
+        Player projections use recent form and head-to-head history where available. The replay score comes from the team simulation.
       </Text>
       <Text style={{ color: "#e8f1fa", fontFamily: FONT.semibold }}>Projection Accuracy</Text>
       {saveFailed || accuracy.isError ? (
@@ -256,7 +260,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
                 ) : null}
                 <Text style={{ color: "#b7c9dc", fontSize: 13, fontFamily: FONT.body }}>
                   {stats.length ? stats.map(({ value, label }) => `${value} ${label}`).join(" · ")
-                    : history?.isPending ? "Loading player stats…" : "Recent stats unavailable."}
+                    : history?.isPending ? "Loading player stats…" : history?.isError ? "Couldn’t load player history." : "No usable pregame stats available."}
                 </Text>
                 {stats.length ? <Text style={{ color: "#7f96ad", fontSize: 11 }}>
                   {stats.some(({ matchupGames }) => matchupGames > 0) ? "Includes head-to-head history" : "Recent form · head-to-head unavailable"}
