@@ -167,7 +167,7 @@ Processed season data: https://github.com/ramirobentes/nba_data/releases
 
 ## Tip-win logistic recalibration
 
-Run `scripts/recalibrateNbaFirstBasketTip.ts <2025–26-replay.json> <2026–27-replay.json>` with separate normalized fit and holdout files. Fit the home-tip outcome against the log-odds of each as-of forecast on the audited 2025–26 cohort. Freeze the intercept and slope before scoring any 2026–27 games. Retain the existing usage prior of 70 and the raw jump and possession labels.
+The unconstrained replay at commit `c45b75b` uses separate normalized fit and holdout files. Fit the home-tip outcome against the log-odds of each as-of forecast on the audited 2025–26 cohort. Freeze the intercept and slope before scoring any 2026–27 games. Retain the existing usage prior of 70 and the raw jump and possession labels.
 
 The 2026–27 replay uses recorded starters, verified earlier opening history frozen to 2025–26, and processed 2026–27 tip and first-points outcomes. Raw 2026–27 jump records and prospective lineup publication timestamps were unavailable. The scratch, quota, and closing-field checks still require live collection.
 
@@ -214,6 +214,104 @@ Team-scores-first log loss changed from 0.68826 to 0.68555, a gain of 0.00271 (9
 | Adjusted | 50–60% | 96 | 54.95% | 61.46% | +6.50 | -3.49 to +15.62 |
 | Adjusted | 60–70% | 31 | 63.73% | 58.06% | -5.66 | -22.96 to +9.86 |
 | Adjusted | 70–80% | 10 | 72.61% | 80.00% | +7.39 | -23.59 to +21.72 |
+
+## Tip tail, home orientation, and conservative refit
+
+The 2025–26 home-tip 60–70% bin covered 61 games from November 20 to April 12. Raw jump winner and loser IDs agreed with the reviewed records in every game. Team scoring additions to the raw home and away score columns confirmed orientation in all 1,224 normalized games. The diagnostic uses score changes because the feed's shot-side field says left or right on the court.
+
+| Actual home jumper | Games | Home tip wins | Mean home forecast |
+| --- | ---: | ---: | ---: |
+| Wendell Carter Jr. | 16 | 15 | 62.21% |
+| Victor Wembanyama | 14 | 14 | 66.08% |
+| Mark Williams | 12 | 10 | 63.12% |
+| Remaining jumpers | 19 | 15 | 61.69% |
+
+The three leaders accounted for 42 games and 39 wins. The remaining 19 also ran high at 78.95% observed. Only one exact jumper pair appeared twice. The bin had one game in November, four in December, 18 in January, 14 in February, 17 in March, and seven in April.
+
+<details>
+<summary>All 61 audited games and opening jumpers</summary>
+
+| Date (Central) | Game ID | Away jumper | Home jumper | Home forecast | Winner |
+| --- | --- | --- | --- | ---: | --- |
+| 2025-11-20 | 0022500264 | Ivica Zubac (LAC) | Wendell Carter Jr. (ORL) | 61.75% | Home |
+| 2025-12-01 | 0022500314 | Nikola Vučević (CHI) | Wendell Carter Jr. (ORL) | 62.18% | Home |
+| 2025-12-13 | 0022501229 | Karl-Anthony Towns (NYK) | Wendell Carter Jr. (ORL) | 61.35% | Away |
+| 2025-12-14 | 0022501219 | Myles Turner (MIL) | Nic Claxton (BKN) | 61.09% | Home |
+| 2025-12-18 | 0022500378 | Quinten Post (GSW) | Mark Williams (PHX) | 61.54% | Home |
+| 2026-01-01 | 0022500471 | Alperen Sengun (HOU) | Nic Claxton (BKN) | 60.91% | Away |
+| 2026-01-02 | 0022500483 | Maxime Raynaud (SAC) | Mark Williams (PHX) | 60.26% | Home |
+| 2026-01-04 | 0022500495 | Micah Potter (IND) | Wendell Carter Jr. (ORL) | 60.74% | Home |
+| 2026-01-09 | 0022500533 | Joel Embiid (PHI) | Wendell Carter Jr. (ORL) | 62.45% | Home |
+| 2026-01-09 | 0022500538 | Karl-Anthony Towns (NYK) | Mark Williams (PHX) | 62.33% | Home |
+| 2026-01-09 | 0022500541 | Myles Turner (MIL) | Deandre Ayton (LAL) | 63.34% | Home |
+| 2026-01-11 | 0022500554 | Myles Turner (MIL) | Aaron Gordon (DEN) | 61.31% | Home |
+| 2026-01-11 | 0022500555 | Alex Sarr (WAS) | Mark Williams (PHX) | 61.72% | Home |
+| 2026-01-15 | 0022500578 | Jaren Jackson Jr. (MEM) | Wendell Carter Jr. (ORL) | 60.41% | Home |
+| 2026-01-15 | 0022500582 | Myles Turner (MIL) | Victor Wembanyama (SAS) | 66.76% | Home |
+| 2026-01-16 | 0022500588 | Derik Queen (NOP) | Jay Huff (IND) | 61.04% | Home |
+| 2026-01-17 | 0022500598 | Naz Reid (MIN) | Victor Wembanyama (SAS) | 61.81% | Home |
+| 2026-01-18 | 0022500607 | Scottie Barnes (TOR) | Deandre Ayton (LAL) | 62.28% | Home |
+| 2026-01-22 | 0022500627 | Moussa Diabaté (CHA) | Wendell Carter Jr. (ORL) | 62.26% | Home |
+| 2026-01-25 | 0022500654 | Derik Queen (NOP) | Victor Wembanyama (SAS) | 68.55% | Home |
+| 2026-01-25 | 0022500655 | Bam Adebayo (MIA) | Mark Williams (PHX) | 61.82% | Away |
+| 2026-01-29 | 0022500685 | Jalen Duren (DET) | Mark Williams (PHX) | 63.38% | Home |
+| 2026-01-30 | 0022500687 | Scottie Barnes (TOR) | Wendell Carter Jr. (ORL) | 63.08% | Home |
+| 2026-02-01 | 0022500709 | Ivica Zubac (LAC) | Mark Williams (PHX) | 65.08% | Away |
+| 2026-02-04 | 0022500730 | Cason Wallace (OKC) | Victor Wembanyama (SAS) | 65.48% | Home |
+| 2026-02-05 | 0022500739 | Draymond Green (GSW) | Mark Williams (PHX) | 66.27% | Home |
+| 2026-02-06 | 0022500744 | Derik Queen (NOP) | Rudy Gobert (MIN) | 61.09% | Away |
+| 2026-02-07 | 0022500749 | Daniel Gafford (DAL) | Victor Wembanyama (SAS) | 66.59% | Home |
+| 2026-02-07 | 0022500754 | Joel Embiid (PHI) | Mark Williams (PHX) | 63.50% | Home |
+| 2026-02-09 | 0022500764 | Myles Turner (MIL) | Wendell Carter Jr. (ORL) | 64.09% | Home |
+| 2026-02-10 | 0022500773 | Daniel Gafford (DAL) | Mark Williams (PHX) | 65.75% | Home |
+| 2026-02-11 | 0022500777 | Myles Turner (MIL) | Wendell Carter Jr. (ORL) | 65.29% | Home |
+| 2026-02-21 | 0022500815 | Maxime Raynaud (SAC) | Victor Wembanyama (SAS) | 61.50% | Home |
+| 2026-02-24 | 0022500833 | Daniel Gafford (DAL) | Nic Claxton (BKN) | 60.36% | Home |
+| 2026-02-24 | 0022500839 | Neemias Queta (BOS) | Mark Williams (PHX) | 61.41% | Home |
+| 2026-02-26 | 0022500852 | Alperen Sengun (HOU) | Wendell Carter Jr. (ORL) | 60.20% | Home |
+| 2026-02-28 | 0022500864 | Alperen Sengun (HOU) | Bam Adebayo (MIA) | 60.06% | Away |
+| 2026-03-01 | 0022500870 | Myles Turner (MIL) | Matas Buzelis (CHI) | 61.84% | Home |
+| 2026-03-05 | 0022500899 | Daniel Gafford (DAL) | Wendell Carter Jr. (ORL) | 60.25% | Home |
+| 2026-03-05 | 0022500904 | Jalen Duren (DET) | Victor Wembanyama (SAS) | 65.46% | Home |
+| 2026-03-06 | 0022500913 | Brook Lopez (LAC) | Victor Wembanyama (SAS) | 63.85% | Home |
+| 2026-03-08 | 0022500927 | Alperen Sengun (HOU) | Victor Wembanyama (SAS) | 68.44% | Home |
+| 2026-03-09 | 0022500932 | Olivier-Maxence Prosper (MEM) | Nic Claxton (BKN) | 61.79% | Home |
+| 2026-03-10 | 0022500938 | Alex Sarr (WAS) | Bam Adebayo (MIA) | 60.73% | Home |
+| 2026-03-10 | 0022500937 | Jalen Duren (DET) | Nic Claxton (BKN) | 60.11% | Away |
+| 2026-03-10 | 0022500942 | Neemias Queta (BOS) | Victor Wembanyama (SAS) | 64.98% | Home |
+| 2026-03-12 | 0022500955 | Alex Sarr (WAS) | Wendell Carter Jr. (ORL) | 62.79% | Home |
+| 2026-03-12 | 0022500957 | Myles Turner (MIL) | Kel'el Ware (MIA) | 63.23% | Home |
+| 2026-03-14 | 0022500973 | Moussa Diabaté (CHA) | Victor Wembanyama (SAS) | 67.95% | Home |
+| 2026-03-19 | 0022501013 | Oso Ighodaro (PHX) | Victor Wembanyama (SAS) | 65.54% | Home |
+| 2026-03-21 | 0022501031 | Myles Turner (MIL) | Oso Ighodaro (PHX) | 63.75% | Home |
+| 2026-03-23 | 0022501046 | Myles Turner (MIL) | Brook Lopez (LAC) | 62.88% | Home |
+| 2026-03-30 | 0022501094 | Matas Buzelis (CHI) | Victor Wembanyama (SAS) | 68.72% | Home |
+| 2026-03-30 | 0022501098 | Tristan Vukcevic (WAS) | Deandre Ayton (LAL) | 61.49% | Home |
+| 2026-04-01 | 0022501107 | Onyeka Okongwu (ATL) | Wendell Carter Jr. (ORL) | 61.85% | Home |
+| 2026-04-04 | 0022501129 | Anthony Gill (WAS) | Bam Adebayo (MIA) | 60.37% | Home |
+| 2026-04-06 | 0022501144 | Jalen Duren (DET) | Wendell Carter Jr. (ORL) | 62.32% | Home |
+| 2026-04-06 | 0022501146 | Joel Embiid (PHI) | Victor Wembanyama (SAS) | 69.44% | Home |
+| 2026-04-07 | 0022501157 | Alperen Sengun (HOU) | Mark Williams (PHX) | 64.42% | Home |
+| 2026-04-08 | 0022501159 | Naz Reid (MIN) | Wendell Carter Jr. (ORL) | 64.37% | Home |
+| 2026-04-12 | 0022501195 | Derik Queen (NOP) | Joan Beringer (MIN) | 64.40% | Home |
+
+</details>
+
+The raw home-tip average was 50.08% forecast versus 52.81% observed in 2025–26 and 50.26% versus 51.32% in the partial 2026–27 replay. Fit the home offset with slope fixed at one, then add a slope with penalty `20 × (slope − 1)² / 2` to the summed training loss. The term takes the opposite sign for an away forecast, which keeps complementary probabilities and one observation per game. The previous intercept was already an implicit home term because all outcomes were home-oriented.
+
+Run `scripts/recalibrateNbaFirstBasketTip.ts <fit-replay.json> <holdout-replay.json>` for the home-only diagnostic and penalized candidate. Fit on the same 1,208 audited 2025–26 games. Treat the 265 partial 2026–27 games as a reused diagnostic cohort because the previous candidate was already scored on it.
+
+| Candidate | Home offset, log-odds | Slope | Tip log loss | Paired tip gain, 95% interval |
+| --- | ---: | ---: | ---: | --- |
+| Baseline | 0 | 1 | 0.66012 | — |
+| Home term only | +0.11124 | 1 | 0.66044 | −0.00032 (−0.00688 to +0.00613) |
+| Penalized slope and home term | +0.11179 | 1.64721 | 0.65400 | +0.00613 (−0.00770 to +0.01936) |
+
+The penalized candidate's 40–50% bin was 45.36% forecast versus 44.62% observed (65 games, −0.75 pp). Its 50–60% bin was 55.13% versus 52.94% (85 games, −2.19 pp). Team-scores-first log loss fell from 0.68826 to 0.68506 (paired gain +0.00320, 95% interval −0.00119 to +0.00762). A five-point shock to tip probability moved team-scores-first by 1.62 points on average, with the other simulation draws fixed.
+
+**Release rule for the next untouched holdout.** Require a positive paired log-loss gain with its 95% interval above zero on 600 or more held-out games, or absolute gap within two percentage points in both the 40–50% and 50–60% bins. The current replay meets neither criterion. The complete closing-field comparison remains a separate gate. Keep the live tip model, usage prior 70, and Lean cap. Staging collection can proceed while this research continues.
+
+**Earlier raw jump seasons.** The 2023–24 and 2024–25 archives each contain 1,230 regular-season games, with explicit opening jumper IDs in 1,226 and 1,227 games respectively. Joining the raw opening evidence to the recorded starting fives bound 1,226 and 1,225 games for those seasons. These records are available as historical development or chronological replay inputs. They were excluded from this fit and do not count as new games for the prospective holdout. The older derived play tables lack CDN action types and timestamps, so a full opening-window replay needs the raw action adapter and shot/possession reconciliation.
 
 ## Operational safeguards
 
