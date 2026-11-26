@@ -4,7 +4,7 @@ import { replayPricing } from "../src/lib/pricingResearch/replay.js";
 const path = process.argv[2];
 if (!path || path === "--help") {
   console.log("Usage: node --import ./artifacts/api-server/test/register-hooks.mjs artifacts/api-server/scripts/pricingResearchReplay.ts <captured-records.jsonl>");
-  console.log("Provide one pregame, settled research record per line: fair, receptions, or sgp.");
+  console.log("Provide one pregame, settled research record per line: fair, receptions, receiving_yards, sgp, or sgp_script.");
   process.exit(path ? 0 : 1);
 }
 const rows = readFileSync(path, "utf8").split(/\r?\n/).flatMap((line, index) => {

@@ -27,6 +27,36 @@ function normalQuantile(p: number): number {
   return (low + high) / 2;
 }
 
+function pairJoint(p1: number, p2: number, rho: number): number {
+  if (rho === 0) return p1 * p2;
+  const a = normalQuantile(p1), b = normalQuantile(p2);
+  // Integrate the bivariate normal density with rho = sin(theta).
+  const steps = 64;
+  const width = Math.asin(rho) / steps;
+  let sum = 0;
+  for (let i = 0; i <= steps; i++) {
+    const theta = i * width;
+    const density = Math.exp(-(a ** 2 - 2 * Math.sin(theta) * a * b + b ** 2) / (2 * Math.cos(theta) ** 2));
+    sum += (i === 0 || i === steps ? 1 : i % 2 ? 4 : 2) * density;
+  }
+  return p1 * p2 + sum * width / (6 * Math.PI);
+}
+
+/** Estimate the latent correlation implied by observed paired binary results. */
+export function fitTetrachoric(p1: number, p2: number, joint: number): number {
+  if (!(p1 > 0 && p1 < 1 && p2 > 0 && p2 < 1) || !Number.isFinite(joint) ||
+      joint < Math.max(0, p1 + p2 - 1) - 1e-12 || joint > Math.min(p1, p2) + 1e-12) {
+    throw new RangeError("Invalid paired binary probabilities");
+  }
+  let low = -0.999, high = 0.999;
+  for (let i = 0; i < 32; i++) {
+    const mid = (low + high) / 2;
+    if (pairJoint(p1, p2, mid) < joint) low = mid;
+    else high = mid;
+  }
+  return (low + high) / 2;
+}
+
 function halton(draw: number, base: number): number {
   let p = 0, digitWeight = 1 / base;
   for (let index = draw; index > 0; index = Math.floor(index / base)) {
@@ -110,6 +140,10 @@ export function sameGameCopula(input: {
 
   if (matrix.every((row, i) => row.every((rho, j) => i === j || rho === 0))) {
     return result(independent, "independent", 0);
+  }
+  if (n === 2) {
+    const joint = pairJoint(legs[0]!.probability, legs[1]!.probability, matrix[0]![1]!);
+    return result(Math.max(bounds[0], Math.min(bounds[1], joint)), "gaussian_copula", 0);
   }
 
   // Integrate the conditional Gaussian probabilities over a shifted Halton sequence.

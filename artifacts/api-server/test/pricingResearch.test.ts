@@ -7,7 +7,9 @@ import {
 } from "../src/lib/pricingResearch/fairOdds.ts";
 import { receptionPosterior } from "../src/lib/pricingResearch/receptions.ts";
 import { replayPricing } from "../src/lib/pricingResearch/replay.ts";
-import { sameGameCopula, shrinkCorrelation } from "../src/lib/pricingResearch/sameGame.ts";
+import { simulateNflGameScript, priceNflGameScript } from "../src/lib/pricingResearch/nflGameScript.ts";
+import { receivingYardsPosterior } from "../src/lib/pricingResearch/receivingYards.ts";
+import { fitTetrachoric, sameGameCopula, shrinkCorrelation } from "../src/lib/pricingResearch/sameGame.ts";
 
 const methods: DevigMethod[] = ["multiplicative", "additive", "power", "shin", "odds_ratio"];
 const market: MarketIdentity = {
@@ -83,6 +85,7 @@ test("SGP copula reproduces independence, published examples and directional und
   for (const [rho, expected] of [[0.3, 0.3341], [0.5, 0.3687]] as const) {
     const result = sameGameCopula({ ...sgp, legs: pairLegs, correlations: [[1, rho], [rho, 1]] });
     close(result.joint, expected, 0.0012);
+    close(fitTetrachoric(0.55, 0.52, result.joint), rho, 1e-6);
   }
   const result = sameGameCopula({ ...sgp, legs: sgpLegs, correlations: [[1,.45,.30],[.45,1,-.10],[.30,-.10,1]] });
   close(result.joint, 0.2315, 0.0015);
@@ -127,4 +130,79 @@ test("replay scores paired benchmarks, excludes pushes, and rejects late baselin
   assert.ok(outcome.summaries[0]!.pairedProposed.brier! < 0.25);
   assert.throws(() => replayPricing([{ ...row, baselineAvailableAt: asOf }]), /non-pregame/);
   assert.throws(() => replayPricing([row, row]), /duplicate/);
+});
+
+const team = (name: string) => ({
+  quarterbackId: `${name}-qb`, expectedPlays: 63, basePassRate: 0.58,
+  receivers: [0.27, 0.19, 0.16, 0.38].map((targetShare, i) => ({
+    id: `${name}-receiver-${i}`, targetShare, catchRate: 0.66, yardsPerCatch: [8.6, 7.9, 7.2, 6][i]! / 0.66,
+  })),
+});
+const script = {
+  version: "test-script", eventId: market.eventId, asOf, inputsAvailableAt: asOf - 100,
+  home: team("home"), away: team("away"), expectedHomeMargin: 0, paceSd: 6, marginSd: 10,
+  passRatePerPoint: 0.005, targetConcentration: 60, yardsShape: 2.2, seed: 713,
+};
+
+test("NFL structural pricing shares targets and yards, and calibrates supplied leg marginals", () => {
+  const model = simulateNflGameScript(script);
+  const passing = model.stats.get(JSON.stringify(["home-qb", "player_pass_yds"]))!;
+  const receivers = script.home.receivers.map(r => model.stats.get(JSON.stringify([r.id, "player_reception_yds"]))!);
+  for (let i = 0; i < model.draws; i++) {
+    assert.equal(passing[i], receivers.reduce((sum, yards) => sum + yards[i]!, 0));
+  }
+  const legs = [
+    { market: { ...market, entityId: "home-qb", market: "player_pass_yds", line: 249.5 }, side: "over", probability: 0.5, pushFree: true },
+    { market: { ...market, entityId: "home-receiver-0", market: "player_reception_yds", line: 59.5 }, side: "over", probability: 0.5, pushFree: true },
+  ] as const;
+  const price = priceNflGameScript(model, legs, 250);
+  assert.deepEqual(price.marginalProbabilities, [0.5, 0.5]);
+  close(price.joint, 0.348, 0.032);
+  assert.ok(price.joint > price.independent);
+  assert.throws(() => priceNflGameScript(model, [legs[0], { ...legs[1], market: { ...legs[1].market, line: 59 } }]), /Unsupported/);
+
+  const replay = replayPricing([{
+    id: "structural", kind: "sgp_script", script, legs, asOf, marginalsAvailableAt: asOf - 100,
+    eventStartsAt: asOf + 10, settledAt: asOf + 20, result: "win",
+  }]);
+  close(replay.forecasts[0]!.probability!, price.joint, 1e-12);
+});
+
+const receivingProjection = {
+  prior: {
+    version: "receiving-prior", trainedThrough: 100, targetsShape: 15, targetsRate: 15 / 4.5,
+    yardsPerTarget: 8.3, betweenPlayerSd: 1.2, withinTargetSd: 10,
+  },
+  games: [7, 5, 9, 4, 8, 6].map((targets, i) => ({
+    eventId: `past-receiving-${i}`, finishedAt: 200 + i, availableAt: 300 + i,
+    exposure: 1, targets, yards: Math.round(targets * 9.6),
+  })),
+  nextExposure: 1, line: 49.5, side: "over" as const, seed: 713,
+  matchup: { multiplier: 1.04, logSd: 0.05, availableAt: asOf - 100 },
+};
+
+test("receiving yards matches the supplied reference within simulation tolerance", () => {
+  const forecast = receivingYardsPosterior({ ...receivingProjection, asOf });
+  close(forecast.targetsMean, 5.68445, 1e-4);
+  close(forecast.essGames, 5.87210, 1e-4);
+  close(forecast.probability, 0.45375, 0.025);
+  assert.ok(forecast.ci80[0]! < forecast.probability && forecast.ci80[1]! > forecast.probability);
+  assert.equal(forecast.pushProbability, 0);
+  assert.throws(() => receivingYardsPosterior({
+    ...receivingProjection, asOf, matchup: { ...receivingProjection.matchup, availableAt: asOf },
+  }), /late/);
+  const integer = receivingYardsPosterior({ ...receivingProjection, asOf, line: 49 });
+  const under = receivingYardsPosterior({ ...receivingProjection, asOf, line: 49, side: "under" });
+  assert.ok(integer.pushProbability > 0);
+  close(integer.probability + under.probability + integer.pushProbability, 1, 1e-12);
+});
+
+test("receiving yards replay rejects forecast inputs recorded at or after the forecast", () => {
+  const row = {
+    id: "receiving", kind: "receiving_yards" as const, projection: receivingProjection, asOf,
+    market: { ...market, line: receivingProjection.line, market: "player_reception_yds" },
+    exposureAvailableAt: asOf - 100, eventStartsAt: asOf + 10, settledAt: asOf + 20, result: "win" as const,
+  };
+  assert.equal(replayPricing([row]).summaries[0]?.proposed.count, 1);
+  assert.throws(() => replayPricing([{ ...row, exposureAvailableAt: asOf }]), /unavailable/);
 });

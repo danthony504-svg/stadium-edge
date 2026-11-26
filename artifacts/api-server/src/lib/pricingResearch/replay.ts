@@ -1,5 +1,7 @@
 import { fairConsensus, marketKey, type BookQuote, type MarketIdentity, type Side } from "./fairOdds.js";
 import { receptionPosterior } from "./receptions.js";
+import { receivingYardsPosterior, type ReceivingYardsProjection } from "./receivingYards.js";
+import { simulateNflGameScript, priceNflGameScript, type NflGameScript } from "./nflGameScript.js";
 import { sameGameCopula } from "./sameGame.js";
 
 type Result = "win" | "loss" | "push" | "void";
@@ -15,6 +17,8 @@ type Common = {
 type Input = Common & (
   | { kind: "fair"; market: MarketIdentity; side: Side; quotes: BookQuote[] }
   | { kind: "receptions"; market: MarketIdentity; projection: Omit<Parameters<typeof receptionPosterior>[0], "asOf">; exposureAvailableAt: number; offeredPriceAvailableAt?: number }
+  | { kind: "receiving_yards"; market: MarketIdentity; projection: Omit<ReceivingYardsProjection, "asOf">; exposureAvailableAt: number; offeredPriceAvailableAt?: number }
+  | { kind: "sgp_script"; script: Omit<NflGameScript, "asOf">; legs: Parameters<typeof priceNflGameScript>[1]; marginalsAvailableAt: number; offeredAmerican?: number; offeredPriceAvailableAt?: number }
   | { kind: "sgp"; pricing: Omit<Parameters<typeof sameGameCopula>[0], "asOf">; marginalsAvailableAt: number; offeredPriceAvailableAt?: number }
 );
 
@@ -36,6 +40,8 @@ function metrics(score: Score) {
 /** Read-only comparison on captured forecasts. Baselines are compared on the same scored rows. */
 export function replayPricing(rows: readonly Input[]) {
   const seen = new Set<string>();
+  // Reuse shared draws across the tickets for an identical pregame script snapshot.
+  const scripts = new Map<string, ReturnType<typeof simulateNflGameScript>>();
   const summaries = new Map<string, {
     skipped: number; current: Score; paired: Score; baseline: Score;
   }>();
@@ -59,19 +65,38 @@ export function replayPricing(rows: readonly Input[]) {
       const fair = fairConsensus(row.market, row.quotes, { asOf: row.asOf });
       probability = fair ? row.side === "over" ? fair.probability : 1 - fair.probability : null;
       details = fair && { ...fair, marketId: marketKey(row.market, row.side), probability };
-    } else if (row.kind === "receptions") {
+    } else if (row.kind === "receptions" || row.kind === "receiving_yards") {
       const projection = row.projection;
       if (!["nfl", "ncaaf"].includes(row.market.sport) ||
-          row.market.market.replace(/_alternate$/, "") !== "player_receptions" ||
+          row.market.market.replace(/_alternate$/, "") !== (row.kind === "receptions" ? "player_receptions" : "player_reception_yds") ||
           row.market.line !== projection.line ||
-          projection.games.some(game => game.eventId === row.market.eventId)) throw new RangeError("Mismatched receptions market");
+          projection.games.some(game => game.eventId === row.market.eventId)) throw new RangeError("Mismatched receiving market");
       if (!availableBeforeForecast(row.exposureAvailableAt) ||
           (projection.offeredAmerican != null && !availableBeforeForecast(row.offeredPriceAvailableAt))) {
-        throw new RangeError("Reception exposure or offered price was unavailable before the forecast");
+        throw new RangeError("Receiving exposure or offered price was unavailable before the forecast");
       }
-      const { draws: _draws, ...result } = receptionPosterior({ ...projection, asOf: row.asOf });
+      const { draws: _draws, ...result } = row.kind === "receptions"
+        ? receptionPosterior({ ...row.projection, asOf: row.asOf })
+        : receivingYardsPosterior({ ...row.projection, asOf: row.asOf });
       probability = result.pushProbability < 1 ? Math.min(1, result.probability / (1 - result.pushProbability)) : null;
       details = { ...result, marketId: marketKey(row.market, projection.side), scoredProbabilityBasis: "conditional_on_no_push" };
+    } else if (row.kind === "sgp_script") {
+      if (!availableBeforeForecast(row.marginalsAvailableAt) ||
+          (row.offeredAmerican != null && !availableBeforeForecast(row.offeredPriceAvailableAt))) {
+        throw new RangeError("SGP marginals or offered price were unavailable before the forecast");
+      }
+      const script = { ...row.script, asOf: row.asOf };
+      const key = JSON.stringify(script);
+      let simulated = scripts.get(key);
+      if (!simulated) {
+        simulated = simulateNflGameScript(script);
+        if (scripts.size >= 4) scripts.delete(scripts.keys().next().value!);
+        scripts.set(key, simulated);
+      }
+      const result = priceNflGameScript(simulated, row.legs, row.offeredAmerican);
+      probability = result.joint;
+      baseline ??= result.independent;
+      details = result;
     } else if (row.kind === "sgp") {
       if (!availableBeforeForecast(row.marginalsAvailableAt) ||
           (row.pricing.offeredAmerican != null && !availableBeforeForecast(row.offeredPriceAvailableAt))) {
@@ -85,7 +110,7 @@ export function replayPricing(rows: readonly Input[]) {
       throw new RangeError("Unknown pricing replay kind");
     }
 
-    const summaryKey = JSON.stringify([row.kind, row.kind === "sgp" ? row.pricing.legs[0]!.market.sport : row.market.sport]);
+    const summaryKey = JSON.stringify([row.kind, row.kind === "sgp" ? row.pricing.legs[0]!.market.sport : row.kind === "sgp_script" ? "nfl" : row.market.sport]);
     let summary = summaries.get(summaryKey);
     if (!summary) {
       const empty = () => ({ count: 0, brierSum: 0, logLossSum: 0 });
