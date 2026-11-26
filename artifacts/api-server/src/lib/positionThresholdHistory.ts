@@ -1,5 +1,5 @@
 import type {AllowanceBox} from './positionAllowance.js';
-export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]}>};
+export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]; carries?:number[]}>};
 const markets:Record<string,string>={PTS:'player_points',REB:'player_rebounds',AST:'player_assists',BLK:'player_blocks',STL:'player_steals','3PT':'player_threes'};
 /** Complete opposing active-player boxes only; any unknown position stays unknown. */
 export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cutoff=Date.now()):PositionThresholdRow[]{
@@ -28,4 +28,37 @@ export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cuto
   }
  }
  return [...bins.values()].filter(b=>b.games.length>=3);
+}
+
+/** Completed opponent rushing boxes, retaining individual RB workloads. */
+export function rushingBackHistory(boxes: AllowanceBox[], teamId: string, cutoff: number): PositionThresholdRow[] {
+  const games = new Map<string, PositionThresholdRow["games"][number]>();
+  for (const box of boxes) {
+    const eventId = box.header?.id;
+    const game = box.header?.competitions?.[0];
+    const date = game?.date;
+    const teams = game?.competitors?.map((entry) => entry.team?.id) ?? [];
+    if (!eventId || !date || games.has(eventId) || !(Date.parse(date) < cutoff) ||
+        !game?.status?.type?.completed || teams.length !== 2 || !teams.includes(teamId)) continue;
+    const opponent = teams.find((id) => id && id !== teamId);
+    if (!opponent) continue;
+    const groups = (box.boxscore?.players ?? []).filter((entry) => entry.team?.id === opponent)
+      .flatMap((entry) => entry.statistics ?? []).filter((group) => group.name === "rushing");
+    if (groups.length !== 1) continue;
+    const { labels = [], athletes = [] } = groups[0]!;
+    const car = labels.indexOf("CAR"), yds = labels.indexOf("YDS");
+    if (car < 0 || yds < 0 || labels.lastIndexOf("CAR") !== car || labels.lastIndexOf("YDS") !== yds) continue;
+    const active = athletes.filter((row) => !row.didNotPlay);
+    const ids = new Set(active.map((row) => row.athlete?.id));
+    if (ids.size !== active.length || active.some((row) => !row.athlete?.id || !row.athlete.position?.abbreviation)) continue;
+    const backs = active.filter((row) => ["RB", "HB"].includes(row.athlete!.position!.abbreviation!.toUpperCase()));
+    if (backs.some((row) => !/^\d+$/.test(row.stats?.[car] ?? "") || !/^-?\d+$/.test(row.stats?.[yds] ?? ""))) continue;
+    const carriers = backs.filter((row) => Number(row.stats![car]) > 0);
+    if (carriers.length) games.set(eventId, {
+      eventId, date,
+      values: carriers.map((row) => Number(row.stats![yds])),
+      carries: carriers.map((row) => Number(row.stats![car])),
+    });
+  }
+  return games.size >= 3 ? [{ position: "RB", market: "player_rush_yds", games: [...games.values()] }] : [];
 }

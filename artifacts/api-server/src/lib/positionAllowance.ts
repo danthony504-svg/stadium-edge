@@ -5,7 +5,7 @@ export type PositionAllowanceRow = { position: string; market: string; per36: nu
 export type PositionAllowance = { thresholds?:import("./positionThresholdHistory.js").PositionThresholdRow[]; source: string; receivedAt: string; rows: PositionAllowanceRow[] };
 export const basketballPosition = (p: unknown): string | null =>
   typeof p === "string" && /^(PG|SG|SF|PF|C)$/.test(p.toUpperCase()) ? p.toUpperCase() : null;
-export type AllowanceBox = { header?: { id?: string; competitions?: Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string}}>}> }; boxscore?: { players?: Array<{team?:{id?:string};statistics?:Array<{labels?:string[];athletes?:Array<{didNotPlay?:boolean;athlete?:{id?:string;position?:{abbreviation?:string}};stats?:string[]}>}>}> } };
+export type AllowanceBox = { header?: { id?: string; competitions?: Array<{date?:string;status?:{type?:{completed?:boolean}};competitors?:Array<{team?:{id?:string}}>}> }; boxscore?: { players?: Array<{team?:{id?:string};statistics?:Array<{name?:string;labels?:string[];athletes?:Array<{didNotPlay?:boolean;athlete?:{id?:string;position?:{abbreviation?:string}};stats?:string[]}>}>}> } };
 const fields: Record<string,string> = {PTS:'player_points',REB:'player_rebounds',AST:'player_assists',BLK:'player_blocks',STL:'player_steals'};
 export function aggregatePositionAllowances(boxes: AllowanceBox[], teamId: string, nowMs=Date.now()): PositionAllowanceRow[] {
  const bins=new Map<string,{position:string;market:string;total:number;minutes:number;games:Map<string,string>;appearances:number}>();

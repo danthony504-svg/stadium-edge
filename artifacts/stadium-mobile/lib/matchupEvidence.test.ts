@@ -197,3 +197,26 @@ test('shooting evidence uses only athlete-bound pregame history',()=>{
  const future={...h,recent:h.recent.map(g=>({...g,date:'2027-01-01T12:00Z'}))};
  assert.ok(!explainMatchup({...base,history:future}).observations.some(s=>s.startsWith('Shooting')));
 });
+
+test("rushing comps use similar carry volume, pregame dates, and the exact threshold", () => {
+  const recent = history("nfl", "rushingYards");
+  for (const game of recent.recent) game.stats = { rushingYards: "105", rushingAttempts: "20" };
+  const evidence = explainMatchup({
+    ...base, sport: "nfl", position: "RB", market: "player_rush_yds", line: 100, history: recent,
+    opponentDefense: {
+      ...def, sport: "nfl",
+      positionAllowances: {
+        source: "ESPN", receivedAt: base.startsAt, rows: [],
+        thresholds: [{
+          position: "RB", market: "player_rush_yds",
+          games: [101, 100, 40, 200].map((yards, i) => ({
+            eventId: String(i), date: i === 3 ? "2026-10-29" : `2026-10-${21 + i}`,
+            values: [yards, 150], carries: [20, 4],
+          })),
+        }],
+      },
+    },
+  });
+  assert.ok(evidence.observations.some((note) =>
+    note.includes("1/3 appearances went over 100") && note.includes("20.0 carries (4.02 yards per carry)")));
+});
