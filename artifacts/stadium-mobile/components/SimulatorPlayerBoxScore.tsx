@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { refreshSimulatorAccuracy, trackSimulatorProjections } from "@/lib/simulatorAccuracy";
-import { fetchGameRoster, fetchSimulatorFirstBasket, fetchSimulatorTeamMatchup, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
+import { fetchGameRoster, fetchSimulatorTeamMatchup, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
 
 type Stat = readonly [label: string, ...keys: string[]];
 
@@ -143,14 +143,6 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
     staleTime: 10 * 60_000,
     retry: false,
   });
-  const firstBasket = useQuery({
-    queryKey: ["sim-box-first-basket", eventId, homeTeamId, awayTeamId],
-    enabled: sport === "nba",
-    queryFn: ({ signal }) => fetchSimulatorFirstBasket(eventId, homeTeamId, awayTeamId, signal),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  const pick = firstBasket.data?.pick;
   const rosterPlayers = roster.data?.players ?? [];
   const teamsByAthlete = new Map<string, Set<string>>();
   for (const player of rosterPlayers) {
@@ -163,9 +155,6 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
     const players = [...new Map(rosterPlayers
       .filter((player) => player.teamId === side.id && player.athleteId && teamsByAthlete.get(player.athleteId)?.size === 1)
       .map((player) => [player.athleteId!, player] as const)).values()];
-    if (pick?.teamId === side.id) {
-      players.sort((a, b) => Number(b.athleteId === pick.athleteId) - Number(a.athleteId === pick.athleteId));
-    }
     return { ...side, players: isFootball ? orderFootballPlayers(players) : players };
   });
   const players = sides.flatMap((side) => side.players.slice(0, limit));
@@ -203,21 +192,19 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
     const history = historyByPlayer.get(athleteId)?.data;
     return [`${teamId}/${athleteId}`, projectPlayerStats(sport, history?.recent ?? [], history?.vsOpponent ?? [], cutoff, matchupByTeam.get(teamId))] as const;
   }));
-  const visiblePickKey = pick && statsByPlayer.has(`${pick.teamId}/${pick.athleteId}`)
-    ? `${pick.teamId}/${pick.athleteId}` : null;
   // Depend on projection values so asynchronous history loads are captured once.
   const projectionSignature = JSON.stringify([...statsByPlayer].flatMap(([playerKey, stats]) =>
     stats.map((stat) => ({ playerKey, ...stat }))));
   const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
     const projections = JSON.parse(projectionSignature) as Parameters<typeof trackSimulatorProjections>[0]["players"];
-    if (waitingForMatchup || (!projections.length && !visiblePickKey)) return;
+    if (waitingForMatchup || !projections.length) return;
     let active = true;
     void trackSimulatorProjections({
-      sport, eventId, homeTeamId, awayTeamId, startsAt, players: projections, firstBasketPick: visiblePickKey,
+      sport, eventId, homeTeamId, awayTeamId, startsAt, players: projections, firstBasketPick: null,
     }).then(() => { if (active) setSaveFailed(false); }, () => { if (active) setSaveFailed(true); });
     return () => { active = false; };
-  }, [sport, eventId, homeTeamId, awayTeamId, startsAt, projectionSignature, visiblePickKey, waitingForMatchup]);
+  }, [sport, eventId, homeTeamId, awayTeamId, startsAt, projectionSignature, waitingForMatchup]);
 
   const statKeys = new Map((sportStats[sport] ?? []).map(([label, ...keys]) => [label, keys]));
   const accuracy = useQuery({
@@ -281,13 +268,6 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
       {basketCount ? <Text style={{ color: "#9db4cc", fontSize: 12 }}>
         First Basket · {basketHits}/{basketCount} correct
       </Text> : null}
-      {sport === "nba" && (!pick || !sides.some(({ id, players }) =>
-        id === pick.teamId && players.some(({ athleteId }) => athleteId === pick.athleteId))) ? (
-        <Text style={{ color: "#9db4cc" }}>
-          {firstBasket.isFetching ? "Checking First Basket history…" : firstBasket.isError
-            ? "Couldn’t load First Basket history." : "No verified First Basket pick for this roster."}
-        </Text>
-      ) : null}
       {roster.isPending || !players.length ? (
         <Text style={{ color: "#9db4cc" }}>
           {roster.isPending ? "Loading rosters…" : "Player rosters are unavailable for this matchup."}
@@ -300,18 +280,12 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
           ) : teamPlayers.slice(0, limit).map(({ athleteId, name }) => {
             const history = historyByPlayer.get(athleteId);
             const stats = statsByPlayer.get(`${id}/${athleteId}`) ?? [];
-            const firstBasketPick = pick?.athleteId === athleteId && pick.teamId === id ? pick : null;
             return (
               <View
                 key={athleteId}
                 style={{ gap: 2, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#2a4563" }}
               >
                 <Text style={{ color: "#f4f8ff", fontFamily: FONT.semibold }}>{name}</Text>
-                {firstBasketPick ? (
-                  <Text style={{ color: "#70d9ff" }}>
-                    First Basket pick · {firstBasketPick.hits}/{firstBasketPick.starts} verified recent starts
-                  </Text>
-                ) : null}
                 <Text style={{ color: "#b7c9dc", fontSize: 13, fontFamily: FONT.body }}>
                   {stats.length ? stats.map(({ value, label }) => `${value} ${label}`).join(" · ")
                     : history?.isPending ? "Loading player stats…" : history?.isError ? "Couldn’t load player history." : "No usable pregame stats available."}

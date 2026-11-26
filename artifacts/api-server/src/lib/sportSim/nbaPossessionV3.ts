@@ -19,10 +19,12 @@ type Team = {
   offensiveReboundRate: number; freeThrowTripRate: number; freeThrowPct: number;
   players: readonly NbaPlayer[];
 };
+type OpeningRates = { scoringRate: number; usage: Record<string, number> };
 export type NbaPregame = {
   sport?: "nba" | "wnba";
   eventId: string; startsAt: number; availableAt: number; leagueRating: number; leaguePace: number;
   homeCourtPoints: number; ratingSd: number; home: Team; away: Team;
+  opening?: { homeTipWin: number; tipWinnerKeepsBall: number; home?: OpeningRates; away?: OpeningRates };
   market?: { fairHomeMargin: number; fairTotal: number; availableAt: number };
 };
 type Side = "home" | "away";
@@ -66,6 +68,7 @@ function validate(input: NbaPregame) {
   if (!input.eventId || !Number.isFinite(availableAt) || !Number.isFinite(startsAt) || availableAt >= startsAt ||
       !finite(input.leagueRating, 95, 135) || !finite(input.leaguePace, 80, 120) ||
       !finite(input.homeCourtPoints, 0, 8) || !finite(input.ratingSd, 0.1, 20) || home.id === away.id ||
+      (input.opening && (!finite(input.opening.homeTipWin, 0, 1) || !finite(input.opening.tipWinnerKeepsBall, 0, 1))) ||
       (market && (!finite(market.fairHomeMargin, -35, 35) || !finite(market.fairTotal, 155, 305) ||
         !Number.isFinite(market.availableAt) || market.availableAt > availableAt))) throw new RangeError("Invalid NBA pregame snapshot");
   const ids = new Set<string>();
@@ -81,6 +84,9 @@ function validate(input: NbaPregame) {
         team.players.filter(p => p.starter).length !== 5 ||
         team.players.filter(p => p.minutesLimit == null && p.minutes > 0).length < 5 ||
         Math.abs(team.players.reduce((sum, p) => sum + p.minutes, 0) - length * 5) > 0.01) throw new RangeError("Invalid team ratings or rotation");
+    const opening = input.opening?.[team === home ? "home" : "away"];
+    if (opening && (!finite(opening.scoringRate, 0, 1) || team.players.some(player => player.starter &&
+        !finite(opening.usage[player.id]!, .01, 1_000_000)))) throw new RangeError("Invalid NBA opening rates");
     for (const p of team.players) {
       if (!p.id || !p.name || ids.has(p.id) || !finite(p.minutes, 0, length) || (p.starter && p.minutes <= 0) ||
           (p.minutesLimit != null && (!Number.isInteger(p.minutesLimit) || !finite(p.minutesLimit, p.minutes, length))) ||
@@ -146,12 +152,29 @@ function calibratedMakes(team: Team, rating: number) {
   return team.makeRate.map((_, i) => made(i, (low + high) / 2));
 }
 
+// Solve for the field-goal mix that matches the observed probability of scoring
+// on an opening possession, accounting for turnovers, free throws, and retained misses.
+function calibratedOpeningMakes(team: Team, base: number[], scoringRate: number) {
+  const trip = team.freeThrowTripRate, ft = team.freeThrowPct, turnover = team.turnoverRate;
+  const made = (value: number, shift: number) => clamp(value + shift, .06, .96);
+  let low = -.7, high = .7;
+  for (let i = 0; i < 14; i++) {
+    const shift = (low + high) / 2;
+    const fg = base.reduce((sum, chance, j) => sum + team.shotMix[j]! * made(chance, shift), 0);
+    const cleanMiss = (1 - trip) * (1 - fg) + trip * (1 - ft) ** 2;
+    const p = (1 - turnover) * (1 - cleanMiss) / (1 - (1 - turnover) * cleanMiss * team.offensiveReboundRate);
+    if (p < scoringRate) low = shift;
+    else high = shift;
+  }
+  return base.map(value => made(value, (low + high) / 2));
+}
+
 const Stat = { minutes: 0, points: 1, shots: 2, assists: 3, rebounds: 4, fouls: 5 } as const;
 const STRIDE = 6;
 type GamePlayer = { source: NbaPlayer; rates: number[]; offset: number };
 type GameTeam = { source: Team; players: GamePlayer[]; box: Uint16Array; lineup: GamePlayer[]; points: number; makes: number[] };
 
-function takeLineup(team: GameTeam, minute: number, length: number, blowout: boolean) {
+function takeLineup(team: GameTeam, minute: number, length: number, blowout: boolean, opening = false) {
   const eligible = team.players.filter(p => p.source.minutes > 0 && team.box[p.offset + Stat.minutes]! < (p.source.minutesLimit ?? 100));
   const foulSafe = eligible.filter(p => team.box[p.offset + Stat.fouls]! < 6);
   const pool = foulSafe.length >= 5 ? foulSafe : eligible;
@@ -159,7 +182,7 @@ function takeLineup(team: GameTeam, minute: number, length: number, blowout: boo
   const rank = (p: GamePlayer) => {
     const fouls = team.box[p.offset + Stat.fouls]!;
     return p.source.minutes * Math.min(1.25, (minute + 1) / length) - team.box[p.offset + Stat.minutes]! +
-      (p.source.starter && minute === 0 ? 20 : 0) -
+      (p.source.starter ? (opening ? 100 : minute === 0 ? 20 : 0) : 0) -
       (blowout && p.source.starter ? 7 : 0) -
       (fouls >= 6 ? 50 : minute < length * .75 && fouls >= (minute < length / 2 ? 3 : 5) ? 4 : 0);
   };
@@ -168,23 +191,31 @@ function takeLineup(team: GameTeam, minute: number, length: number, blowout: boo
   for (const p of team.lineup) team.box[p.offset + Stat.minutes]!++;
 }
 
-function pick(team: GameTeam, index: number, next: () => number, exclude?: GamePlayer) {
+function pick(team: GameTeam, index: number, next: () => number, exclude?: GamePlayer, usage?: Record<string, number>) {
+  const weight = (player: GamePlayer) => usage?.[player.source.id] ?? player.rates[index]!;
   let total = 0;
-  for (const p of team.lineup) if (p !== exclude) total += p.rates[index]!;
+  for (const p of team.lineup) if (p !== exclude) total += weight(p);
   let needle = next() * total;
   for (const p of team.lineup) {
     if (p === exclude) continue;
-    needle -= p.rates[index]!;
+    needle -= weight(p);
     if (needle < 0) return p;
   }
   return team.lineup.find(p => p !== exclude)!;
 }
 
-function possession(off: GameTeam, def: GameTeam, next: () => number) {
+type OpeningScorer = { playerId: string; teamId: string; method: "FT" | "2" | "3" };
+type OpeningDraw = {
+  tipWinner: Side; firstPossession: Side;
+  firstPoints?: OpeningScorer; firstFieldGoal?: OpeningScorer;
+  homeFirstPoints?: OpeningScorer; awayFirstPoints?: OpeningScorer;
+  homeFirstFieldGoal?: OpeningScorer; awayFirstFieldGoal?: OpeningScorer;
+};
+function possession(off: GameTeam, def: GameTeam, next: () => number, score?: (shot: OpeningScorer) => void, openingMakes?: number[], openingUsage?: Record<string, number>) {
   const team = off.source;
   for (let attempt = 0; attempt < 8; attempt++) {
     if (next() < team.turnoverRate) return;
-    const shooter = pick(off, 0, next);
+    const shooter = pick(off, 0, next, undefined, openingUsage);
     const value = next();
     const type = value < team.shotMix[0] ? 0 : value < team.shotMix[0] + team.shotMix[1] ? 1 : 2;
     if (next() < team.freeThrowTripRate) {
@@ -194,13 +225,15 @@ function possession(off: GameTeam, def: GameTeam, next: () => number) {
       const points = Number(first) + Number(second);
       off.points += points;
       off.box[shooter.offset + Stat.points]! += points;
+      if (points && score) score({ playerId: shooter.source.id, teamId: team.id, method: "FT" });
       if (second) return;
     } else {
       off.box[shooter.offset + Stat.shots]!++;
-      if (next() < off.makes[type]!) {
+      if (next() < (openingMakes ?? off.makes)[type]!) {
         const points = type === 2 ? 3 : 2;
         off.points += points;
         off.box[shooter.offset + Stat.points]! += points;
+        if (score) score({ playerId: shooter.source.id, teamId: team.id, method: type === 2 ? "3" : "2" });
         if (next() < (type === 2 ? 0.80 : 0.52)) off.box[pick(off, 1, next, shooter).offset + Stat.assists]!++;
         return;
       }
@@ -223,9 +256,13 @@ export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
   const awayBoxes = new Uint16Array(DRAWS * input.away.players.length * STRIDE);
   const ratingRandom = rng(seed);
   const periods: { home: number; away: number }[][] = [];
+  const openings: OpeningDraw[] = [];
   for (let block = 0; block < RATING_DRAWS; block++) {
     const homeMakes = calibratedMakes(input.home, targets.home + normal(ratingRandom) * input.ratingSd);
     const awayMakes = calibratedMakes(input.away, targets.away + normal(ratingRandom) * input.ratingSd);
+    const homeOpening = input.opening?.home, awayOpening = input.opening?.away;
+    const homeOpeningMakes = homeOpening ? calibratedOpeningMakes(input.home, homeMakes, homeOpening.scoringRate) : undefined;
+    const awayOpeningMakes = awayOpening ? calibratedOpeningMakes(input.away, awayMakes, awayOpening.scoringRate) : undefined;
     const paceRating = targets.pace + normal(ratingRandom) * 1.8;
     for (let i = 0; i < GAMES_PER_RATING; i++) {
       const draw = block * GAMES_PER_RATING + i;
@@ -240,6 +277,25 @@ export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
       const away = makeTeam(input.away, 1, awayBoxes, awayMakes);
       const pace = clamp(Math.round(paceRating + normal(next) * 4), 75, 125);
       const gamePeriods = [];
+      // Fork the opening draw so snapshots without opening data retain the existing score draws.
+      let opening: OpeningDraw | undefined;
+      if (input.opening) {
+        const tipRandom = rng((seed ^ Math.imul(draw + 1, 0x85ebca6b)) >>> 0);
+        const tipWinner = tipRandom() < input.opening.homeTipWin ? "home" : "away";
+        const firstPossession = tipRandom() < input.opening.tipWinnerKeepsBall ? tipWinner : tipWinner === "home" ? "away" : "home";
+        opening = { tipWinner, firstPossession };
+      }
+      const trackScore = (shot: OpeningScorer) => {
+        if (!opening) return;
+        opening.firstPoints ??= shot;
+        const homeScore = shot.teamId === input.home.id;
+        if (homeScore) opening.homeFirstPoints ??= shot;
+        else opening.awayFirstPoints ??= shot;
+        if (shot.method === "FT") return;
+        opening.firstFieldGoal ??= shot;
+        if (homeScore) opening.homeFirstFieldGoal ??= shot;
+        else opening.awayFirstFieldGoal ??= shot;
+      };
       let minute = 0;
       let previousHome = 0, previousAway = 0;
       for (let period = 0; period < 4 || home.points === away.points; period++) {
@@ -248,12 +304,19 @@ export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
         const count = period < 4 ? Math.floor(pace * (period + 1) / 4) - Math.floor(pace * period / 4) : Math.round(pace * 5 / length);
         for (let tick = 0; tick < duration; tick++, minute++) {
           const blowout = minute >= length - 9 && minute < length && Math.abs(home.points - away.points) >= 20;
-          takeLineup(home, minute, length, blowout);
-          takeLineup(away, minute, length, blowout);
+          const startingFives = !!opening && minute < 2;
+          takeLineup(home, minute, length, blowout, startingFives);
+          takeLineup(away, minute, length, blowout, startingFives);
           const n = Math.floor(count * (tick + 1) / duration) - Math.floor(count * tick / duration);
           for (let p = 0; p < n; p++) {
-            possession(home, away, next);
-            possession(away, home, next);
+            const track = opening && !(opening.homeFirstFieldGoal && opening.awayFirstFieldGoal) ? trackScore : undefined;
+            if (opening?.firstPossession === "away" && period === 0) {
+              possession(away, home, next, track, startingFives ? awayOpeningMakes : undefined, startingFives ? awayOpening?.usage : undefined);
+              possession(home, away, next, track, startingFives ? homeOpeningMakes : undefined, startingFives ? homeOpening?.usage : undefined);
+            } else {
+              possession(home, away, next, track, startingFives ? homeOpeningMakes : undefined, startingFives ? homeOpening?.usage : undefined);
+              possession(away, home, next, track, startingFives ? awayOpeningMakes : undefined, startingFives ? awayOpening?.usage : undefined);
+            }
           }
         }
         gamePeriods.push({ home: home.points - previousHome, away: away.points - previousAway });
@@ -263,9 +326,10 @@ export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
       homeScores[draw] = home.points;
       awayScores[draw] = away.points;
       periods.push(gamePeriods);
+      if (opening) openings.push(opening);
     }
   }
-  return { input, targets, homeScores, awayScores, homeBoxes, awayBoxes, periods };
+  return { input, targets, homeScores, awayScores, homeBoxes, awayBoxes, periods, openings };
 }
 
 export type NbaDraws = ReturnType<typeof simulateNbaPossessions>;
@@ -383,8 +447,16 @@ export function summarizeNbaDraws(draws: NbaDraws, queries: readonly NbaLine[] =
       totalRange80: [percentile(totals, 0.1), percentile(totals, 0.9)], lines,
       marginHistogram: [...buckets].sort(([a], [b]) => a - b).map(([from, count]) => ({ from, through: from + 4, count })),
       marketHomeMargin: draws.input.market?.fairHomeMargin ?? null,
+      ...(draws.openings.length ? { opening: {
+        draws: draws.openings.length,
+        homeTipWin: draws.openings.filter(opening => opening.tipWinner === "home").length / draws.openings.length,
+        homeFirstPossession: draws.openings.filter(opening => opening.firstPossession === "home").length / draws.openings.length,
+        homeFirstPoints: draws.openings.filter(opening => opening.firstPoints?.teamId === draws.input.home.id).length / draws.openings.length,
+        homeFirstFieldGoal: draws.openings.filter(opening => opening.firstFieldGoal?.teamId === draws.input.home.id).length / draws.openings.length,
+      } } : {}),
       representative: {
         margin: mid, percentile: 50, periods: draws.periods[representative]!,
+        ...(draws.openings[representative] ? { opening: draws.openings[representative] } : {}),
         home: nbaDrawBox(draws, "home", representative), away: nbaDrawBox(draws, "away", representative),
       },
     },

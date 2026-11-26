@@ -148,3 +148,21 @@ test("WNBA records 40-minute regulation and reconciles player points in every dr
   }
   assert.equal(summarizeNbaDraws(wnba, [], false).simModel, "wnba-possession-v3");
 });
+
+test("opening draw uses the tip and actual starter scoring without changing box-score reconciliation", () => {
+  const draws = simulateNbaPossessions({ ...snapshot, opening: { homeTipWin: 1, tipWinnerKeepsBall: 0 } }, 71);
+  const starterIds = new Set([snapshot.home, snapshot.away].flatMap(team => team.players.filter(player => player.starter).map(player => player.id)));
+  assert.equal(draws.openings.length, 10_000);
+  for (const [i, opening] of draws.openings.entries()) {
+    assert.equal(opening.tipWinner, "home");
+    assert.equal(opening.firstPossession, "away");
+    assert.ok(opening.firstPoints && opening.firstFieldGoal && opening.firstFieldGoal.method !== "FT");
+    // The first made basket is usually in the starting unit's opening stint.
+    const team = opening.firstPoints.teamId === snapshot.home.id ? "home" : "away";
+    const box = nbaDrawBox(draws, team, i);
+    assert.ok(box.find(player => player.id === opening.firstPoints!.playerId)!.points > 0);
+    assert.equal(box.reduce((sum, player) => sum + player.points, 0), draws[team === "home" ? "homeScores" : "awayScores"][i]);
+  }
+  assert.ok(draws.openings.filter(opening => starterIds.has(opening.firstPoints!.playerId)).length > 9900);
+  assert.equal(summarizeNbaDraws(draws, [], false).nbaPossessions.opening?.homeFirstPossession, 0);
+});

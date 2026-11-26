@@ -1,3 +1,4 @@
+import { getFirstBasketOpening } from "../nbaFirstBasketService.js";
 import { readFile, stat } from "node:fs/promises";
 import { simulateNbaPossessions, summarizeNbaDraws, type NbaDraws, type NbaLine, type NbaPregame } from "./nbaPossessionV3.js";
 
@@ -23,13 +24,18 @@ export async function nbaPossessionReview(input: {
     .sort((a, b) => b.availableAt - a.availableAt)[0];
   if (!snapshot) return null;
   // The odds thresholds requested by the UI are scored after retrieval.
-  const signature = JSON.stringify(snapshot);
+  const opening = (input.sport ?? "nba") === "nba" ? await getFirstBasketOpening({
+    eventId: input.eventId, homeTeamId: input.homeId, awayTeamId: input.awayId,
+    starters: [snapshot.home, snapshot.away].map(team => team.players.filter(player => player.starter).map(player => player.id)),
+  }).catch(() => null) : null;
+  const simulationSnapshot = opening ? { ...snapshot, opening } : snapshot;
+  const signature = JSON.stringify(simulationSnapshot);
   const key = `${input.sport ?? "nba"}:${input.eventId}`;
   let entry = cache.get(key);
   const cacheHit = entry?.signature === signature;
   if (!entry || entry.signature !== signature) {
     const seed = [...input.eventId].reduce((value, c) => Math.imul(value ^ c.charCodeAt(0), 16777619), 2166136261);
-    entry = { signature, draws: simulateNbaPossessions(snapshot, seed) };
+    entry = { signature, draws: simulateNbaPossessions(simulationSnapshot, seed) };
   }
   cache.delete(key);
   cache.set(key, entry);

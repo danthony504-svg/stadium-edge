@@ -1,3 +1,4 @@
+import { getFirstBasketModel } from "../lib/nbaFirstBasketService.js";
 import { nbaFirstBasketRecentStarter, type FirstBasketSummary } from "../lib/nbaFirstBasketHistory";
 import { resolveNbaOpeningScore, type NbaOpeningSummary } from "../lib/nbaOpeningScore";
 import { Router, type IRouter } from "express";
@@ -337,6 +338,24 @@ router.get("/sports/simulator-player-final",
       res.json({ players: Object.fromEntries(players), firstBasket: opening?.firstMadeFieldGoal ?? null });
     } catch {
       res.status(503).json({ error: "Final player stats unavailable" });
+    }
+  },
+);
+
+router.get("/sports/nba-first-basket-model",
+  rateLimit({ name: "nba-first-basket-model", windowMs: 60_000, max: 12 }),
+  async (req, res): Promise<void> => {
+    const { eventId, homeTeamId, awayTeamId } = req.query;
+    if (typeof eventId !== "string" || !/^\d{9}$/.test(eventId) ||
+        typeof homeTeamId !== "string" || !/^\d{1,3}$/.test(homeTeamId) ||
+        typeof awayTeamId !== "string" || !/^\d{1,3}$/.test(awayTeamId) || homeTeamId === awayTeamId) {
+      res.status(400).json({ error: "Invalid NBA matchup" });
+      return;
+    }
+    try {
+      res.json(await getFirstBasketModel({ eventId, homeTeamId, awayTeamId }));
+    } catch {
+      res.status(503).json({ error: "First Basket data is unavailable" });
     }
   },
 );

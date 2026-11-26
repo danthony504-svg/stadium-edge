@@ -67,11 +67,20 @@ export function NbaPossessionSummary({ data, home, away, lines, showPlayers = tr
   const colors = useColors();
   const headline = { color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 };
   const detail = { color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 };
+  const { opening } = data.representative;
+  const scorer = opening?.firstPoints;
+  const firstScorer = scorer && [...data.representative.home, ...data.representative.away].find(player => player.id === scorer.playerId);
+  const teamName = (side: "home" | "away") => side === "home" ? home : away;
   return (
     <View style={{ gap: 12, marginBottom: 16 }}>
       <ModelDistribution data={data} home={home} away={away} lines={lines} />
       <Card style={{ gap: 8 }}>
         <Text style={headline}>Replay box score</Text>
+        {showPlayers && opening && (
+          <Text style={detail}>Tip won by {teamName(opening.tipWinner)} · First possession {teamName(opening.firstPossession)}
+            {firstScorer && scorer ? ` · First score ${firstScorer.name} (${scorer.method === "FT" ? "free throw" : scorer.method + "-pointer"})` : ""}
+          </Text>
+        )}
         {!showPlayers && <Text style={detail}>Player rows require a verified roster and pregame rotation.</Text>}
         {(["away", "home"] as const).map(side => (
           <View key={side} style={{ gap: 4 }}>

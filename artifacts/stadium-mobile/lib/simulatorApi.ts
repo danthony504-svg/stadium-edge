@@ -557,13 +557,30 @@ export function fetchSimulatorPlayerFinal(
   } | null>(`/sports/simulator-player-final?${params}`, signal);
 }
 
-export function fetchSimulatorFirstBasket(
-  eventId: string, homeTeamId: string, awayTeamId: string, signal?: AbortSignal,
-) {
+type FirstBasketMarket = "player_first_basket" | "player_first_team_basket" | "player_method_of_first_basket";
+type FirstBasketRule = "points" | "field_goal";
+export type FirstBasketModelResult =
+  | { status: "waiting_for_starters" | "insufficient_history" | "started" }
+  | {
+    status: "ready";
+    homeTipWin: number;
+    homeFirstPossession: number;
+    homeScoresFirst: Record<FirstBasketRule, number>;
+    historyGames: number;
+    groups: Array<{
+      market: FirstBasketMarket;
+      rule: FirstBasketRule;
+      rows: Array<{
+        playerId: string; player: string; teamId: string; book: string; price: number; fairPrice: number; noVig: number | null;
+        method?: "FT" | "2" | "3"; probability: number; breakEven: number; positiveEvProbability: number;
+        grade: string; confidence: string;
+      }>;
+    }>;
+  };
+
+export function fetchSimulatorFirstBasket(eventId: string, homeTeamId: string, awayTeamId: string, signal?: AbortSignal) {
   const params = new URLSearchParams({ eventId, homeTeamId, awayTeamId });
-  return simGetJson<{ pick: { athleteId: string; teamId: string; player: string; hits: number; starts: number } | null }>(
-    `/sports/nba-first-basket-history?${params}`, signal,
-  );
+  return simGetJson<FirstBasketModelResult>(`/sports/nba-first-basket-model?${params}`, signal);
 }
 
 export async function fetchSimulatorMatchupHistory(

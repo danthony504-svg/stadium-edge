@@ -2512,6 +2512,12 @@ export type NbaPossessionDetails = {
   representative: {
     margin: number; percentile: number;
     periods: { home: number; away: number }[];
+    opening?: {
+      tipWinner: "home" | "away";
+      firstPossession: "home" | "away";
+      firstPoints?: { playerId: string; teamId: string; method: "FT" | "2" | "3" };
+      firstFieldGoal?: { playerId: string; teamId: string; method: "2" | "3" };
+    };
     home: NbaReplayPlayer[];
     away: NbaReplayPlayer[];
   };

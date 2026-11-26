@@ -60,7 +60,7 @@ test("First Basket history counts verified starts and excludes a former starter"
   const home = makeTeam("1", ["10", "11", "12", "13", "14"]);
   const away = makeTeam("2", ["20", "21", "22", "23", "24"]);
   assert.deepEqual(nbaFirstBasketRecentStarter([home, away]), {
-    player: "Player 20", hits: 4, starts: 4,
+    athleteId: "20", teamId: "2", player: "Player 20", hits: 4, starts: 4,
   });
   assert.equal(nbaFirstBasketRecentStarter([home, makeTeam("2",
     ["20", "21", "22", "23", "24"], ["25", "21", "22", "23", "24"],

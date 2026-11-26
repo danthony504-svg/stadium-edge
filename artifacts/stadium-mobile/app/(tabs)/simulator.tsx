@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SimulatorReviewDemo } from "@/components/SimulatorReviewDemo";
+import { SimulatorFirstBasket } from "@/components/SimulatorFirstBasket";
 import { SimulatorPlayerBoxScore, supportsSimulatorBoxScore } from "@/components/SimulatorPlayerBoxScore";
 import { EventSimulationSummary, NbaPossessionSummary } from "@/components/NbaPossessionSummary";
 import { GameReplay, supportsGameReplay } from "@/components/NflDriveReplay";
@@ -827,6 +828,11 @@ function SimulatorScreen() {
                 ))}
               </ScrollView>
             ) : null}
+
+            {sport === "nba" && game.homeTeamId && game.awayTeamId && game.homeTeam && game.awayTeam && (
+              <SimulatorFirstBasket eventId={game.id} homeTeamId={game.homeTeamId} awayTeamId={game.awayTeamId}
+                startsAt={game.startsAt} home={game.homeTeam} away={game.awayTeam} />
+            )}
 
             {gameResult && replayData ? (
               <View style={{ paddingHorizontal: 16 }}>
