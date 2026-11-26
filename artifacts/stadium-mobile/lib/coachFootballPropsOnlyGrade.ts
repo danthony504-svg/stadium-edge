@@ -37,6 +37,7 @@ import {
 } from "./coachPropProbabilityProvenance.ts";
 
 export type PropsOnlyHit = {
+  projectionBreakdown?: import("./api.ts").PropSimulationResult["projectionBreakdown"];
   hitProbability: number | null;
   nullReason?: string | null;
   /** 0..1 sample/threshold confidence — rare counts with thin evidence stay low. */

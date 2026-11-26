@@ -108,6 +108,12 @@ test("stale and ambiguous events are unusable", async () => {
   await cacheSet("coach-prepared-game:v1:soccer", [context], 120_000);
   assert.equal(await preparedContextForMatch("soccer", "home", "away"), null);
   assert.equal((await preparedContextForMatch("soccer", "home", "away", game.startsAt))?.eventId, game.id);
+  const oddsTime = new Date(Date.parse(game.startsAt) + 5 * 60_000).toISOString();
+  assert.equal(await preparedContextForMatch("soccer", "home", "away", oddsTime), null);
+  assert.equal((await preparedContextForMatch("soccer", "home", "away", oddsTime, game.id))?.eventId, game.id);
+  assert.equal(await preparedContextForMatch("soccer", "home", "away", game.startsAt, "another-game"), null);
+  assert.equal(await preparedContextForMatch("soccer", "away", "home", game.startsAt, game.id), null);
+
   context.expiresAtMs = now - 1;
   await cacheSet("coach-prepared-game:v1:soccer", [context], 120_000);
   assert.deepEqual(await readPreparedGameContexts("soccer"), []);

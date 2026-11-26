@@ -2162,7 +2162,7 @@ export type PropSimulationResult = {
       games: number;
       appearances: number;
       multiplier: number;
-      workload: "carries" | "minutes and field-goal attempts" | null;
+      workload: "carries" | "minutes and field-goal attempts" | "minutes and three-point attempts" | null;
     };
   } | null;
   meanProjection: number | null;
@@ -2398,7 +2398,7 @@ export async function fetchPropSimulations(
 
       const eventTimes = [...new Set(rows.map(r => r.startsAt).filter((v): v is string => !!v))];
       const batchOpts = {
-        startsAt: eventTimes.length === 1 ? eventTimes[0] : undefined,
+        startsAt: eventTimes.length === 1 ? eventTimes[0] : eventTimes.length === 0 ? opts?.startsAt : undefined,
         homeTeam,
         awayTeam,
         homeTeamId,

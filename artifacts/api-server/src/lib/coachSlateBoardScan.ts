@@ -4,7 +4,7 @@ import {
   pooled,
   slateLoopbackPost,
 } from "./coachSlateLoopback.js";
-import { runPropSimsInProcess } from "./coachSlateInProcessSims.js";
+import { runPropSimsInProcess, type InProcessPropSimRow } from "./coachSlateInProcessSims.js";
 import {
   fetchServerGameSimulations,
   qualifiesServerAiLine,
@@ -22,22 +22,15 @@ import type {
   SlateTicketsIndex,
 } from "./coachSlateTypes.js";
 
-type PropSimRow = {
-  player: string;
-  market: string;
-  line: number;
-  side: "Over" | "Under";
-  hitProbability?: number | null;
-  tier?: string;
-};
-
 export type ServerBoardScanBundle = {
   scan: FullBoardScanResult;
   tickets: SlateTicketsIndex;
 };
 
-function propSimKey(player: string, market: string, line: number, side: string): string {
-  return `${player}|${market}|${line}|${side}`;
+function propSimKey(entry: PropPoolEntry): string {
+  return JSON.stringify([entry.sport, entry.eventId ?? null, entry.espnEventId ?? null, entry.startsAt ?? null,
+    entry.game, entry.homeTeamId ?? null, entry.awayTeamId ?? null, entry.athleteId ?? null,
+    entry.playerTeamId ?? null, entry.player, entry.marketKey ?? entry.marketLabel, entry.line, entry.side]);
 }
 
 /** Seat a server slate pick — preserves provider identity fields from the pool. */
@@ -104,157 +97,62 @@ function rankScoreForPick(p: ParsedPick, hit: number | null | undefined): number
   return serverPickRankScore(p.odds, edge, hit);
 }
 
-async function fetchPropSimulationsDeep(
-  entries: PropPoolEntry[],
-  tier: "quick" | "deep" = "deep",
-): Promise<Map<string, number | null>> {
-  const out = new Map<string, number | null>();
-  const bySport = new Map<string, PropPoolEntry[]>();
-  for (const e of entries) {
-    if (e.line == null) continue;
-    const rows = bySport.get(e.sport) ?? [];
-    rows.push(e);
-    bySport.set(e.sport, rows);
-  }
-  for (const [sport, sportEntries] of bySport) {
-    const props = sportEntries.map((e) => ({
-      player: e.player,
-      market: e.marketKey ?? e.marketLabel,
-      line: e.line!,
-      side: e.side,
-      athleteId: e.athleteId ?? null,
-      playerTeamId: e.playerTeamId ?? null,
-      homeTeamId: e.homeTeamId ?? null,
-      awayTeamId: e.awayTeamId ?? null,
-    }));
-    if (!props.length) continue;
-    const parts = sportEntries[0]!.game.split(" @ ");
-    const homeTeamId =
-      sportEntries.find((e) => e.homeTeamId)?.homeTeamId ?? undefined;
-    const awayTeamId =
-      sportEntries.find((e) => e.awayTeamId)?.awayTeamId ?? undefined;
-    const payload = {
-      sport,
-      tier,
-      homeTeam: parts[1]?.trim(),
-      awayTeam: parts[0]?.trim(),
-      homeTeamId,
-      awayTeamId,
-      props,
-    };
-    const resp = coachSlateSimsInProcess()
-      ? await runPropSimsInProcess(payload)
-      : await slateLoopbackPost<{ props?: PropSimRow[] }>(
-          "/sports/simulate/props",
-          payload,
-          tier === "deep" ? 180_000 : 45_000,
-        );
-    for (const row of resp?.props ?? []) {
-      out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
-    }
-  }
-  return out;
-}
-
-async function fetchAllPropSimulations(
+async function fetchBoardPropSimulations(
   propPool: PropPoolEntry[],
-  batchSize = 24,
-): Promise<Map<string, number | null>> {
-  const out = new Map<string, number | null>();
+  tier: "quick" | "deep",
+  limit = tier === "quick" ? 96 : Infinity,
+): Promise<Map<string, InProcessPropSimRow>> {
+  const out = new Map<string, InProcessPropSimRow>();
+  const events = new Map<string, PropPoolEntry[]>();
   const seen = new Set<string>();
-  const entries: PropPoolEntry[] = [];
-  for (const e of propPool) {
-    if (e.line == null) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    entries.push(e);
-  }
-
-  for (let i = 0; i < entries.length; i += batchSize) {
-    const slice = entries.slice(i, i + batchSize);
-    const wave = await fetchPropSimulationsDeep(slice, "deep");
-    for (const [k, v] of wave) out.set(k, v);
-  }
-  return out;
-}
-
-async function fetchQuickPropSims(
-  propPool: PropPoolEntry[],
-  limit: number,
-): Promise<Map<string, number | null>> {
-  const out = new Map<string, number | null>();
-  const seen = new Set<string>();
-  const batches = new Map<
-    string,
-    Array<{
-      player: string;
-      market: string;
-      line: number;
-      side: "Over" | "Under";
-      athleteId?: string | null;
-      playerTeamId?: string | null;
-      homeTeamId?: string | null;
-      awayTeamId?: string | null;
-      game: string;
-    }>
-  >();
-
-  for (const e of propPool) {
-    if (e.line == null) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    const rows = batches.get(e.sport) ?? [];
-    rows.push({
-      player: e.player,
-      market: e.marketKey ?? e.marketLabel,
-      line: e.line,
-      side: e.side,
-      athleteId: e.athleteId,
-      playerTeamId: e.playerTeamId ?? null,
-      homeTeamId: e.homeTeamId ?? null,
-      awayTeamId: e.awayTeamId ?? null,
-      game: e.game,
-    });
-    batches.set(e.sport, rows);
+  for (const entry of propPool) {
+    if (entry.line == null) continue;
+    const key = propSimKey(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const event = JSON.stringify([entry.sport, entry.eventId ?? null, entry.espnEventId ?? null, entry.game,
+      entry.startsAt ?? null, entry.homeTeamId ?? null, entry.awayTeamId ?? null]);
+    const entries = events.get(event) ?? [];
+    entries.push(entry);
+    events.set(event, entries);
     if (seen.size >= limit) break;
   }
-
-  await pooled([...batches.entries()], 2, async ([sport, entries]) => {
-    const props = entries.slice(0, 20).map((e) => ({
-      player: e.player,
-      market: e.market,
-      line: e.line,
-      side: e.side,
-      athleteId: e.athleteId ?? null,
-      playerTeamId: e.playerTeamId ?? null,
-      homeTeamId: e.homeTeamId ?? null,
-      awayTeamId: e.awayTeamId ?? null,
+  const batchSize = tier === "deep" ? 24 : 20;
+  const batches = [...events.values()].flatMap(entries =>
+    Array.from({ length: Math.ceil(entries.length / batchSize) }, (_, i) =>
+      entries.slice(i * batchSize, (i + 1) * batchSize)),
+  );
+  await pooled(batches, 2, async entries => {
+    const event = entries[0]!;
+    const [awayTeam, homeTeam] = event.game.split(" @ ");
+    const props = entries.map(entry => ({
+      player: entry.player,
+      market: entry.marketKey ?? entry.marketLabel,
+      line: entry.line!,
+      side: entry.side,
+      athleteId: entry.athleteId ?? null,
+      playerTeamId: entry.playerTeamId ?? null,
+      homeTeamId: entry.homeTeamId ?? null,
+      awayTeamId: entry.awayTeamId ?? null,
     }));
-    const parts = entries[0]?.game.split(" @ ") ?? [];
-    const homeTeamId =
-      entries.find((e) => e.homeTeamId)?.homeTeamId ?? undefined;
-    const awayTeamId =
-      entries.find((e) => e.awayTeamId)?.awayTeamId ?? undefined;
     const payload = {
-      sport,
-      tier: "quick" as const,
-      homeTeam: parts[1]?.trim(),
-      awayTeam: parts[0]?.trim(),
-      homeTeamId,
-      awayTeamId,
+      sport: event.sport, tier, startsAt: event.startsAt, espnEventId: event.espnEventId ?? undefined,
+      homeTeam: homeTeam?.trim(), awayTeam: awayTeam?.trim(),
+      homeTeamId: event.homeTeamId ?? undefined, awayTeamId: event.awayTeamId ?? undefined,
       props,
     };
-    const resp = coachSlateSimsInProcess()
+    const response = coachSlateSimsInProcess()
       ? await runPropSimsInProcess(payload)
-      : await slateLoopbackPost<{ props?: PropSimRow[] }>(
-          "/sports/simulate/props",
-          payload,
-          45_000,
+      : await slateLoopbackPost<{ props?: InProcessPropSimRow[] }>(
+          "/sports/simulate/props", payload, tier === "deep" ? 180_000 : 45_000,
         );
-    for (const row of resp?.props ?? []) {
-      out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
+    if (response?.props?.length !== props.length) return;
+    for (const [index, request] of props.entries()) {
+      const row = response.props[index];
+      if (row && row.player === request.player && row.market === request.market &&
+          row.line === request.line && row.side === request.side) {
+        out.set(propSimKey(entries[index]!), row);
+      }
     }
   });
   return out;
@@ -328,10 +226,7 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const propSims =
-    opts?.deepSim !== false
-      ? await fetchAllPropSimulations(propPool)
-      : await fetchQuickPropSims(propPool, 96);
+  const propSims = await fetchBoardPropSimulations(propPool, opts?.deepSim !== false ? "deep" : "quick");
 
   const gameSimulations = await fetchServerGameSimulations(realOdds);
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
@@ -377,8 +272,8 @@ export async function runServerBoardScan(
     if (!isCoachBettableStartsAt(e.startsAt)) continue;
     totalScanned++;
     const pick = pickFromPoolEntry(e);
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
-    const minHit = propSims.get(k) ?? null;
+    const simulation = propSims.get(propSimKey(e));
+    const minHit = simulation?.hitProbability ?? null;
     const edge = e.edge ?? 0;
     if (edge <= 0 && (minHit ?? 0) < 0.52) {
       if (opts?.onPropDecision) {
@@ -394,6 +289,7 @@ export async function runServerBoardScan(
     if (e.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge;
     if (minHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
+      if (simulation?.projectionBreakdown) pick.projectionBreakdown = simulation.projectionBreakdown;
     }
     const score = rankScoreForPick(pick, minHit);
     opts?.onPropDecision?.({
@@ -417,8 +313,13 @@ export async function runServerBoardScan(
 export async function enrichServerPropSims(
   built: BuiltChatContext,
 ): Promise<Map<string, { hitProbability: number | null }>> {
-  const quick = await fetchQuickPropSims(built.propPool, 40);
+  const quick = await fetchBoardPropSimulations(built.propPool, "quick", 40);
   const out = new Map<string, { hitProbability: number | null }>();
-  for (const [k, v] of quick) out.set(k, { hitProbability: v });
+  for (const entry of built.propPool) {
+    const row = quick.get(propSimKey(entry));
+    if (!row) continue;
+    const key = `${row.player}|${row.market}|${row.line}|${row.side}`;
+    if (!out.has(key)) out.set(key, { hitProbability: row.hitProbability ?? null });
+  }
   return out;
 }

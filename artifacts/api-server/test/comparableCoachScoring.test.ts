@@ -123,7 +123,9 @@ test("server board scan excludes the tough matchup and stages the favorable one"
       scored = scoreSharedDistribution(ctx, targets, 10_000, { seed: 12345 });
       distributions.set(key, scored);
     }
-    return Response.json({ props: [{ ...body.props[0], hitProbability: scored.results[0]?.hitProbability }] });
+    assert.equal(body.startsAt, candidate.startsAt);
+    return Response.json({ props: [{ ...body.props[0], hitProbability: scored.results[0]?.hitProbability,
+      projectionBreakdown: explainProjection(ctx) }] });
   });
 
   async function run() {
@@ -131,7 +133,8 @@ test("server board scan excludes the tough matchup and stages the favorable one"
     const started = performance.now();
     const result = await runServerBoardScan(board, { onPropDecision: decision => decisions.push(decision) });
     assert.equal(decisions.length, 1);
-    return { milliseconds: performance.now() - started, decision: decisions[0]!, eligible: result.scan.totalQualified };
+    return { milliseconds: performance.now() - started, decision: decisions[0]!, eligible: result.scan.totalQualified,
+      projection: result.scan.picks[0]?.projectionBreakdown };
   }
 
   const neutral = await run();
@@ -147,6 +150,9 @@ test("server board scan excludes the tough matchup and stages the favorable one"
   assert.equal(tough.eligible, 0);
   assert.equal(favorable.decision.exclusion, null);
   assert.equal(favorable.eligible, 1);
+  assert.equal(favorable.projection?.comparable?.status, "applied");
+  assert.equal(favorable.projection?.adjusted, 108);
+  assert.deepEqual(favorable.projection, favorableCached.projection);
   assert.deepEqual(neutral.decision, neutralCached.decision);
   assert.deepEqual(tough.decision, toughCached.decision);
   assert.deepEqual(favorable.decision, favorableCached.decision);
@@ -157,6 +163,99 @@ test("server board scan excludes the tough matchup and stages the favorable one"
     ["Neutral", neutral, neutralCached], ["Tough", tough, toughCached], ["Favorable", favorable, favorableCached],
   ] as const) {
     console.log(label, { ...fresh.decision, entry: undefined, freshMs: fresh.milliseconds, cachedMs: cached.milliseconds });
+  }
+});
+
+test("basketball threes use minutes and three-point volume from the same position", () => {
+  const market = "player_threes_alternate";
+  const row = {
+    position: "SG", market: "player_threes",
+    games: Array.from({ length: 5 }, (_, index) => ({
+      eventId: String(index), date: `2026-11-0${index + 1}`,
+      values: [1, 5, 4], minutes: [31, 32, 16],
+      threePointAttempts: [6, 10, 6], fieldGoalAttempts: [16, 16, 16],
+    })),
+  };
+  for (const sport of ["nba", "wnba", "ncaab"]) {
+    const input = {
+      sport, market, position: "SG", cutoff: base.cutoff,
+      recent: base.recent.map(({ date }) => ({ date, stats: { MIN: "32:15", "3PT": "3-6", FGA: "16" } })),
+      thresholds: [row],
+    };
+    const tough = comparablePropMatchup(input);
+    const favorable = comparablePropMatchup({
+      ...input,
+      thresholds: [{ ...row, games: row.games.map(game => ({ ...game, values: [5, 5, 4] })) }],
+    });
+    assert.equal(tough.workload, "minutes and three-point attempts");
+    assert.equal(tough.status, "applied");
+    assert.equal(tough.appearances, 5);
+    assert.ok(tough.multiplier < 1 && favorable.multiplier > 1);
+    const legacy = comparablePropMatchup({
+      ...input,
+      thresholds: [{ ...row, games: row.games.map(game => ({ ...game, threePointAttempts: undefined })) }],
+    });
+    assert.equal(legacy.status, "limited");
+    assert.equal(legacy.multiplier, 1);
+    const ctx = { sport, market, line: 2.5, side: "Over" as const, recentValues: [2, 3, 4, 3, 3], discrete: true };
+    const score = (comparableMatchup: typeof tough) =>
+      scoreSharedDistribution({ ...ctx, comparableMatchup }, [{ line: 2.5, side: "Over" }], 10_000, { seed: 12345 })
+        .results[0]?.hitProbability ?? 0;
+    assert.ok(score(favorable) > score(tough));
+  }
+});
+
+test("Coach keeps same-name props attached to their own matchup snapshot", async (t) => {
+  const { runServerBoardScan } = await import("../src/lib/coachSlateBoardScan.js");
+  const { redactPremiumPickForClient } = await import("../src/lib/coachSlateTypes.js");
+  const start = new Date(Date.now() + 60 * 60_000).toISOString();
+  const entries = [1, 2].map(index => ({
+    sport: "nfl", game: `Away ${index} @ Home ${index}`, player: "Same Name",
+    marketLabel: "Rushing yards", marketKey: base.market, line: 100, side: "Over" as const,
+    odds: 105, athleteId: `athlete-${index}`, eventId: `event-${index}`,
+    espnEventId: String(index), startsAt: start,
+    homeTeamId: `home-${index}`, awayTeamId: `away-${index}`,
+  }));
+  const priorMode = process.env.COACH_SLATE_SIM_MODE;
+  const priorWorker = process.env.COACH_SLATE_WORKER;
+  process.env.COACH_SLATE_SIM_MODE = "loopback";
+  delete process.env.COACH_SLATE_WORKER;
+  t.after(() => {
+    if (priorMode == null) delete process.env.COACH_SLATE_SIM_MODE;
+    else process.env.COACH_SLATE_SIM_MODE = priorMode;
+    if (priorWorker == null) delete process.env.COACH_SLATE_WORKER;
+    else process.env.COACH_SLATE_WORKER = priorWorker;
+  });
+
+  const calls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    assert.ok(url.endsWith("/sports/simulate/props"));
+    const payload = JSON.parse(String(init.body));
+    assert.equal(payload.props.length, 1);
+    const [prop] = payload.props;
+    const entry = entries.find(row => row.athleteId === prop.athleteId)!;
+    assert.equal(payload.homeTeamId, entry.homeTeamId);
+    assert.equal(payload.awayTeamId, entry.awayTeamId);
+    assert.equal(payload.startsAt, start);
+    assert.equal(payload.espnEventId, entry.espnEventId);
+    calls.push(entry.eventId);
+    const adjusted = entry === entries[0] ? 106 : 108;
+    return Response.json({ props: [{
+      ...prop, hitProbability: 0.7,
+      projectionBreakdown: { baseline: 100, adjusted, reasons: [], opponentHistoryGames: 3 },
+    }] });
+  });
+
+  const { scan } = await runServerBoardScan({
+    context: { selectedSports: ["nfl"], currentSlip: [], realGames: [], realOdds: [], realProps: [] },
+    propPool: entries, gameMeta: [], upsetSpots: [], todayOnly: false, tomorrowOnly: false,
+  });
+  assert.deepEqual(calls.sort(), ["event-1", "event-2"]);
+  for (const [index, entry] of entries.entries()) {
+    const pick = scan.picks.find(candidate => candidate.eventId === entry.eventId);
+    assert.ok(pick);
+    assert.equal(pick.projectionBreakdown?.adjusted, 106 + 2 * index);
+    assert.equal(redactPremiumPickForClient(pick).projectionBreakdown, undefined);
   }
 });
 

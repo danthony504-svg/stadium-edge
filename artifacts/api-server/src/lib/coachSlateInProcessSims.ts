@@ -100,6 +100,7 @@ export type InProcessPropSimRow = {
 export async function runPropSimsInProcess(body: {
   sport: string;
   startsAt?: string;
+  espnEventId?: string;
   tier?: string;
   homeTeam?: string;
   awayTeam?: string;
@@ -160,7 +161,7 @@ export async function runPropSimsInProcess(body: {
     }
   }
 
-  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, body.startsAt)]);
+  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, body.startsAt, body.espnEventId)]);
   const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
   // Same Opp Shift inputs as HTTP /sports/simulate — weighting built in runPropSims.
   const opportunityShiftInputs =

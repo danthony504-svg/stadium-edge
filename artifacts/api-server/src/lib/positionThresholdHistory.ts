@@ -1,5 +1,5 @@
 import type {AllowanceBox} from './positionAllowance.js';
-export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]; carries?:number[]; minutes?:number[]; fieldGoalAttempts?:Array<number|null>}>};
+export type PositionThresholdRow={position:string;market:string;games:Array<{eventId:string;date:string;values:number[]; carries?:number[]; minutes?:number[]; fieldGoalAttempts?:Array<number|null>; threePointAttempts?:Array<number|null>}>};
 const markets:Record<string,string>={PTS:'player_points',REB:'player_rebounds',AST:'player_assists',BLK:'player_blocks',STL:'player_steals','3PT':'player_threes'};
 /** Complete opposing active-player boxes only; any unknown position stays unknown. */
 export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cutoff=Date.now()):PositionThresholdRow[]{
@@ -31,7 +31,17 @@ export function positionThresholdHistory(boxes:AllowanceBox[],teamId:string,cuto
     // Generic G/F cannot establish a specific PG/SG/SF/PF denominator.
     if(['PG','SG'].includes(position)&&active.some(a=>a.position==='G'))continue;
     if(['SF','PF'].includes(position)&&active.some(a=>a.position==='F'))continue;
-    const key=position+':'+market,b:PositionThresholdRow=bins.get(key)??{position,market,games:[]};b.games.push({eventId:id,date,values:values.filter((_,j)=>matches(active[j]!.position)) as number[],minutes:active.filter(a=>matches(a.position)).map(a=>a.minutes),fieldGoalAttempts:active.filter(a=>matches(a.position)).map(a=>a.attempts)});bins.set(key,b);
+    const key = position + ':' + market;
+    const row: PositionThresholdRow = bins.get(key) ?? { position, market, games: [] };
+    const players = active.filter(a => matches(a.position));
+    row.games.push({
+      eventId: id, date,
+      values: values.filter((_, j) => matches(active[j]!.position)) as number[],
+      minutes: players.map(a => a.minutes),
+      fieldGoalAttempts: players.map(a => a.attempts),
+      ...(label === '3PT' ? { threePointAttempts: players.map(a => Number(a.stats[i]!.split('-')[1])) } : {}),
+    });
+    bins.set(key, row);
    }
   }
  }

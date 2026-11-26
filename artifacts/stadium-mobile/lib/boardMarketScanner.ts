@@ -12,7 +12,7 @@ import { canCompleteAutomaticSmallTicket, runScanUntilTargetSatisfied } from "./
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
-import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
+import { enrichCoachPropSimHits, type PropSimHit } from "./coachPropSimFallback.ts";
 import {
   exactMarket10kProvenance,
   propProvenanceAllowsSeating,
@@ -217,8 +217,8 @@ function propPickHasSimHit(
 
 function aliasPropSimHitsForBatch(
   batch: ParsedPick[],
-  hits: Map<string, { hitProbability: number | null }>,
-): Map<string, { hitProbability: number | null }> {
+  hits: Map<string, PropSimHit>,
+): Map<string, PropSimHit> {
   const out = new Map(hits);
   for (const pick of batch) {
     const clientKey = propSimKeyForPick(pick);
@@ -438,11 +438,11 @@ export async function simPropBatch(
   signal?: AbortSignal,
   batchOpts?: { enrichTimeoutMs?: number; coverage?: ParsedPick[] },
 ): Promise<{
-  hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
+  hits: Map<string, PropSimHit>;
   timedOut: boolean;
   playerHistory: Record<string, PlayerHistorySlice>;
 }> {
-  const out = new Map<string, { hitProbability: number | null; nullReason?: string | null; simulations?: number; probabilityProvenance?: PropProbabilityProvenance | null }>();
+  const out = new Map<string, PropSimHit>();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
@@ -481,6 +481,7 @@ export async function simPropBatch(
         nullReason: probabilityProvenance.nullReason,
         simulations: v.simulations,
         probabilityProvenance,
+        projectionBreakdown: probabilityProvenance.source === "exact_market_10k" ? v.projectionBreakdown : null,
       });
     }
     sharedHistories = simResult.playerHistories ?? {};
@@ -509,7 +510,7 @@ export async function simPropBatch(
 
 function appendPropScoredLegs(
   rankedProps: ParsedPick[],
-  propHits: Map<string, { hitProbability: number | null }>,
+  propHits: Map<string, PropSimHit>,
   propScored: BoardScoredLeg[],
   seenFp: Set<string>,
   opts: {
@@ -822,7 +823,7 @@ export async function simPropPoolUntilQualified(
   /** True when abort/deadline stopped scoring before the candidate pool was exhausted. */
   incomplete: boolean;
 }> {
-  const propHits = new Map<string, { hitProbability: number | null }>();
+  const propHits = new Map<string, PropSimHit>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
   const footballSkill = shouldUseFootballSkillPropSim({

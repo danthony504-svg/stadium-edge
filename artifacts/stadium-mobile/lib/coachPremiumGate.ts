@@ -238,6 +238,7 @@ export function redactPremiumPickFields<T extends RedactablePick>(pick: T): T {
     ticketRole: undefined,
     propMarketKey: undefined,
     propIsAlt: undefined,
+    projectionBreakdown: undefined,
     // Keep grade / confidence / edge for the teaser strip.
     scores: keepGradeSlice(pick.scores as GradeKeep | null) as T["scores"],
     finalAiScore: keepGradeSlice(pick.finalAiScore as GradeKeep | null) as T["finalAiScore"],

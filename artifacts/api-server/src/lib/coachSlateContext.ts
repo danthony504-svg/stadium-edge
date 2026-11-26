@@ -240,6 +240,7 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
 
     const resolvedOddsEventId =
       r.oddsEventId ?? r.identity?.oddsEventId ?? oddsEventId;
+    const espnEventId = r.identity?.espnEventId ?? r.espnEventId ?? null;
     const homeTeamId =
       r.identity?.homeTeamId ?? espn.homeTeamId ?? null;
     const awayTeamId =
@@ -290,6 +291,7 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
             homeTeamId,
             awayTeamId,
             eventId: rowEventId,
+            espnEventId,
             sportsbook: p.overBook ?? null,
             marketKey: p.market,
             alt: !!p.alt,
@@ -314,6 +316,7 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
             homeTeamId,
             awayTeamId,
             eventId: rowEventId,
+            espnEventId,
             sportsbook: p.underBook ?? null,
             marketKey: p.market,
             alt: !!p.alt,

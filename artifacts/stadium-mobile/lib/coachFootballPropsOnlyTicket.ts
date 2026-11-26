@@ -909,6 +909,8 @@ export async function buildFootballPropsOnlyTicket(
             nullReason: merged.nullReason,
             hitReliability: existing?.hitReliability ?? null,
             probabilityProvenance: merged,
+            projectionBreakdown: merged === incoming && incoming.source === "exact_market_10k"
+              ? v.projectionBreakdown : existing?.projectionBreakdown,
           } satisfies PropsOnlyHit);
           if (propProvenanceAllowsSeating(merged, candidate)) completedDeepKeys.add(k);
           deepSimCompleted = completedDeepKeys.size;
@@ -1205,8 +1207,11 @@ export async function buildFootballPropsOnlyTicket(
       opts.propAudit?.observe(pick, "simulation", "simulation_identity_or_evidence_invalid", { nullReason: provenance?.nullReason });
       continue;
     }
+    const simKey = propsOnlySimLookupKey(pick, row);
+    const breakdown = simKey && provenance?.source === "exact_market_10k"
+      ? propHits.get(simKey)?.projectionBreakdown : null;
     const leg = scoredLegFromHit(
-      pick,
+      breakdown ? { ...pick, projectionBreakdown: breakdown } : pick,
       raw,
       row,
       rushCtx,

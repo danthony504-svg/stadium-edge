@@ -22,7 +22,8 @@ import type {
 } from "@/lib/api";
 import { propMarketLabel } from "@/lib/propMarketLabel";
 import { lookupPropSimHit, propSimLookupKey } from "@/lib/propSelection";
-import type { PropProbabilityProvenance } from "@/lib/coachPropProbabilityProvenance";
+import { propProvenanceAllowsSeating, type PropProbabilityProvenance } from "@/lib/coachPropProbabilityProvenance";
+import type { PropSimHit } from "./coachPropSimFallback.ts";
 import type { GameInjuryReport } from "@/lib/injuries";
 import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
@@ -800,7 +801,7 @@ export function attachPickScores(
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
     /** Monte Carlo results keyed player|market|line|side */
-    propSimulations?: Map<string, { hitProbability: number | null }>;
+    propSimulations?: Map<string, PropSimHit>;
     /** Game-outcome sim keyed by "Away @ Home" (same engine as Simulator tab). */
     gameSimulations?: Map<string, CoachGameSimEntry>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
@@ -904,16 +905,16 @@ export function attachPickScores(
       : propSimHit;
     const propSimKey =
       p.isProp && sims ? propSimLookupKey(p, propEntryEarly) : null;
-    const propSimMeta =
-      p.isProp && sims && propSimKey
-        ? (sims.get(propSimKey) as
-            | {
-                hitProbability: number | null;
-                simulations?: number | null;
-                probabilityProvenance?: PropProbabilityProvenance | null;
-              }
-            | undefined)
-        : undefined;
+    const propSimMeta = propSimKey ? sims?.get(propSimKey) : undefined;
+    const simProvenance = propSimMeta?.probabilityProvenance;
+    const exactProjection = simProvenance?.source === "exact_market_10k" &&
+      propProvenanceAllowsSeating(simProvenance, {
+        athleteId: p.athleteId ?? propEntryEarly?.athleteId,
+        eventId: p.eventId ?? propEntryEarly?.eventId,
+        propMarketKey: p.propMarketKey ?? propEntryEarly?.marketKey,
+        propSide: p.propSide,
+        propLine: p.propLine,
+      }) ? propSimMeta?.projectionBreakdown : undefined;
     const propProbabilityProvenance: PropProbabilityProvenance | null = p.isProp
       ? propSimMeta?.probabilityProvenance ??
         p.propProbabilityProvenance ??
@@ -995,6 +996,7 @@ export function attachPickScores(
 
     return {
       ...p,
+      ...(exactProjection ? { projectionBreakdown: exactProjection } : {}),
       scores: finalAiScore.rubric,
       finalAiScore,
       highRiskValuePlay: finalAiScore.highRiskValuePlay || p.highRiskValuePlay,

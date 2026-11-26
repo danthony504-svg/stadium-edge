@@ -1,3 +1,5 @@
+import { PropProjectionBreakdown } from "@/components/PropProjectionBreakdown";
+import { fetchSimulatorPropSimulationsBatch } from "@/lib/simulatorApi";
 import { historicalSides } from "@/lib/propHistoricalSides";
 import { PlayerMatchupEvidence } from "@/components/PlayerMatchupEvidence";
 import Feather from "@expo/vector-icons/Feather";
@@ -27,6 +29,8 @@ export type PlayerSheetData = {
   athleteId: string | null;
   headshot: string | null;
   playerTeamId: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
   teamAbbr: string | null;
   sport: string;
   gameLabel: string;
@@ -353,17 +357,35 @@ export function PlayerPropsSheet({
     return { side, price, hits, total, pct, tier, line: bookLine };
   }, [selectedProp, bookLine, bars]);
 
+  const simulationSide = aiSuggestion?.side ?? (selectedProp?.overPrice != null ? "Over" : "Under");
+  const simulationQ = useQuery({
+    queryKey: ["player-prop-projection", data?.sport, data?.startsAt, data?.homeTeamId, data?.awayTeamId,
+      data?.athleteId, selectedProp?.playerTeamId, selectedProp?.espnEventId, selectedProp?.market, selectedProp?.line, simulationSide],
+    enabled: active && !!data?.athleteId && !!data.homeTeamId && !!data.awayTeamId &&
+      !!data.startsAt && selectedProp?.line != null &&
+      (selectedProp.overPrice != null || selectedProp.underPrice != null),
+    staleTime: 2 * 60_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const [awayTeam, homeTeam] = data!.gameLabel.split(" @ ");
+      const [result] = await fetchSimulatorPropSimulationsBatch(data!.sport, [{
+        player: selectedProp!.player, athleteId: data!.athleteId,
+        playerTeamId: selectedProp!.playerTeamId ?? data!.playerTeamId,
+        market: selectedProp!.market, line: selectedProp!.line!, side: simulationSide,
+      }], {
+        homeTeam, awayTeam, homeTeamId: data!.homeTeamId, awayTeamId: data!.awayTeamId,
+        startsAt: data!.startsAt ?? undefined, espnEventId: selectedProp!.espnEventId,
+      }, signal);
+      return result?.hitProbability != null ? result.projectionBreakdown ?? null : null;
+    },
+  });
+
   if (!data) return null;
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
-
-  // The hit-rate explorer only ever offers a REAL price, and only AT a posted
-  // rung (main or alternate). The current line matches a rung → show its live
-  // Over/Under prices; between rungs there is no real number, so we show none.
-  const rungAt = useMemo(() => {
-    if (chartLine == null) return null;
-    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
-  }, [rungs, chartLine]);
+  // Only offer real posted rungs in the hit-rate explorer.
+  const rungAt = chartLine == null ? null
+    : rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
   const stepOverPrice = rungAt?.overPrice ?? null;
   const stepUnderPrice = rungAt?.underPrice ?? null;
   const mlabel = propMarketLabel(market);
@@ -655,6 +677,7 @@ export function PlayerPropsSheet({
             )}
           </View>
 
+          <PropProjectionBreakdown breakdown={simulationQ.data} />
           {aiSuggestion && <PlayerMatchupEvidence
             key={`${data.athleteId}:${market}:${aiSuggestion.line}:${aiSuggestion.side}`}
             position={selectedProp?.position} sport={data.sport} athleteId={data.athleteId} playerTeamId={data.playerTeamId}

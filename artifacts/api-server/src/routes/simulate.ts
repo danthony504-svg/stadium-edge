@@ -343,7 +343,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     }
   }
 
-  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, req.body?.startsAt)]);
+  const [injuries, preparedContext] = await Promise.all([fetchEspnInjuries(sport), preparedContextForMatch(sport, homeTeamId, awayTeamId, req.body?.startsAt, req.body?.espnEventId)]);
   const oppKeyInjuries = awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0;
   const ownKeyInjuries = homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0;
 

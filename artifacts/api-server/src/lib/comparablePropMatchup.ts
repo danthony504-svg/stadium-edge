@@ -11,7 +11,7 @@ export type ComparablePropMatchup = {
   games: number;
   appearances: number;
   multiplier: number;
-  workload: "carries" | "minutes and field-goal attempts" | null;
+  workload: "carries" | "minutes and field-goal attempts" | "minutes and three-point attempts" | null;
 };
 
 type PlayerGame = { date?: string | null; stats: Record<string, string>; periodTag?: string | null };
@@ -33,9 +33,11 @@ export function comparablePropMatchup(input: {
   const market = input.market.replace(/_alternate$/, "");
   const rushing = ["nfl", "ncaaf"].includes(input.sport) && market === "player_rush_yds" &&
     (position === "RB" || position === "HB");
-  const scoring = ["nba", "wnba", "ncaab"].includes(input.sport) && market === "player_points" &&
+  const threes = market === "player_threes";
+  const scoring = ["nba", "wnba", "ncaab"].includes(input.sport) && (market === "player_points" || threes) &&
     position != null && ["PG", "SG", "SF", "PF", "C", "G", "F"].includes(position);
-  const workload = rushing ? "carries" : scoring ? "minutes and field-goal attempts" : null;
+  const workload = rushing ? "carries"
+    : !scoring ? null : threes ? "minutes and three-point attempts" : "minutes and field-goal attempts";
   const result: ComparablePropMatchup = { status: workload ? "missing" : "unsupported", games: 0, appearances: 0, multiplier: 1, workload };
   if (!workload || !Number.isFinite(input.cutoff)) return result;
   const row = input.thresholds?.find(r => r.position === (rushing ? "RB" : position) && r.market === market);
@@ -50,12 +52,20 @@ export function comparablePropMatchup(input: {
     if (!date || !(Date.parse(date) < input.cutoff) || dates.has(date) || (periodTag && periodTag !== "full")) return [];
     dates.add(date);
     const time = stats.MIN?.match(/^(\d+(?:\.\d+)?)(?::([0-5]\d))?$/);
-    const shots = stats.FG?.match(/^(\d+)-(\d+)$/);
-    const attempts = [stats.fieldGoalsAttempted, stats.FGA, shots && Number(shots[1]) <= Number(shots[2]) ? shots[2] : undefined]
+    const shots = (threes ? stats["3PT"] : stats.FG)?.match(/^(\d+)-(\d+)$/);
+    const validShotSplit = shots && Number(shots[1]) <= Number(shots[2]) ? shots : undefined;
+    const attempts = [
+      ...(threes ? [stats.threePointFieldGoalsAttempted, stats["3PA"]] : [stats.fieldGoalsAttempted, stats.FGA]),
+      validShotSplit?.[2],
+    ]
       .map(nonnegative).filter((n): n is number => n != null);
     const volume = rushing ? nonnegative(stats.rushingAttempts) : new Set(attempts).size === 1 ? attempts[0] : null;
     const minutes = rushing ? 0 : time ? Number(time[1]) + Number(time[2] ?? 0) / 60 : null;
-    const raw = rushing ? stats.rushingYards : stats.PTS;
+    const threePointMakes = [stats.threePointFieldGoalsMade, stats["3PM"], validShotSplit?.[1]]
+      .map(nonnegative).filter((n): n is number => n != null);
+    const raw = rushing ? stats.rushingYards : threes
+      ? new Set(threePointMakes).size === 1 ? String(threePointMakes[0]) : undefined : stats.PTS;
+    if (threes && volume != null && Number(raw) > volume) return [];
     if (volume == null || minutes == null || (rushing ? volume <= 0 : minutes <= 0) || !/^-?\d+$/.test(raw ?? "")) return [];
     return [{ volume, minutes, value: Number(raw) }];
   });
@@ -69,13 +79,13 @@ export function comparablePropMatchup(input: {
   const peerValues: number[] = [];
   for (const game of row.games) {
     if (!game.eventId || seen.has(game.eventId) || !(Date.parse(game.date) < input.cutoff)) continue;
-    const volumes = rushing ? game.carries : game.fieldGoalAttempts;
+    const volumes = rushing ? game.carries : threes ? game.threePointAttempts : game.fieldGoalAttempts;
     if (volumes?.length !== game.values.length || (!rushing && game.minutes?.length !== game.values.length)) continue;
     const values = game.values.filter((value, index) => {
       const peerVolume = volumes[index];
       const peerMinutes = game.minutes?.[index];
       return Number.isFinite(value) && peerVolume != null && Number.isInteger(peerVolume) &&
-        peerVolume >= (rushing ? 1 : 0) && Math.abs(peerVolume - volume) <= Math.max(2, volume * 0.25) &&
+        peerVolume >= (rushing ? 1 : 0) && (!threes || (value >= 0 && value <= peerVolume)) && Math.abs(peerVolume - volume) <= Math.max(2, volume * 0.25) &&
         (rushing || (peerMinutes != null && Number.isFinite(peerMinutes) && peerMinutes > 0 &&
           Math.abs(peerMinutes - minutes) <= Math.max(4, minutes * 0.2)));
     });

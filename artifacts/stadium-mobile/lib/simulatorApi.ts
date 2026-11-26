@@ -375,12 +375,15 @@ export async function fetchSimulatorPropSimulationsBatch(
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
+    playerTeamId?: string | null;
   }>,
   opts?: {
     homeTeam?: string;
     awayTeam?: string;
     homeTeamId?: string | null;
     awayTeamId?: string | null;
+    startsAt?: string;
+    espnEventId?: string | null;
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";

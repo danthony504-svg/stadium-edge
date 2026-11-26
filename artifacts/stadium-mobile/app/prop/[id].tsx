@@ -1,3 +1,4 @@
+import { PropProjectionBreakdown } from "@/components/PropProjectionBreakdown";
 import { defensePackForTeam } from "@/lib/propDefenseEvidence";
 import { scoreOpponentTendency } from "@/lib/propHolisticRecommendation";
 import { simulatorModelEdge, formatPropProjectedStat, propSimulationCount, propSimulationEvidence } from "@/lib/simulatorPropMetrics";
@@ -188,7 +189,7 @@ export default function PropDetailScreen() {
   });
 
   const simQuickQ = useQuery({
-    queryKey: ["prop-sim-quick", sport, athleteId, marketKey, line, side],
+    queryKey: ["prop-sim-quick", sport, game, startsAt, athleteId, marketKey, line, side],
     enabled:
       enabled &&
       !!athleteId &&
@@ -214,6 +215,7 @@ export default function PropDetailScreen() {
         {
           awayTeam: parts[0]?.trim() ?? "",
           homeTeam: parts[1]?.trim() ?? "",
+          startsAt: startsAt || undefined,
           tier: "quick",
         },
         signal,
@@ -224,7 +226,7 @@ export default function PropDetailScreen() {
   });
 
   const simDeepQ = useQuery({
-    queryKey: ["prop-sim-deep", sport, athleteId, marketKey, line, side],
+    queryKey: ["prop-sim-deep", sport, game, startsAt, athleteId, marketKey, line, side],
     enabled:
       enabled &&
       !!athleteId &&
@@ -251,6 +253,7 @@ export default function PropDetailScreen() {
         {
           awayTeam: parts[0]?.trim() ?? "",
           homeTeam: parts[1]?.trim() ?? "",
+          startsAt: startsAt || undefined,
           tier: "deep",
         },
         signal,
@@ -1083,6 +1086,8 @@ export default function PropDetailScreen() {
                 tint={colors.foreground}
               />
             </View>
+
+            {simHitFromServer && <PropProjectionBreakdown breakdown={simData?.projectionBreakdown} />}
 
             {/* The numbers — real columns only */}
             <Section title="THE NUMBERS">

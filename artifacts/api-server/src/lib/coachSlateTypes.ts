@@ -1,3 +1,5 @@
+import type { explainProjection } from "./monteCarlo.js";
+
 /** Types mirroring stadium-mobile/lib/slatePreAnalysisCache.ts for cross-client snapshots. */
 
 /** Precompute enough legs for instant 15-leg longshot asks — no filler. */
@@ -40,6 +42,7 @@ export type ParsedPick = {
   propMarketKey?: string;
   propLine?: number | null;
   propSide?: string;
+  projectionBreakdown?: NonNullable<ReturnType<typeof explainProjection>>;
   ticketRole?: "main" | "alt";
   highRiskValuePlay?: boolean;
   scores?: {
@@ -117,6 +120,7 @@ export type PropPoolEntry = {
   awayTeamId?: string | null;
   /** Odds API event id — required for seated-prop provenance. */
   eventId?: string | null;
+  espnEventId?: string | null;
   /** Best-price sportsbook for THIS side only. */
   sportsbook?: string | null;
   marketKey?: string;

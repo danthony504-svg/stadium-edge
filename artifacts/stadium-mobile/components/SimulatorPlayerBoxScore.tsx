@@ -1,3 +1,4 @@
+import { SimulatorPropProjections } from "@/components/SimulatorPropProjections";
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -262,6 +263,10 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
       <Text style={{ color: "#9db4cc", fontSize: 12, fontFamily: FONT.body }}>
         Player projections use recent form, head-to-head history, and team matchup data where available. The replay score comes from the team simulation.
       </Text>
+      {(isFootball || ["nba", "wnba", "ncaab"].includes(sport)) && (
+        <SimulatorPropProjections key={eventId} sport={sport} eventId={eventId} startsAt={startsAt}
+          home={home} away={away} homeTeamId={homeTeamId} awayTeamId={awayTeamId} />
+      )}
       <Text style={{ color: "#e8f1fa", fontFamily: FONT.semibold }}>Projection Accuracy</Text>
       {saveFailed || accuracy.isError ? (
         <Text style={{ color: "#9db4cc" }}>Accuracy tracking is unavailable on this device.</Text>

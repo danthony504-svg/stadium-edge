@@ -2,7 +2,7 @@ import { totalSelection } from "./totalBreakdown.ts";
 /** Pure pick parsing, posted-line resolution and backfill; shared by UI and tests. */
 import { deriveConfidenceScore } from "./confidence.ts";
 import { chooseMlCushionTwoBand, ML_CUSHION_MIN_PTS, ML_CUSHION_MAX_PTS } from "./mlCushion.ts";
-import type { GameMeta, PropPoolEntry } from "./api.ts";
+import type { GameMeta, PropPoolEntry, PropSimulationResult } from "./api.ts";
 import { normalizeCombinedPickScore, scoreLineValue, type CombinedPickScore } from "./pickScore.ts";
 import { rankPropPoolEntries, type PropSelectionOpts } from "./propSelection.ts";
 import { FILLER_BACKFILL_EDGE_NOTE } from "./coachScanPolicy.ts";
@@ -86,6 +86,7 @@ export type ParsedPick = {
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
   propSide?: string; // "Over" | "Under" | "Yes"
+  projectionBreakdown?: PropSimulationResult["projectionBreakdown"];
   /**
    * Odds API event id for provider provenance on seated props. Optional on
    * game lines; required (with sportsbook) for final player-prop seats.

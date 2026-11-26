@@ -1,3 +1,4 @@
+import { PropProjectionBreakdown } from "@/components/PropProjectionBreakdown";
 import { PlayerMatchupEvidence } from "@/components/PlayerMatchupEvidence";
 import { sideOf } from "@/lib/pickCardModel";
 import { norm, sameGame, parseEdgeStats, marketFamily, gameAltOptions, enrichPickMeta, gameSideFromPick, gameTotalFromPick, parsePicks, ALT_BACKFILL_ORDER, GENERIC_BACKFILL_ORDER, FULL_REACH_GAME_ORDER, PERIOD_BACKFILL_ORDER, backfillPicks, backfillProps } from "@/lib/pickCardModel";
@@ -927,6 +928,9 @@ export function PickCard({
           position={pick.rosterPosition} sport={pick.sport} athleteId={pick.athleteId} playerTeamId={pick.playerTeamId}
           game={pick.game} startsAt={pick.startsAt} market={pick.propMarketKey}
           line={pick.propLine} side={pick.propSide} />
+      )}
+      {!premiumLocked && !hideReadout && pick.isProp && (
+        <PropProjectionBreakdown breakdown={pick.projectionBreakdown} />
       )}
       <LineLadder pick={pick} locked={premiumLocked} />
 

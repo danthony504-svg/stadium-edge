@@ -425,6 +425,8 @@ function PropsScreen() {
       headshot: prop.headshot ?? null,
       playerTeamId: prop.playerTeamId ?? null,
       teamAbbr: teamAbbrFor(prop, g.teams),
+      homeTeamId: g.teams?.homeTeamId,
+      awayTeamId: g.teams?.awayTeamId,
       sport: g.sport,
       gameLabel: g.gameLabel,
       startsAt: g.startsAt,

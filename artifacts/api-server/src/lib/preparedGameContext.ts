@@ -220,9 +220,14 @@ export async function attachPreparedGameContexts<T extends ContextGame>(sport: s
 }
 
 /** Match only an unambiguous event; doubleheaders require the exact start time. */
-export async function preparedContextForMatch(sport: string, homeTeamId: string, awayTeamId: string, startsAt?: string): Promise<PreparedGameContext | null> {
+export async function preparedContextForMatch(
+  sport: string, homeTeamId: string, awayTeamId: string, startsAt?: string, eventId?: string,
+): Promise<PreparedGameContext | null> {
   if (!homeTeamId || !awayTeamId) return null;
-  const contexts = (await readPreparedGameContexts(sport)).filter(c => c.homeTeamId === homeTeamId && c.awayTeamId === awayTeamId && (startsAt ? Date.parse(c.startsAt) === Date.parse(startsAt) : !c.requiresEventTime));
+  const contexts = (await readPreparedGameContexts(sport)).filter(c =>
+    c.homeTeamId === homeTeamId && c.awayTeamId === awayTeamId &&
+    (eventId ? c.eventId === eventId : startsAt ? Date.parse(c.startsAt) === Date.parse(startsAt) : !c.requiresEventTime),
+  );
   return contexts.length === 1 ? contexts[0]! : null;
 }
 

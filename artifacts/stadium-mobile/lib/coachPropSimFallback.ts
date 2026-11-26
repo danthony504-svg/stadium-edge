@@ -7,7 +7,7 @@
 // but avoids duplicate provider acquisition when shareable fields overlap.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { PropPoolEntry, PropSimPlayerHistoryPayload } from "./api.ts";
+import type { PropPoolEntry, PropSimPlayerHistoryPayload, PropSimulationResult } from "./api.ts";
 import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -38,6 +38,7 @@ import {
 } from "./coachPropProbabilityProvenance.ts";
 
 export type PropSimHit = {
+  projectionBreakdown?: PropSimulationResult["projectionBreakdown"];
   hitProbability: number | null;
   nullReason?: string | null;
   /** 0..1 rare-count reliability when computed from logs. */
