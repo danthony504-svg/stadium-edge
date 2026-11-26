@@ -1,5 +1,4 @@
 import { basketballShootingEvidence } from "./basketballShootingEvidence.ts";
-import { opponentThresholdHistory } from "./opponentThresholdHistory.ts";
 /** Descriptive evidence only. Never changes model probabilities or Coach. */
 import type { PropSimPlayerHistoryPayload, TeamDefense } from "./api.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
@@ -7,6 +6,8 @@ export type MatchupEvidence = {
   observations: string[];
   opportunity: string[];
   positionContext: string | null;
+  positionThreshold?: string;
+  recentGameResults: string[];
   cautions: string[];
   missing: string[];
   source: string;
@@ -165,7 +166,9 @@ export function explainMatchup(o: {
   // Unique machine fields or unambiguous display labels only. Missing is not zero.
   const opportunityFields: Array<[string, string[]]> =
     ["nba", "wnba", "ncaab", "cbb"].includes(o.sport)
-      ? [["Field-goal attempts", ["fieldGoalsAttempted", "FGA"]], ["Three-point attempts", ["threePointFieldGoalsAttempted", "3PA"]]]
+      ? /^player_rebounds(?:_alternate)?$/.test(o.market) ? [["Rebound chances", ["reboundChances", "REB_CHANCES"]]]
+        : /^player_assists(?:_alternate)?$/.test(o.market) ? [["Potential assists", ["potentialAssists", "POTENTIAL_AST"]]]
+        : [["Field-goal attempts", ["fieldGoalsAttempted", "FGA"]], ["Three-point attempts", ["threePointFieldGoalsAttempted", "3PA"]]]
       : ["nfl", "ncaaf", "cfb"].includes(o.sport)
         ? [["Pass attempts", ["passingAttempts"]], ["Carries", ["rushingAttempts"]], ["Targets", ["receivingTargets"]]]
         : o.sport === "mlb"
@@ -188,7 +191,7 @@ export function explainMatchup(o: {
     });
     if (values.length >= 3) opportunity.push(`${label}: ${(values.reduce((a,b) => a+b,0)/values.length).toFixed(1)}/game (based on ${values.length} games; logged history).`);
   }
-  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport)) {
+  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport) && /^player_(?:points|threes)(?:_alternate)?$/.test(o.market)) {
     const shooting = basketballShootingEvidence(games);
     observations.push(...shooting);
     if (!shooting.length) missing.push("Verified shooting makes/attempts unavailable or fewer than 3 dated games.");
@@ -208,11 +211,13 @@ export function explainMatchup(o: {
   const positionGroup = ["PG","SG","G"].includes(position??"") ? "G" : ["SF","PF","F"].includes(position??"") ? "F" : position;
   const positionHistory = positionRows?.thresholds?.find(r=>!r.games.some(game => game.carries) && r.position===positionGroup&&r.market===o.market.replace(/_alternate$/, ""));
   const positionGames = positionHistory?.games;
+  let positionThreshold: string | undefined;
   if (positionGames && positionGames.length>=3 && new Set(positionGames.map(g=>g.eventId)).size===positionGames.length && positionGames.every(g=>g.eventId&&Number.isFinite(Date.parse(g.date))&&Date.parse(g.date)<cutoff&&g.values.every(v=>Number.isFinite(v)&&v>=0))) {
     const cleared=positionGames.filter(g=>g.values.some(v=>v>o.line)).length;
-    observations.push(`${o.opponentName} allowed at least one opposing ${positionGroup==="G"?"guard":positionGroup==="F"?"forward":positionGroup} to exceed ${o.line} ${o.market.replace(/^player_/, "").replace(/_/g," ")} in ${cleared}/${positionGames.length} completed games with complete verified position/stat records. Each game counts once; this is not the selected player's hit probability.`);
+    positionThreshold = `${o.opponentName} allowed at least one opposing ${positionGroup==="G"?"guard":positionGroup==="F"?"forward":positionGroup} to exceed ${o.line} ${o.market.replace(/^player_/, "").replace(/_/g," ")} in ${cleared}/${positionGames.length} completed games with complete verified position/stat records. Each game counts once.`;
+    observations.push(positionThreshold);
   }
-  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport) && position) {
+  if (["nba", "wnba", "ncaab", "cbb"].includes(o.sport) && position && /^player_(?:points|threes)(?:_alternate)?$/.test(o.market)) {
     const playerWorkloads = games.flatMap(({ stats }) => {
       const minutes = stats?.MIN?.match(/^(\d+(?:\.\d+)?)(?::([0-5]\d))?$/);
       const split = stats?.FG?.match(/^(\d+)-(\d+)$/);
@@ -295,8 +300,6 @@ export function explainMatchup(o: {
     boundDefense,
     cutoff,
   );
-  const threshold = opponentThresholdHistory(boundDefense?.opponentMarkets, o.market, o.line, cutoff);
-  if (threshold) observations.push(`${o.opponentName}: ${threshold.scope === "team_allowed" ? "opponent team totals" : "own offensive team totals"} were Over ${o.line} in ${threshold.over}/${threshold.total} completed games, Under in ${threshold.under}/${threshold.total}, with ${threshold.pushes} pushes. Team-wide results, not individual-player or position hit rates.`);
   if (defense && !positional) observations.push(defense);
   else if (!positional && !defense)
     missing.push(
@@ -317,6 +320,8 @@ export function explainMatchup(o: {
     observations,
     opportunity,
     positionContext,
+    positionThreshold,
+    recentGameResults: games.map(g => `${g.date?.slice(0, 10)} · ${g.opponentName ?? "Opponent unavailable"} · ${g.value}`),
     cautions,
     missing,
     source: games.length

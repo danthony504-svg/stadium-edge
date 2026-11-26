@@ -670,6 +670,7 @@ export type ConsiderPick = {
   simulations: number;
   sampleGames: number;
   meanProjection: number | null;
+  projectionBreakdown?: PropSimulationResult["projectionBreakdown"];
   formSummary: string;
   opportunitySummary: string;
   defenseSummary: string;
@@ -782,6 +783,7 @@ export function buildConsiderPick(opts: {
     simulations: opts.sim.simulations,
     sampleGames: opts.sim.sampleGames,
     meanProjection: opts.sim.meanProjection,
+    projectionBreakdown: opts.sim.projectionBreakdown,
     formSummary,
     opportunitySummary,
     defenseSummary,

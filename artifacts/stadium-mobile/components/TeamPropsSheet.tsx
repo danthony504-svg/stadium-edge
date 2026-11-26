@@ -1,3 +1,4 @@
+import { PropProjectionBreakdown } from "@/components/PropProjectionBreakdown";
 import Feather from "@expo/vector-icons/Feather";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -22,7 +23,7 @@ import {
   type TeamSearchResult,
 } from "@/lib/api";
 import { explainMatchup } from "@/lib/matchupEvidence";
-import { formatGameTime } from "@/lib/format";
+import { formatAmerican, formatGameTime, impliedProb } from "@/lib/format";
 import { teamNameMatches } from "@/lib/injuries";
 import { GRADE_MIN_SAMPLE, gradePropCands, type GradeResult } from "@/lib/propGrade";
 import { oddsRowsFromQuery, espnRowsFromQuery } from "@/lib/sportFeed";
@@ -30,6 +31,7 @@ import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
 import {
   buildConsiderCandidates,
+  quoteTimestampForSide,
   buildConsiderPick,
   candidatesToPropPool,
   candidatesToSimPicks,
@@ -584,7 +586,8 @@ export function TeamPropsSheet({
                       <ConsiderPickCard
                         key={pick.key}
                         pick={pick}
-                        gameLabel={gameLabel}
+                        sport={sport}
+                        eventProps={eventProps}
                         evidence={explainMatchup({
                           position: pick.positionVerified ? pick.position : null,
                           sport, athleteId: pick.athleteId, market: pick.marketKey, line: pick.line, side: pick.side,
@@ -749,13 +752,15 @@ export function TeamPropsSheet({
 
 function ConsiderPickCard({
   pick,
-  gameLabel,
+  sport,
+  eventProps,
   evidence,
   onOpen,
   canOpen,
 }: {
   pick: ConsiderPick;
-  gameLabel: string;
+  sport: string;
+  eventProps: PlayerProp[];
   evidence: ReturnType<typeof explainMatchup>;
   onOpen: () => void;
   canOpen: boolean;
@@ -773,8 +778,18 @@ function ConsiderPickCard({
     pick.edgePct == null
       ? "Edge unavailable"
       : `Model vs price ${pick.edgePct > 0 ? "+" : ""}${pick.edgePct.toFixed(1)} pp`;
-  const projLabel =
-    pick.meanProjection == null ? "Proj unavailable" : `Proj ${pick.meanProjection.toFixed(1)}`;
+  const breakdown = pick.projectionBreakdown;
+  const final = breakdown?.adjusted ?? pick.meanProjection;
+  const projLabel = final == null ? "Projection unavailable" : `Projection ${final.toFixed(1)}`;
+  const expectedMinutesMissing = ["nba", "wnba", "ncaab"].includes(sport);
+  const alternateQuotes = eventProps.filter(prop =>
+    prop.alt && prop.line != null && pick.athleteId && prop.athleteId === pick.athleteId &&
+    prop.playerTeamId === pick.prop.playerTeamId &&
+    prop.market.replace(/_alternate$/, "") === pick.marketKey.replace(/_alternate$/, ""),
+  );
+  const topCaution = evidence.positionThreshold ?? evidence.cautions[0];
+  const details = [...new Set([...evidence.observations, ...evidence.cautions])]
+    .filter(text => text !== topCaution && !text.startsWith("Exact-market history:"));
 
   return (
     <View
@@ -824,43 +839,44 @@ function ConsiderPickCard({
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <MetaChip label={projLabel} />
-        <MetaChip label={edgeLabel} />
-        <MetaChip label={`${pick.simulations.toLocaleString()} sims · ${pick.sampleGames} simulation-history games`} />
+        <MetaChip label={`Exploratory · ${edgeLabel}`} />
       </View>
-
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {pick.formSummary}
+      <Text style={{ color: colors.foreground, fontSize: 11 }}>
+        {pick.sportsbook ?? "Sportsbook unavailable"} · {formatAmerican(pick.price)} · {(impliedProb(pick.price) * 100).toFixed(1)}% break-even · {quoteLabel}
       </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {evidence.opportunity.length ? evidence.opportunity.join(" ") : pick.opportunitySummary}
+      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{pick.formSummary}</Text>
+      {expectedMinutesMissing && <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Expected minutes unavailable</Text>}
+      {topCaution && <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{topCaution}</Text>}
+      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+        {breakdown?.comparable?.status === "applied"
+          ? `Comparable-player data used · ${breakdown.comparable.games} games`
+          : breakdown ? "Comparable-player adjustment unavailable."
+            : "Projection inputs unavailable for this simulation."}
       </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
-        {evidence.positionContext ?? pick.defenseSummary}
-      </Text>
-
-      <View style={{ gap: 6 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>WHY THIS MATCHUP</Text>
-        {evidence.observations.slice(0, showEvidenceDetails ? undefined : 2).map((text, i) => <Text key={`e${i}`} style={{ color: colors.foreground, fontSize: 11 }}>{text}</Text>)}
-        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>CAUTIONS</Text>
-        {evidence.cautions.map((text, i) => <Text key={`c${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
-        <Pressable onPress={() => setShowEvidenceDetails(v => !v)} accessibilityRole="button" accessibilityState={{expanded:showEvidenceDetails}}>
-          <Text style={{color:colors.primary,fontSize:12}}>{showEvidenceDetails ? "Hide evidence details" : `More evidence · ${evidence.missing.length} gaps`}</Text>
-        </Pressable>
-        {showEvidenceDetails && <>
-        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Raw simulation estimate: {pick.simHitPct}%. This is not a verified win probability. Model-vs-price edge is exploratory.</Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>MISSING EVIDENCE</Text>
-        {evidence.missing.map((text, i) => <Text key={`m${i}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+      <Pressable onPress={() => setShowEvidenceDetails(v => !v)} accessibilityRole="button"
+        accessibilityLabel={`${showEvidenceDetails ? "Read less" : "Read more"} about ${pick.player}`}
+        accessibilityState={{ expanded: showEvidenceDetails }} style={{ minHeight: 44, justifyContent: "center" }}>
+        <Text style={{ color: colors.primary, fontSize: 12 }}>{showEvidenceDetails ? "Read less" : "Read more"}</Text>
+      </Pressable>
+      {showEvidenceDetails && <View style={{ gap: 6 }}>
+        <PropProjectionBreakdown breakdown={breakdown} />
+        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+          Exploratory simulation {pick.simHitPct}% · {pick.simulations.toLocaleString()} draws from {pick.sampleGames} history games
+        </Text>
+        {details.map((text, index) => <Text key={`detail${index}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+        {evidence.recentGameResults.map((text, index) => <Text key={`game${index}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+        {evidence.missing.map((text, index) => <Text key={`missing${index}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>{text}</Text>)}
+        {alternateQuotes.flatMap((prop, index) => (["Over", "Under"] as const).map(side => {
+          const price = side === "Over" ? prop.overPrice : prop.underPrice;
+          const book = side === "Over" ? prop.overBook : prop.underBook;
+          if (price == null || !Number.isFinite(price) || price === 0) return null;
+          const quotedAt = quoteTimestampForSide(prop, side);
+          return <Text key={`alt${index}${side}`} style={{ color: colors.mutedForeground, fontSize: 11 }}>
+            {side} {prop.line} · {formatAmerican(price)} · {book ?? "Sportsbook unavailable"} · {quotedAt ? formatGameTime(quotedAt) || quotedAt : "Quote time unavailable"}
+          </Text>;
+        }))}
         <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{evidence.source}</Text>
-        </>}
-      </View>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
-        {pick.sportsbook ? pick.sportsbook : "Sportsbook unavailable"}
-        {" · "}
-        {quoteLabel}
-        {pick.altCount > 0 ? ` · ${pick.altCount} alt${pick.altCount === 1 ? "" : "s"} posted` : ""}
-        {" · "}
-        {gameLabel}
-      </Text>
+      </View>}
 
 
     </View>

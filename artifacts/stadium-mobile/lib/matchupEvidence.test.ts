@@ -241,3 +241,24 @@ test("basketball comps require the same position and similar minutes and shot vo
   assert.ok(evidence.observations.some(note => note.includes("1 over, 1 under, 1 exactly at 26 across 3 appearances in 3 games")));
   assert.ok(explainMatchup({ ...options, position: "PG" }).missing.some(note => note.startsWith("Comparable basketball matchup")));
 });
+
+test("Towns rebound fixture preserves conflicting exact-line facts without comparing team totals", () => {
+  const h = history("nba", "REB");
+  h.recent = Array.from({ length: 10 }, (_, i) => ({
+    ...h.recent[0]!, date: `2026-10-${10 + i}`, stats: { REB: i < 6 ? "14" : "12", MIN: "33" },
+  }));
+  const games = Array.from({ length: 8 }, (_, i) => ({
+    eventId: String(i + 1), date: `2026-10-0${i + 1}`, values: [10, 12],
+  }));
+  const evidence = explainMatchup({
+    ...base, market: "player_rebounds", position: "C", line: 12.5, history: h,
+    opponentDefense: {
+      ...def, positionAllowances: { source: "ESPN", receivedAt: base.startsAt, rows: [],
+        thresholds: [{ position: "C", market: "player_rebounds", games }] },
+    },
+  });
+  assert.ok(evidence.observations.some(text => text.includes("6/10 hit Over 12.5")));
+  assert.ok(evidence.positionThreshold?.includes("0/8 completed games"));
+  assert.equal(evidence.recentGameResults.length, 10);
+  assert.ok(!evidence.observations.some(text => text.includes("team totals were")));
+});

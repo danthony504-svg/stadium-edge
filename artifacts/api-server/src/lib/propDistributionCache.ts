@@ -126,7 +126,9 @@ export function propDistributionCacheKey(
 ): string {
   const base = propSharedDistributionKey(parts);
   // Do not reuse pre-Bernoulli milestone distributions; other markets retain their warm keys.
-  const model = /^player_(?:double|triple)_double(?:_alternate)?$/.test(parts.market) ? "milestone-bernoulli-v2:" : "";
+  const model = ["nba", "wnba", "ncaab"].includes(parts.sport) && /^player_(?:rebounds|assists)(?:_alternate)?$/.test(parts.market)
+    ? "pregame-minutes-v1:"
+    : /^player_(?:double|triple)_double(?:_alternate)?$/.test(parts.market) ? "milestone-bernoulli-v2:" : "";
   return `simdist:${tier}:${simulations}:${model}${historyFingerprint}:${base}`;
 }
 

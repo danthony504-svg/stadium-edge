@@ -13,7 +13,7 @@ export function SimulatorPropProjections(game: SimGetPropsArgs) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
   const football = game.sport === "nfl" || game.sport === "ncaaf";
-  const markets = football ? ["player_rush_yds"] : ["player_points", "player_threes"];
+  const markets = football ? ["player_rush_yds"] : ["player_points", "player_threes", "player_rebounds", "player_assists"];
   const query = useQuery({
     queryKey: ["simulator-posted-projections", game.sport, game.eventId, game.startsAt, game.homeTeamId, game.awayTeamId],
     enabled: open,
@@ -37,8 +37,7 @@ export function SimulatorPropProjections(game: SimGetPropsArgs) {
           espnEventId: /^\d+$/.test(game.eventId) ? game.eventId : undefined,
         }, signal));
       }
-      return batches.flat().filter(row => row.hitProbability != null && row.projectionBreakdown?.comparable?.status &&
-        row.projectionBreakdown.comparable.status !== "unsupported");
+      return batches.flat().filter(row => row.hitProbability != null && row.projectionBreakdown != null);
     },
   });
 

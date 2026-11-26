@@ -186,6 +186,11 @@ export function isBasketballMilestoneMarket(market: string): boolean {
   return /^player_(?:double|triple)_double(?:_alternate)?$/.test(market);
 }
 
+function needsVerifiedPregameMinutes(ctx: PropSimulationContext): boolean {
+  return ["nba", "wnba", "ncaab"].includes(ctx.sport) &&
+    /^player_(?:rebounds|assists)(?:_alternate)?$/.test(ctx.market);
+}
+
 export function buildProjectionMean(ctx: PropSimulationContext, baselineOnly = false): number | null {
   const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
   if (rawVals.length < 3) return null;
@@ -264,7 +269,9 @@ export function buildProjectionMean(ctx: PropSimulationContext, baselineOnly = f
     mean *= clamp(ctx.oppPace / ctx.leaguePace, 0.88, 1.12);
   }
 
-  if (ctx.minutesL5 != null && ctx.minutesSeason != null && ctx.minutesSeason > 5) {
+  if (needsVerifiedPregameMinutes(ctx)) {
+    // Historical minutes are descriptive until a verified pregame estimate is available.
+  } else if (ctx.minutesL5 != null && ctx.minutesSeason != null && ctx.minutesSeason > 5) {
     mean *= clamp(ctx.minutesL5 / ctx.minutesSeason, 0.72, 1.28);
   } else if (ctx.minutesDirection === "up") {
     mean *= 1.04;
@@ -324,7 +331,8 @@ export function explainProjection(ctx: PropSimulationContext) {
   }
   if (ctx.oppPace != null && ctx.leaguePace != null && ctx.leaguePace > 0 &&
       (ctx.sport === "nba" || ctx.sport === "wnba")) reasons.push("Opponent pace");
-  if ((ctx.minutesL5 != null && ctx.minutesSeason != null && ctx.minutesSeason > 5) ||
+  if (needsVerifiedPregameMinutes(ctx)) reasons.push("Expected minutes unavailable");
+  else if ((ctx.minutesL5 != null && ctx.minutesSeason != null && ctx.minutesSeason > 5) ||
       ctx.minutesDirection === "up" || ctx.minutesDirection === "down") reasons.push("Recent minutes trend");
   if ((ctx.oppKeyInjuries ?? 0) || (!ctx.opportunitySuppressOwnInjuries && (ctx.ownKeyInjuries ?? 0))) {
     reasons.push("Key injuries");

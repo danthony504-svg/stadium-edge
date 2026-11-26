@@ -49,7 +49,11 @@ export function PlayerMatchupEvidence(p: {
   const runContext = passingYards && runRow && runRow.scope === "team_allowed" && runRow.sampleSize >= 3 && Number.isFinite(runRow.perGame) && runRow.perGame >= 0 && Date.parse(runRow.lastGame) < cutoff && Date.parse(runRow.firstGame) <= Date.parse(runRow.lastGame) && defense?.teamId === context.data?.opponent.teamId
     ? marketDefenseContext(p.sport, "player_rush_yds", context.data!.opponent.name, defense, cutoff)
     : null;
-  const highlights = matchupHighlights(evidence.observations, runContext);
+  const basketball = ["nba", "wnba", "ncaab"].includes(p.sport);
+  const highlights = basketball
+    ? [evidence.observations.find(text => text.startsWith("Exact-market history:")),
+        "Expected minutes unavailable", evidence.positionThreshold ?? evidence.cautions[0]].filter(Boolean)
+    : matchupHighlights(evidence.observations, runContext);
   const style = { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 };
   return <View style={{ padding: 14, gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 16 }}>
     <Text style={{ color: colors.foreground, fontWeight: "600" }}>Why this matchup</Text>
@@ -65,7 +69,7 @@ export function PlayerMatchupEvidence(p: {
       {(history.isFetching || context.isFetching) && <Text style={style}>Loading verified matchup evidence…</Text>}
       {(history.isError || context.isError) && <Text style={style}>Some evidence could not load. No missing data is inferred.</Text>}
       {runContext && <Text style={style}>{runContext}</Text>}
-      {evidence.observations.map((t, i) => <Text key={`o${i}`} style={style}>{t}</Text>)}
+      {evidence.observations.filter(text => !highlights.includes(text)).map((t, i) => <Text key={`o${i}`} style={style}>{t}</Text>)}
       <Text style={style}>CAUTIONS</Text>
       {evidence.cautions.map((t, i) => <Text key={`c${i}`} style={style}>{t}</Text>)}
       <Text style={style}>MISSING EVIDENCE</Text>
