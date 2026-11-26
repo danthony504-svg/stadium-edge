@@ -1,3 +1,4 @@
+import { selectPreparedExpectedCarries } from "./preparedExpectedCarries.js";
 import { comparablePropMatchup, comparableDistributionFingerprint } from "./comparablePropMatchup.js";
 import { cachedScoringSignals, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import type { PreparedGameContext } from "./preparedGameContext.js";
@@ -261,6 +262,15 @@ function preparedComparableMatchup(prop: SimPropRequest, game: PropSimGameContex
     thresholds: snapshot?.thresholds,
     snapshotCapturedAt: snapshot?.receivedAt,
   });
+}
+
+function propWorkloadContext(prop: SimPropRequest, game: PropSimGameContext, scenarioCarries?: number | null) {
+  const expectedCarriesEvidence = scenarioCarries == null
+    ? selectPreparedExpectedCarries({
+        ...prop, teamId: prop.playerTeamId, context: game.preparedContext,
+      })
+    : null;
+  return { expectedCarriesEvidence, expectedCarries: scenarioCarries ?? expectedCarriesEvidence?.carries ?? null };
 }
 
 function gameCtxForSimulate(gameCtx: PropSimGameContext) {
@@ -584,8 +594,9 @@ export async function runPropSims(
     }
 
     const comparableMatchup = preparedComparableMatchup(primaryReq, gameCtx, historyCache);
-    const ctx = { ...baseContext, comparableMatchup, expectedCarries: parts.expectedCarries };
-    const cacheFingerprint = comparableDistributionFingerprint(fingerprint, comparableMatchup);
+    const workload = propWorkloadContext(primaryReq, gameCtx, parts.expectedCarries);
+    const ctx = { ...baseContext, comparableMatchup, ...workload };
+    const cacheFingerprint = comparableDistributionFingerprint(fingerprint, comparableMatchup, workload.expectedCarriesEvidence);
     const distKey = propDistributionCacheKey(parts, cacheFingerprint, tier, simCount);
 
     const groupLines = [
@@ -825,7 +836,8 @@ export async function warmDeepSims(
       if (!cachedCtx) return;
 
       const comparableMatchup = preparedComparableMatchup(primaryReq, gameCtx, historyCache);
-      const fingerprint = comparableDistributionFingerprint(cachedCtx.fingerprint, comparableMatchup);
+      const workload = propWorkloadContext(primaryReq, gameCtx, parts.expectedCarries);
+      const fingerprint = comparableDistributionFingerprint(cachedCtx.fingerprint, comparableMatchup, workload.expectedCarriesEvidence);
       const deepKey = propDistributionCacheKey(
         parts,
         fingerprint,
@@ -840,7 +852,7 @@ export async function warmDeepSims(
         const again = await getCachedPropDistribution(deepKey);
         if (again?.samples?.length) return again;
 
-        const ctx = { ...propSimulationContextFromCached(cachedCtx!, primaryReq, gctx), comparableMatchup, expectedCarries: parts.expectedCarries };
+        const ctx = { ...propSimulationContextFromCached(cachedCtx!, primaryReq, gctx), comparableMatchup, ...workload };
         const groupLines = [
           ...new Set(
             group

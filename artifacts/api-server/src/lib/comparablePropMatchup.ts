@@ -1,3 +1,4 @@
+import type { PreparedExpectedCarries } from "./preparedExpectedCarries.js";
 import { createHash } from "node:crypto";
 import type { PositionThresholdRow } from "./positionThresholdHistory.js";
 
@@ -93,8 +94,8 @@ export function comparablePropMatchup(input: {
 }
 
 /** Version and evidence are part of the distribution identity shared by warm and live scoring. */
-export function comparableDistributionFingerprint(base: string, matchup: ComparablePropMatchup): string {
-  const evidence = createHash("sha256").update(JSON.stringify(matchup)).digest("hex");
+export function comparableDistributionFingerprint(base: string, matchup: ComparablePropMatchup, workload?: PreparedExpectedCarries | null): string {
+  const evidence = createHash("sha256").update(JSON.stringify([matchup, workload ?? null])).digest("hex");
   return `${base}:${COMPARABLE_MATCHUP_VERSION}:${evidence}`;
 }
 

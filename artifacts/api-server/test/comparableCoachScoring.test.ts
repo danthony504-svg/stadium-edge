@@ -193,3 +193,40 @@ test("projected carries independently offset a fixed rushing matchup penalty", (
     adjustedAt21: partial.breakdown.adjusted, adjustedAt24: full.breakdown.adjusted,
   });
 });
+
+test("only pregame event-bound carries are used and saved with the breakdown", async () => {
+  const { selectPreparedExpectedCarries } = await import("../src/lib/preparedExpectedCarries.js");
+  const row = {
+    eventId: "event", athleteId: "player", teamId: "away", carries: 24,
+    source: "Fixture projection feed", capturedAt: "2026-11-25T15:00:00Z",
+  };
+  const query = {
+    sport: "nfl", market: base.market, position: "RB", athleteId: row.athleteId, teamId: row.teamId,
+    nowMs: Date.parse("2026-11-25T16:00:00Z"),
+    context: {
+      eventId: row.eventId, sport: "nfl", homeTeamId: "home", awayTeamId: "away",
+      startsAt: "2026-11-25T20:00:00Z", expectedCarries: [row],
+    },
+  };
+  const estimate = selectPreparedExpectedCarries(query);
+  assert.deepEqual(estimate, row);
+  for (const changes of [
+    { eventId: "other" }, { teamId: "home" }, { athleteId: "other" },
+    { capturedAt: query.context.startsAt }, { source: "" },
+  ]) {
+    assert.equal(selectPreparedExpectedCarries({
+      ...query, context: { ...query.context, expectedCarries: [{ ...row, ...changes }] },
+    }), null);
+  }
+  const comparableMatchup = comparablePropMatchup({ ...base, thresholds: snapshot(50) });
+  const ctx = { ...base, recentValues: [100, 100, 100], line: 100, side: "Over" as const, comparableMatchup };
+  const missing = explainProjection(ctx)!;
+  assert.equal(missing.matchupPenalty, 8);
+  assert.ok(missing.reasons.includes("Expected carries unavailable"));
+  assert.equal(missing.workloadComparison, undefined);
+  const available = explainProjection({ ...ctx, expectedCarries: row.carries, expectedCarriesEvidence: estimate })!;
+  assert.deepEqual(available.expectedCarriesEvidence, row);
+  assert.equal(available.workloadComparison?.offset, "full");
+  assert.notEqual(comparableDistributionFingerprint("history", comparableMatchup, row),
+    comparableDistributionFingerprint("history", comparableMatchup, { ...row, capturedAt: "2026-11-25T15:05:00Z" }));
+});

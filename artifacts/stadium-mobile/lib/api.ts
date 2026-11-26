@@ -2137,6 +2137,16 @@ export type PropSimulationResult = {
     adjusted: number;
     reasons: string[];
     opponentHistoryGames: number;
+    matchupPenalty?: number | null;
+    expectedCarries?: number | null;
+    expectedCarriesEvidence?: {
+      eventId: string;
+      athleteId: string;
+      teamId: string;
+      carries: number;
+      source: string;
+      capturedAt: string;
+    } | null;
     workloadComparison?: {
       recentCarries: number;
       expectedCarries: number;

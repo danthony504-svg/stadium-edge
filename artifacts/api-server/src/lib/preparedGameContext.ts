@@ -1,3 +1,4 @@
+import type { PreparedExpectedCarries } from "./preparedExpectedCarries.js";
 import { basketballDefenseAllowed } from "./basketballDefenseAllowed.js";
 import type { PositionAllowance } from "./positionAllowance.js";
 /** Event-bound context prepared by cron. Reads never start provider work. */
@@ -13,6 +14,7 @@ export type ContextGame = { id: string; sport?: string; startsAt: string; homeTe
 export type PreparedGameContext = {
   version: 1; sport: string; eventId: string; startsAt: string; observedAtMs: number; expiresAtMs: number;
   homeTeamId: string; awayTeamId: string; requiresEventTime?: boolean;
+  expectedCarries?: PreparedExpectedCarries[];
   positionAllowances?: Record<string, PositionAllowance | null>;
   depthCharts?: DepthChartEvidence[];
   lineups: Array<{ teamId: string; complete: boolean; players: Array<{ athleteId: string; starter: boolean; position: string | null; battingOrder: number | null }> }>;
@@ -213,6 +215,7 @@ export async function attachPreparedGameContexts<T extends ContextGame>(sport: s
   return games.map(game => { const context = contexts.find(c => c.eventId === game.id && c.homeTeamId === game.homeTeamId && c.awayTeamId === game.awayTeamId && Date.parse(c.startsAt) === Date.parse(game.startsAt)); if (!context) return game;
     const publicContext = { ...context };
     delete publicContext.positionAllowances;
+    delete publicContext.expectedCarries;
     return { ...game, preparedContext: publicContext }; });
 }
 
