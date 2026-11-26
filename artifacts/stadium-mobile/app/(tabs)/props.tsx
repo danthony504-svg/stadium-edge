@@ -401,6 +401,7 @@ function PropsScreen() {
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
   const [showFilters, setShowFilters] = useState(false);
   const [marketFilter, setMarketFilter] = useState<string | null>(null);
+  const propsScrollRef = useRef<ScrollView>(null);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // Player Props | Team Props — local browse mode only. Does not touch Coach.
@@ -1175,20 +1176,16 @@ function PropsScreen() {
   const postedCategories = useMemo(() => categoriesForPostedMarkets(propsQ.data?.games ?? []), [propsQ.data]);
   useEffect(() => { setMarketFilter(null); }, [sport]);
 
-  const openCategory = (markets: string[]) => {
-    if (isBrowseSport) return;
-    for (const g of propsQ.data?.games ?? []) {
-      const hit = g.props.find((p) => markets.includes(p.market));
-      if (hit) {
-        openSheet(g, hit);
-        return;
-      }
-    }
+  const selectMarket = (market: string | null) => {
+    setMarketFilter(market);
+    setShowFilters(false);
+    propsScrollRef.current?.scrollTo({ y: 0, animated: false });
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
+        ref={propsScrollRef}
         keyboardShouldPersistTaps="handled"
         stickyHeaderIndices={[0]}
         onScroll={onScroll}
@@ -1452,7 +1449,7 @@ function PropsScreen() {
                 const key = cat.markets[0] ?? null;
                 const active = marketFilter === key;
                 return (
-                  <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => setMarketFilter(key)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: active ? colors.primary : colors.border }}>
+                  <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => selectMarket(key)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: active ? colors.primary : colors.border }}>
                     <Text style={{ color: active ? colors.primary : colors.foreground, fontSize: 12 }}>{cat.label}</Text>
                   </Pressable>
                 );
@@ -1614,7 +1611,7 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching && propsMode === "player" && popularPlayers.length > 0 ? (
+        {!searching && !marketFilter && propsMode === "player" && popularPlayers.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <Text
               style={{
@@ -1683,7 +1680,16 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching && propsMode === "player" ? (
+        {!searching && propsMode === "player" && marketFilter ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}>
+              {propMarketLabel(marketFilter)}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={() => selectMarket(null)} style={{ paddingVertical: 10 }}>
+              <Text style={{ color: colors.primary, fontFamily: FONT.medium }}>All markets</Text>
+            </Pressable>
+          </View>
+        ) : !searching && propsMode === "player" && postedCategories.length > 0 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
             <Text
               style={{
@@ -1700,8 +1706,9 @@ function PropsScreen() {
             <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
               {postedCategories.map((cat, i) => (
                 <Pressable
-                  key={cat.label}
-                  onPress={() => openCategory(cat.markets)}
+                  key={cat.markets[0]}
+                  accessibilityRole="button"
+                  onPress={() => selectMarket(cat.markets[0] ?? null)}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
@@ -2006,8 +2013,8 @@ function PropsScreen() {
           ) : totalProps === 0 ? (
             <EmptyState
               icon="user"
-              title="No props in the window"
-              subtitle={`No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
+              title={marketFilter ? `No ${propMarketLabel(marketFilter)} props found` : "No props in the window"}
+              subtitle={marketFilter ? "Try another market or load more games." : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
             />
           ) : (
             filtered.map((g, gi) => (
