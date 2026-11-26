@@ -50,9 +50,9 @@ Start the seven consecutive Central-time slate days after real credentials, the 
 
 Render persistent disk documentation: https://render.com/docs/disks#disk-snapshots
 
-## 2025–26 regular-season research
+## 2025–26 original processed-table replay
 
-Normalized 1,200 of 1,230 reported games. The importer excluded 27 with unbound starters or jumpers and three missing opening tip, start, final, or possession evidence. After requiring usable prior team history, 1,184 games received forecasts. Recorded starting fives are provided to the replay. The pregame jumper weights and usage use earlier completed games. Jump labels use the archive's ordered jump participants, independently of the first-possession team. This is retrospective lineup-conditioned analysis with no prospective lineup publication timestamps or licensed production corroboration.
+Normalized 1,200 of 1,230 reported games. The importer excluded 27 with unbound starters or jumpers and three missing opening tip, start, final, or possession evidence. After requiring usable prior team history, 1,184 games received forecasts. Recorded starting fives are provided to the replay. The pregame jumper weights and usage use earlier completed games. The original import assigns jump participants from a processed jump row and first possession from the derived possession table. The raw-field audit below supersedes this sample for tip and team calibration. This is retrospective lineup-conditioned analysis with no prospective lineup publication timestamps or licensed production corroboration.
 
 | Usage strength | Development log loss | Final block log loss |
 | ---: | ---: | ---: |
@@ -65,7 +65,7 @@ Selection used 943 games across the first four chronological blocks. The final b
 
 Public research tables: https://github.com/ramirobentes/nba_data
 
-## 2025–26 uncertainty checks
+## 2025–26 original processed-table uncertainty checks
 
 Wilson 95% intervals are for observed frequencies. Signed error intervals subtract the mean forecast in that bin. These are per-bin intervals and do not adjust for repeated teams, multiple bins, or uncertainty in the archived labels. Empty bins report zero games with null intervals in the backtest.
 
@@ -110,6 +110,60 @@ Wilson 95% intervals are for observed frequencies. Signed error intervals subtra
 The paired bootstrap resampled 241 holdout games with their 480 scorer outcomes together, over 20,000 replicates. The 35-to-70 prior change improved log loss by 0.00823, with a 95% interval of 0.00083 to 0.01566. The relative gain was 0.515% with a 95% interval of 0.053% to 0.968%. This measures uncertainty on the retained sample and uses the same model and scoring rules.
 
 The processed archive labels the tip winner as the first-possession team in 1,200 of 1,200 games, with a Wilson 95% interval of 99.68% to 100%. Both labels come from the same play-by-play archive and the import reconstructs the initial jump from the recovered jump-ball record. The perfect agreement needs independently labeled jump and possession data before treating it as a league retention estimate. The tip and team-first equations run before player allocation, so changing the player usage prior cannot fix those team-level errors.
+
+## 2025–26 raw opening-label audit
+
+The importer now binds the raw feed's explicit winner and loser IDs to the two starting fives and reads possession from the first usable play after the opening jump. It checks that the derived shot segments agree with that play. A missing or conflicting observation is excluded. The importer never substitutes the jump winner or the jump row's team for the post-jump possession.
+
+A chronological sample of 30 games included 27 shot attempts, two turnovers, and one foul as first observed actions. The acting team independently matched the possession field on all 29 shots and turnovers. The foul was by the defense. Five jump rows in the original 1,200-game sample had a blank or zero possession field and were identifiable from later action. All 1,200 original labels agreed with the raw-field check. Explicit jumper IDs also restored 24 games that the original processed-table import excluded. Of 1,230 source games, 1,224 qualified and six lacked required opening or final evidence. The raw archive still gives 1,224 of 1,224 tip winners the first observed possession (descriptive Wilson 95% interval 99.69–100%). This rules out a forced equality in this importer. Both observations still come from the same feed, which can credit jump winners based on recovery and omit changes before its first recorded play. It does not independently validate a league retention probability.
+
+No tip model tuning was applied. The season 50–60% tip bin still misses the target. The corresponding final-block interval contains zero and does not establish calibration. The Lean cap stays in place.
+
+Raw archive: https://github.com/jsierrahoopshype/nba-data-archive/releases/tag/cdnnba
+
+### Season replay (1208 forecasts)
+
+| Outcome | Forecast bin | Games | Mean forecast | Observed | Observed 95% | Observed minus forecast 95% (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Tip win | 20–30% | 3 | 26.47% | 0.00% | 0.00%–56.15% | -26.47 to 29.68 |
+| Tip win | 30–40% | 64 | 37.24% | 31.25% | 21.23%–43.39% | -16.01 to 6.15 |
+| Tip win | 40–50% | 522 | 46.33% | 44.83% | 40.61%–49.12% | -5.72 to 2.79 |
+| Tip win | 50–60% | 556 | 53.70% | 58.99% | 54.86%–63.01% | 1.16 to 9.31 |
+| Tip win | 60–70% | 61 | 63.11% | 88.52% | 78.16%–94.33% | 15.04 to 31.21 |
+| Tip win | 70–80% | 2 | 71.56% | 100.00% | 34.24%–100.00% | -37.32 to 28.44 |
+| First points | 30–40% | 39 | 37.67% | 46.15% | 31.57%–61.43% | -6.10 to 23.76 |
+| First points | 40–50% | 552 | 46.33% | 49.46% | 45.30%–53.62% | -1.02 to 7.29 |
+| First points | 50–60% | 582 | 53.65% | 56.19% | 52.13%–60.16% | -1.52 to 6.52 |
+| First points | 60–70% | 35 | 62.39% | 51.43% | 35.57%–67.01% | -26.82 to 4.62 |
+| First field goal | 30–40% | 42 | 37.71% | 50.00% | 35.53%–64.47% | -2.18 to 26.77 |
+| First field goal | 40–50% | 562 | 46.35% | 48.58% | 44.47%–52.70% | -1.88 to 6.36 |
+| First field goal | 50–60% | 568 | 53.77% | 54.58% | 50.47%–58.63% | -3.30 to 4.86 |
+| First field goal | 60–70% | 36 | 62.61% | 50.00% | 34.47%–65.53% | -28.14 to 2.91 |
+
+### Final chronological block (246 forecasts)
+
+| Outcome | Forecast bin | Games | Mean forecast | Observed | Observed 95% | Observed minus forecast 95% (pp) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Tip win | 20–30% | 3 | 26.47% | 0.00% | 0.00%–56.15% | -26.47 to 29.68 |
+| Tip win | 30–40% | 17 | 37.30% | 41.18% | 21.61%–63.99% | -15.69 to 26.69 |
+| Tip win | 40–50% | 107 | 46.04% | 49.53% | 40.24%–58.86% | -5.80 to 12.82 |
+| Tip win | 50–60% | 102 | 53.79% | 60.78% | 51.08%–69.70% | -2.71 to 15.91 |
+| Tip win | 60–70% | 15 | 64.24% | 100.00% | 79.61%–100.00% | 15.38 to 35.76 |
+| Tip win | 70–80% | 2 | 71.56% | 100.00% | 34.24%–100.00% | -37.32 to 28.44 |
+| First points | 30–40% | 14 | 36.87% | 28.57% | 11.72%–54.65% | -25.15 to 17.78 |
+| First points | 40–50% | 108 | 46.26% | 48.15% | 38.95%–57.47% | -7.31 to 11.21 |
+| First points | 50–60% | 115 | 54.00% | 55.65% | 46.54%–64.40% | -7.47 to 10.40 |
+| First points | 60–70% | 9 | 62.85% | 66.67% | 35.42%–87.94% | -27.43 to 25.09 |
+| First field goal | 30–40% | 16 | 36.99% | 31.25% | 14.16%–55.60% | -22.82 to 18.61 |
+| First field goal | 40–50% | 104 | 46.21% | 50.96% | 41.49%–60.36% | -4.72 to 14.15 |
+| First field goal | 50–60% | 115 | 54.03% | 53.91% | 44.82%–62.75% | -9.20 to 8.72 |
+| First field goal | 60–70% | 11 | 62.26% | 54.55% | 28.01%–78.73% | -34.25 to 16.47 |
+
+## 2026–27 fixed usage-prior retest
+
+For 265 games from October 20 through November 25 Central time, the fixed 70 prior improved conditional first team field-goal scorer log loss from 1.64512 to 1.61603 over 525 eligible scorer outcomes. The paired gain was 0.02910 (95% interval 0.01891 to 0.03942, 20,000 game-level resamples). The replay froze audited 2025–26 opening history, built usage rates only from earlier completed games, and used recorded starters and scorers from the next season's processed archive. Raw 2026–27 opening fields were unavailable, so none of that season's derived tip or first-possession labels entered the model or a calibration report. This is an out-of-season scorer comparison conditioned on known starters. It includes no as-of lineup test or closing-price benchmark. Keep the usage prior at 70 and the grade capped at Lean.
+
+Processed season data: https://github.com/ramirobentes/nba_data/releases
 
 ## Operational safeguards
 
