@@ -4,7 +4,7 @@ import { preparedContextForMatch } from "./preparedGameContext.js";
  * Reuses the same runners as /sports/simulate/* — does not change sim counts.
  */
 import { keyInjuryWeight, type SimPropRequest } from "./monteCarloBuild.js";
-import { DEEP_SIMULATIONS } from "./monteCarlo.js";
+import { DEEP_SIMULATIONS, type explainProjection } from "./monteCarlo.js";
 import { runPropSims, tierSimCount } from "./propSimRunner.js";
 import type { SimTier } from "./simCache.js";
 import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
@@ -93,6 +93,7 @@ export type InProcessPropSimRow = {
   line: number;
   side: string;
   hitProbability: number | null;
+  projectionBreakdown?: ReturnType<typeof explainProjection>;
 };
 
 /** Same contract as POST /sports/simulate/props success body (props rows). */
@@ -216,6 +217,7 @@ export async function runPropSimsInProcess(body: {
       line: row.line,
       side: row.side,
       hitProbability: row.hitProbability ?? null,
+      projectionBreakdown: row.projectionBreakdown ?? null,
     })),
   };
 }

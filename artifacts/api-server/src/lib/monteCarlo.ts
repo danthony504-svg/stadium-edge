@@ -70,6 +70,7 @@ export type PropSimulationContext = {
   preSimShiftKind?: "volume" | "efficiency" | "neutral" | null;
   venueExplain?: string | null;
   matchupExplain?: string | null;
+  matchupSample?: number;
   combinedPreSimExplain?: string | null;
   /** Skip soft home/away blend — already captured in venueFamilyMult. */
   suppressSoftVenueBlend?: boolean;
@@ -180,7 +181,7 @@ export function isBasketballMilestoneMarket(market: string): boolean {
   return /^player_(?:double|triple)_double(?:_alternate)?$/.test(market);
 }
 
-export function buildProjectionMean(ctx: PropSimulationContext): number | null {
+export function buildProjectionMean(ctx: PropSimulationContext, baselineOnly = false): number | null {
   const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
   if (rawVals.length < 3) return null;
 
@@ -229,6 +230,8 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const mean10 = l10.length ? avg(l10) : mean5;
   const meanSeason = avg(vals);
   let mean = 0.4 * mean5 + 0.3 * mean10 + 0.3 * meanSeason;
+
+  if (baselineOnly) return Math.max(0, mean);
 
   // Soft vsOpponent / venue blends are suppressed when formal Venue/Matchup
   // shifts already encode those series (prevents double-counting).
@@ -289,6 +292,45 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   }
 
   return Math.max(0, mean);
+}
+
+/**
+ * The form-only mean and the mean supplied to the distribution for ordinary
+ * numeric props. Binary markets use a separate model and different units.
+ */
+export function explainProjection(ctx: PropSimulationContext) {
+  if (isAnytimeTdMarket(ctx.market) || isBasketballMilestoneMarket(ctx.market)) return null;
+  const baseline = buildProjectionMean(ctx, true);
+  const adjusted = buildProjectionMean(ctx);
+  if (baseline == null || adjusted == null) return null;
+
+  const reasons: string[] = [];
+  const versus = (ctx.vsOpponentValues ?? []).filter(Number.isFinite);
+  if (!ctx.suppressSoftVsOpponentBlend && versus.length >= 2) {
+    reasons.push(`Recent history against this opponent (${versus.length} games)`);
+  }
+  const venue = (ctx.isHome === true ? ctx.homeValues : ctx.isHome === false ? ctx.awayValues : null)
+    ?.filter(Number.isFinite);
+  if (!ctx.suppressSoftVenueBlend && venue && venue.length >= 3) {
+    reasons.push(`${ctx.isHome ? "Home" : "Away"} history (${venue.length} games)`);
+  }
+  if (ctx.oppPace != null && ctx.leaguePace != null && ctx.leaguePace > 0 &&
+      (ctx.sport === "nba" || ctx.sport === "wnba")) reasons.push("Opponent pace");
+  if ((ctx.minutesL5 != null && ctx.minutesSeason != null && ctx.minutesSeason > 5) ||
+      ctx.minutesDirection === "up" || ctx.minutesDirection === "down") reasons.push("Recent minutes trend");
+  if ((ctx.oppKeyInjuries ?? 0) || (!ctx.opportunitySuppressOwnInjuries && (ctx.ownKeyInjuries ?? 0))) {
+    reasons.push("Key injuries");
+  }
+  if (ctx.weatherImpact && ctx.sport === "mlb" && /home_run|total_base|hits|strikeout|pitcher/i.test(ctx.market)) {
+    reasons.push("Weather");
+  }
+  if (ctx.combinedPreSimMult != null && ctx.combinedPreSimMult !== 1) {
+    reasons.push(...[ctx.opportunityExplain, ctx.venueExplain, ctx.matchupExplain, ctx.combinedPreSimExplain]
+      .filter((reason): reason is string => Boolean(reason)));
+  } else if (ctx.opportunityFamilyMult != null && ctx.opportunityFamilyMult !== 1 && ctx.opportunityExplain) {
+    reasons.push(ctx.opportunityExplain);
+  }
+  return { baseline, adjusted, reasons, opponentHistoryGames: Math.max(ctx.matchupSample ?? 0, versus.length) };
 }
 
 /** Hit rate from fixed samples — Over = P(X > line), Under = P(X < line). */

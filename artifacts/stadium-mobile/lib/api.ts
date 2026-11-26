@@ -2132,6 +2132,12 @@ export type PropSimulationResult = {
   simulations: number;
   hitProbability: number | null;
   mostLikelyLine: number | null;
+  projectionBreakdown?: {
+    baseline: number;
+    adjusted: number;
+    reasons: string[];
+    opponentHistoryGames: number;
+  } | null;
   meanProjection: number | null;
   medianProjection: number | null;
   confidenceScore: number | null;

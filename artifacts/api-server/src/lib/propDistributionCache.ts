@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { PropSimulationContext } from "./monteCarlo.js";
+import type { PropSimulationContext, explainProjection } from "./monteCarlo.js";
 import type { SimTier } from "./simCache.js";
 import {
   propSharedDistributionKey,
@@ -30,6 +30,7 @@ export type CachedPropDistribution = {
   simulations: number;
   samples: number[];
   meanProjection: number;
+  projectionBreakdown?: ReturnType<typeof explainProjection>;
   medianProjection: number;
   mostLikelyLine: number | null;
   stdDev: number;

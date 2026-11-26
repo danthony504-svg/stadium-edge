@@ -202,6 +202,7 @@ export function propSimulationContextFromCached(
     preSimShiftKind: pre.shiftKind,
     venueExplain: pre.venueExplain,
     matchupExplain: pre.matchupExplain,
+    matchupSample: pre.matchupSample,
     combinedPreSimExplain: pre.combinedExplain,
     suppressSoftVenueBlend: pre.suppressSoftVenueBlend,
     suppressSoftVsOpponentBlend: pre.suppressSoftVsOpponentBlend,

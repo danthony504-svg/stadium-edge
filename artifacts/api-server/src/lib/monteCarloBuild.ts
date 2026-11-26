@@ -12,6 +12,7 @@ import {
   type RunMonteCarloOpts,
   type SharedDrawScoreBundle,
   runMonteCarloSimulation,
+  explainProjection,
   scoreSharedDistribution,
   scoreTargetsFromSamples,
   simulationKey,
@@ -300,6 +301,7 @@ export function buildPropSimulationContext(
     preSimShiftKind: pre.shiftKind,
     venueExplain: pre.venueExplain,
     matchupExplain: pre.matchupExplain,
+    matchupSample: pre.matchupSample,
     combinedPreSimExplain: pre.combinedExplain,
     suppressSoftVenueBlend: pre.suppressSoftVenueBlend,
     suppressSoftVsOpponentBlend: pre.suppressSoftVsOpponentBlend,
@@ -307,6 +309,7 @@ export function buildPropSimulationContext(
 }
 
 export type SimPropRow = PropSimulationResult & {
+  projectionBreakdown?: ReturnType<typeof explainProjection>;
   key: string;
   player: string;
   market: string;
@@ -452,6 +455,7 @@ export function cachedPropDistributionFromBundle(
     simulations: shared.simulations,
     samples: bundle.samples,
     meanProjection: shared.meanProjection,
+    projectionBreakdown: explainProjection(ctx),
     medianProjection: shared.medianProjection,
     mostLikelyLine: shared.mostLikelyLine,
     stdDev: shared.stdDev,
@@ -488,7 +492,9 @@ export function scoreRequestsFromCachedDistribution(
     ctx,
     evaluateLines,
   );
-  return expandSimPropRowsFromBundle(requests, history, bundle);
+  return expandSimPropRowsFromBundle(requests, history, bundle).map((row) => ({
+    ...row, projectionBreakdown: cached.projectionBreakdown ?? null,
+  }));
 }
 
 /**
@@ -562,9 +568,12 @@ export function simulatePropGroupFromContext(
     seed: opts?.seed,
     evaluateLines: allLines,
   });
+  const distribution = cachedPropDistributionFromBundle(distributionKey, tier, drawCtx, bundle);
   return {
-    rows: expandSimPropRowsFromBundle(requests, history, bundle),
-    distribution: cachedPropDistributionFromBundle(distributionKey, tier, drawCtx, bundle),
+    rows: expandSimPropRowsFromBundle(requests, history, bundle).map((row) => ({
+      ...row, projectionBreakdown: distribution?.projectionBreakdown ?? null,
+    })),
+    distribution,
   };
 }
 
