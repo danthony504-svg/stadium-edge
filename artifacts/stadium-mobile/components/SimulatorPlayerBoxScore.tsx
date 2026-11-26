@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { refreshSimulatorAccuracy, trackSimulatorProjections } from "@/lib/simulatorAccuracy";
-import { fetchGameRoster, fetchSimulatorFirstBasket, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
+import { fetchGameRoster, fetchSimulatorFirstBasket, fetchSimulatorTeamMatchup, fetchSimulatorPlayerHistory, type GameRosterPlayer } from "@/lib/simulatorApi";
 
 type Stat = readonly [label: string, ...keys: string[]];
 
@@ -44,7 +44,40 @@ function readStat(stats: Record<string, string>, keys: string[]) {
 
 type StatGame = { date: string | null; stats: Record<string, string> };
 
-export function projectPlayerStats(sport: string, recent: StatGame[], matchup: StatGame[], cutoff: number) {
+const basketballMarkets = { PTS: "player_points", REB: "player_rebounds", AST: "player_assists",
+  BLK: "player_blocks", STL: "player_steals", "3PM": "player_threes" };
+const footballMarkets = { "Pass YDS": "player_pass_yds", "Rush YDS": "player_rush_yds",
+  REC: "player_receptions", "Rec YDS": "player_reception_yds" };
+const matchupMarkets: Record<string, Record<string, string>> = {
+  nba: basketballMarkets, wnba: basketballMarkets, ncaab: basketballMarkets,
+  nfl: footballMarkets, ncaaf: footballMarkets,
+  nhl: { G: "player_goals", AST: "player_assists", SOG: "player_shots_on_goal" },
+  mlb: { H: "batter_hits", HR: "batter_home_runs", RBI: "batter_rbis" },
+  soccer: { AST: "player_assists", SH: "player_shots", SOT: "player_shots_on_target" },
+};
+
+type TeamMatchup = Awaited<ReturnType<typeof fetchSimulatorTeamMatchup>>;
+type TeamAdjustment = { multiplier: number; scored: number; allowed: number };
+
+function teamAdjustments(sport: string, own: TeamMatchup | undefined, opponent: TeamMatchup | undefined, cutoff: number) {
+  const adjustments = new Map<string, TeamAdjustment>();
+  function average(rows: TeamMatchup["allowed"] | undefined, market: string) {
+    const games = rows?.find((row) => row.market === market && row.scope === "team_allowed")?.games
+      ?.filter(({ date, value }) => Date.parse(date) < cutoff && Number.isFinite(value) && value >= 0) ?? [];
+    return games.length >= 3 ? games.reduce((sum, game) => sum + game.value, 0) / games.length : null;
+  }
+  for (const [label, market] of Object.entries(matchupMarkets[sport] ?? {})) {
+    const scored = average(own?.production, market);
+    const allowed = average(opponent?.allowed, market);
+    if (scored == null || scored <= 0 || allowed == null) continue;
+    // Blend halfway toward opponent allowance and limit the adjustment from team-wide evidence.
+    const multiplier = Math.max(0.85, Math.min(1.15, (1 + allowed / scored) / 2));
+    adjustments.set(label, { multiplier, scored, allowed });
+  }
+  return adjustments;
+}
+
+export function projectPlayerStats(sport: string, recent: StatGame[], matchup: StatGame[], cutoff: number, adjustments?: Map<string, TeamAdjustment>) {
   const before = (game: StatGame) => game.date != null && Date.parse(game.date) < cutoff;
   const form = recent.filter(before).slice(0, 10);
   const meetings = matchup.filter(before).slice(0, 5);
@@ -59,7 +92,8 @@ export function projectPlayerStats(sport: string, recent: StatGame[], matchup: S
     const weight = against.length / (against.length + 5);
     const value = !baseline.length ? mean(against) : !against.length ? mean(baseline)
       : mean(baseline) * (1 - weight) + mean(against) * weight;
-    return [{ label, value: Math.round(value), matchupGames: against.length }];
+    const adjustment = baseline.length && !against.length ? adjustments?.get(label) : undefined;
+    return [{ label, value: Math.round(value * (adjustment?.multiplier ?? 1)), matchupGames: against.length, adjustment }];
   });
 }
 
@@ -149,9 +183,24 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
   });
   const historyByPlayer = new Map(players.map((player, i) => [player.athleteId, histories[i]]));
   const cutoff = Math.min(run, Date.parse(startsAt));
+  const teamMatchup = useQueries({
+    queries: [awayTeamId, homeTeamId].map((teamId) => ({
+      queryKey: ["sim-team-matchup", sport, teamId],
+      queryFn: ({ signal }: { signal: AbortSignal }) => fetchSimulatorTeamMatchup(sport, teamId, signal),
+      enabled: Object.hasOwn(matchupMarkets, sport),
+      staleTime: 10 * 60_000,
+      retry: false,
+    })),
+  });
+  const [awayEvidence, homeEvidence] = teamMatchup;
+  const waitingForMatchup = teamMatchup.some((query) => query.isFetching && !query.data);
+  const matchupByTeam = new Map([
+    [awayTeamId, teamAdjustments(sport, awayEvidence?.data, homeEvidence?.data, cutoff)],
+    [homeTeamId, teamAdjustments(sport, homeEvidence?.data, awayEvidence?.data, cutoff)],
+  ]);
   const statsByPlayer = new Map(players.map(({ athleteId, teamId }) => {
     const history = historyByPlayer.get(athleteId)?.data;
-    return [`${teamId}/${athleteId}`, projectPlayerStats(sport, history?.recent ?? [], history?.vsOpponent ?? [], cutoff)] as const;
+    return [`${teamId}/${athleteId}`, projectPlayerStats(sport, history?.recent ?? [], history?.vsOpponent ?? [], cutoff, matchupByTeam.get(teamId))] as const;
   }));
   const visiblePickKey = pick && statsByPlayer.has(`${pick.teamId}/${pick.athleteId}`)
     ? `${pick.teamId}/${pick.athleteId}` : null;
@@ -161,13 +210,13 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
   const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
     const projections = JSON.parse(projectionSignature) as Parameters<typeof trackSimulatorProjections>[0]["players"];
-    if (!projections.length && !visiblePickKey) return;
+    if (waitingForMatchup || (!projections.length && !visiblePickKey)) return;
     let active = true;
     void trackSimulatorProjections({
       sport, eventId, homeTeamId, awayTeamId, startsAt, players: projections, firstBasketPick: visiblePickKey,
     }).then(() => { if (active) setSaveFailed(false); }, () => { if (active) setSaveFailed(true); });
     return () => { active = false; };
-  }, [sport, eventId, homeTeamId, awayTeamId, startsAt, projectionSignature, visiblePickKey]);
+  }, [sport, eventId, homeTeamId, awayTeamId, startsAt, projectionSignature, visiblePickKey, waitingForMatchup]);
 
   const statKeys = new Map((sportStats[sport] ?? []).map(([label, ...keys]) => [label, keys]));
   const accuracy = useQuery({
@@ -211,7 +260,7 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
         Simulated Player Box Score
       </Text>
       <Text style={{ color: "#9db4cc", fontSize: 12, fontFamily: FONT.body }}>
-        Player projections use recent form and head-to-head history where available. The replay score comes from the team simulation.
+        Player projections use recent form, head-to-head history, and team matchup data where available. The replay score comes from the team simulation.
       </Text>
       <Text style={{ color: "#e8f1fa", fontFamily: FONT.semibold }}>Projection Accuracy</Text>
       {saveFailed || accuracy.isError ? (
@@ -263,7 +312,12 @@ export function SimulatorPlayerBoxScore({ sport, eventId, homeTeamId, awayTeamId
                     : history?.isPending ? "Loading player stats…" : history?.isError ? "Couldn’t load player history." : "No usable pregame stats available."}
                 </Text>
                 {stats.length ? <Text style={{ color: "#7f96ad", fontSize: 11 }}>
-                  {stats.some(({ matchupGames }) => matchupGames > 0) ? "Includes head-to-head history" : "Recent form · head-to-head unavailable"}
+                  {waitingForMatchup ? "Checking team matchup…" : stats.some(({ adjustment }) => adjustment)
+                    ? stats.flatMap(({ label, adjustment }) => adjustment
+                      ? [`${label} matchup · team ${adjustment.scored.toFixed(1)}/game · opponent allows ${adjustment.allowed.toFixed(1)}/game`]
+                      : []).join("\n")
+                    : stats.some(({ matchupGames }) => matchupGames > 0)
+                      ? "Includes head-to-head history" : "Recent form · matchup data unavailable"}
                 </Text> : null}
               </View>
             );
