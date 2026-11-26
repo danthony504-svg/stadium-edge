@@ -18,6 +18,7 @@ type Team = {
   players: readonly NbaPlayer[];
 };
 export type NbaPregame = {
+  sport?: "nba" | "wnba";
   eventId: string; startsAt: number; availableAt: number; leagueRating: number; leaguePace: number;
   homeCourtPoints: number; ratingSd: number; home: Team; away: Team;
   market?: { fairHomeMargin: number; fairTotal: number; availableAt: number };
@@ -59,6 +60,7 @@ function applyRotationChanges(team: Team): Team {
 
 function validate(input: NbaPregame) {
   const { home, away, availableAt, startsAt, market } = input;
+  const length = input.sport === "wnba" ? 40 : 48;
   if (!input.eventId || !Number.isFinite(availableAt) || !Number.isFinite(startsAt) || availableAt >= startsAt ||
       !finite(input.leagueRating, 95, 135) || !finite(input.leaguePace, 80, 120) ||
       !finite(input.homeCourtPoints, 0, 8) || !finite(input.ratingSd, 0.1, 20) || home.id === away.id ||
@@ -76,24 +78,24 @@ function validate(input: NbaPregame) {
         !team.makeRate.every(x => finite(x, 0.1, 0.9)) || team.players.length > 18 ||
         team.players.filter(p => p.starter).length !== 5 ||
         team.players.filter(p => p.minutesLimit == null && p.minutes > 0).length < 5 ||
-        Math.abs(team.players.reduce((sum, p) => sum + p.minutes, 0) - 240) > 0.01) throw new RangeError("Invalid team ratings or rotation");
+        Math.abs(team.players.reduce((sum, p) => sum + p.minutes, 0) - length * 5) > 0.01) throw new RangeError("Invalid team ratings or rotation");
     for (const p of team.players) {
-      if (!p.id || !p.name || ids.has(p.id) || !finite(p.minutes, 0, 48) || (p.starter && p.minutes <= 0) ||
-          (p.minutesLimit != null && (!Number.isInteger(p.minutesLimit) || !finite(p.minutesLimit, p.minutes, 48))) ||
+      if (!p.id || !p.name || ids.has(p.id) || !finite(p.minutes, 0, length) || (p.starter && p.minutes <= 0) ||
+          (p.minutesLimit != null && (!Number.isInteger(p.minutesLimit) || !finite(p.minutesLimit, p.minutes, length))) ||
           p.role.length !== 3 || !p.role.every(x => finite(x, 0.001, 4))) throw new RangeError("Invalid player role or minutes");
       ids.add(p.id);
     }
   }
 }
 
-function roleRates(p: NbaPlayer, cutoff: number, eventId: string): number[] {
+function roleRates(p: NbaPlayer, cutoff: number, eventId: string, priorMinutes: number): number[] {
   const dated = (p.history ?? []).filter(g => g.eventId && g.eventId !== eventId &&
     Number.isFinite(g.finalAt) && Number.isFinite(g.availableAt) && g.finalAt <= g.availableAt && g.availableAt < cutoff &&
     finite(g.minutes, 1, 65) && [g.shots, g.assists, g.rebounds].every(x => finite(x, 0, 75)))
     .sort((a, b) => b.finalAt - a.finalAt || b.availableAt - a.availableAt);
   const games = [...new Map(dated.reverse().map(game => [game.eventId, game])).values()].reverse().slice(0, 20);
-  const totals = p.role.map(rate => rate * 240);
-  let exposure = 240;
+  const totals = p.role.map(rate => rate * priorMinutes);
+  let exposure = priorMinutes;
   games.forEach((g, i) => {
     const weight = 0.5 ** (i / 6);
     exposure += g.minutes * weight;
@@ -106,9 +108,11 @@ function roleRates(p: NbaPlayer, cutoff: number, eventId: string): number[] {
 
 function targetRatings(input: NbaPregame): Ratings {
   const { home, away, leagueRating, leaguePace, ratingSd, market } = input;
-  const shrink = (value: number, games: number, prior: number) => prior + (value - prior) * games / (games + 18);
+  const wnba = input.sport === "wnba";
+  const priorGames = wnba ? 27 : 18;
+  const shrink = (value: number, games: number, prior: number) => prior + (value - prior) * games / (games + priorGames);
   const pace = (shrink(home.pace, home.ratingGames, leaguePace) + shrink(away.pace, away.ratingGames, leaguePace)) / 2;
-  const rest = (days: number) => days <= 1 ? -1.5 : 0;
+  const rest = (days: number) => days <= 1 ? (wnba ? -2 : -1.5) : 0;
   const h = shrink(home.offense, home.ratingGames, leagueRating) + shrink(away.defense, away.ratingGames, leagueRating) - leagueRating +
     (input.homeCourtPoints / 2 + rest(home.restDays)) * 100 / pace;
   const a = shrink(away.offense, away.ratingGames, leagueRating) + shrink(home.defense, home.ratingGames, leagueRating) - leagueRating +
@@ -145,17 +149,17 @@ const STRIDE = 6;
 type GamePlayer = { source: NbaPlayer; rates: number[]; offset: number };
 type GameTeam = { source: Team; players: GamePlayer[]; box: Uint16Array; lineup: GamePlayer[]; points: number; makes: number[] };
 
-function takeLineup(team: GameTeam, minute: number, blowout: boolean) {
+function takeLineup(team: GameTeam, minute: number, length: number, blowout: boolean) {
   const eligible = team.players.filter(p => p.source.minutes > 0 && team.box[p.offset + Stat.minutes]! < (p.source.minutesLimit ?? 100));
   const foulSafe = eligible.filter(p => team.box[p.offset + Stat.fouls]! < 6);
   const pool = foulSafe.length >= 5 ? foulSafe : eligible;
   if (pool.length < 5) throw new RangeError("Rotation ran out of available players");
   const rank = (p: GamePlayer) => {
     const fouls = team.box[p.offset + Stat.fouls]!;
-    return p.source.minutes * Math.min(1.25, (minute + 1) / 48) - team.box[p.offset + Stat.minutes]! +
+    return p.source.minutes * Math.min(1.25, (minute + 1) / length) - team.box[p.offset + Stat.minutes]! +
       (p.source.starter && minute === 0 ? 20 : 0) -
       (blowout && p.source.starter ? 7 : 0) -
-      (fouls >= 6 ? 50 : minute < 36 && fouls >= (minute < 24 ? 3 : 5) ? 4 : 0);
+      (fouls >= 6 ? 50 : minute < length * .75 && fouls >= (minute < length / 2 ? 3 : 5) ? 4 : 0);
   };
   pool.sort((a, b) => rank(b) - rank(a));
   team.lineup = pool.slice(0, 5);
@@ -209,8 +213,9 @@ function possession(off: GameTeam, def: GameTeam, next: () => number) {
 export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
   const input = { ...snapshot, home: applyRotationChanges(snapshot.home), away: applyRotationChanges(snapshot.away) };
   validate(input);
+  const length = input.sport === "wnba" ? 40 : 48;
   const targets = targetRatings(input);
-  const rates = [input.home, input.away].map(team => team.players.map(player => roleRates(player, input.availableAt, input.eventId)));
+  const rates = [input.home, input.away].map(team => team.players.map(player => roleRates(player, input.availableAt, input.eventId, length === 40 ? 360 : 240)));
   const homeScores = new Int16Array(DRAWS), awayScores = new Int16Array(DRAWS);
   const homeBoxes = new Uint16Array(DRAWS * input.home.players.length * STRIDE);
   const awayBoxes = new Uint16Array(DRAWS * input.away.players.length * STRIDE);
@@ -237,12 +242,12 @@ export function simulateNbaPossessions(snapshot: NbaPregame, seed = 32187) {
       let previousHome = 0, previousAway = 0;
       for (let period = 0; period < 4 || home.points === away.points; period++) {
         if (period >= 20) throw new Error("NBA overtime simulation did not resolve");
-        const duration = period < 4 ? 12 : 5;
-        const count = period < 4 ? Math.floor(pace * (period + 1) / 4) - Math.floor(pace * period / 4) : Math.round(pace * 5 / 48);
+        const duration = period < 4 ? length / 4 : 5;
+        const count = period < 4 ? Math.floor(pace * (period + 1) / 4) - Math.floor(pace * period / 4) : Math.round(pace * 5 / length);
         for (let tick = 0; tick < duration; tick++, minute++) {
-          const blowout = minute >= 39 && minute < 48 && Math.abs(home.points - away.points) >= 20;
-          takeLineup(home, minute, blowout);
-          takeLineup(away, minute, blowout);
+          const blowout = minute >= length - 9 && minute < length && Math.abs(home.points - away.points) >= 20;
+          takeLineup(home, minute, length, blowout);
+          takeLineup(away, minute, length, blowout);
           const n = Math.floor(count * (tick + 1) / duration) - Math.floor(count * tick / duration);
           for (let p = 0; p < n; p++) {
             possession(home, away, next);
@@ -374,7 +379,8 @@ export function summarizeNbaDraws(draws: NbaDraws, queries: readonly NbaLine[] =
     homeProjectedScore: mean(draws.homeScores), awayProjectedScore: mean(draws.awayScores),
     mostLikelyWinner: homeWin.win >= awayWin ? "home" : "away",
     mostLikelyWinnerPct: Math.max(homeWin.win, awayWin), confidenceScore: null,
-    simModel: NBA_POSSESSION_VERSION, simModelLabel: "NBA possession simulation · research",
+    simModel: draws.input.sport === "wnba" ? "wnba-possession-v3" : NBA_POSSESSION_VERSION,
+    simModelLabel: `${draws.input.sport === "wnba" ? "WNBA" : "NBA"} possession simulation · research`,
     coverHitRates: Object.fromEntries(Object.entries(lines).map(([id, result]) => [id, result.win])),
     ...(retainOutcomes ? { outcomes: { homeScores: Array.from(draws.homeScores), awayScores: Array.from(draws.awayScores) } } : {}),
     nbaPossessions: {

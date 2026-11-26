@@ -5,6 +5,7 @@ import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js"
 import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propSimRunner.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
+import { eventSimReview } from "../lib/sportSim/eventSimReview.js";
 import { nbaPossessionReview } from "../lib/sportSim/nbaPossessionReview.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
@@ -193,6 +194,27 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     return;
   }
 
+  if (req.body?.eventSimulationReview === true || req.body?.nbaPossessionReview === true) {
+    try {
+      const request = {
+        eventId: String(req.body?.eventId ?? ""), homeId: homeTeamId || homeTeam, awayId: awayTeamId || awayTeam, retainOutcomes,
+        queries: (coverQueries ?? []).flatMap(query => {
+          const { kind, period, ...fields } = query;
+          return kind === "raceTo" || (period && period !== "fg") ? [] : [{ ...fields, kind }];
+        }).slice(0, 100),
+      };
+      const reviewed = sport === "nba" || sport === "wnba"
+        ? await nbaPossessionReview({ ...request, sport })
+        : await eventSimReview({ ...request, sport });
+      if (reviewed) {
+        res.json({ sport, homeTeam: homeTeam || null, awayTeam: awayTeam || null, ...reviewed });
+        return;
+      }
+    } catch (error) {
+      req.log.warn({ error }, "Event simulation review unavailable");
+    }
+  }
+
   if (sport === "tennis") {
     const result = await runTennisMonteCarlo({
       away: awayTeam,
@@ -249,24 +271,6 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       lean: analysis.lean,
     });
     return;
-  }
-
-  if (sport === "nba" && req.body?.nbaPossessionReview === true && process.env.NBA_POSSESSION_REVIEW_SNAPSHOTS) {
-    try {
-      const reviewed = await nbaPossessionReview({
-        eventId: String(req.body?.eventId ?? ""), homeId: homeTeamId, awayId: awayTeamId, retainOutcomes,
-        queries: (coverQueries ?? []).flatMap(query => {
-          const { kind, period, ...fields } = query;
-          return kind === "raceTo" || (period && period !== "fg") ? [] : [{ ...fields, kind }];
-        }).slice(0, 100),
-      });
-      if (reviewed) {
-        res.json({ sport, homeTeam: homeTeam || null, awayTeam: awayTeam || null, ...reviewed });
-        return;
-      }
-    } catch (error) {
-      req.log.warn({ error }, "NBA possession review unavailable");
-    }
   }
 
   const baseUrl = apiBaseFromReq(req);

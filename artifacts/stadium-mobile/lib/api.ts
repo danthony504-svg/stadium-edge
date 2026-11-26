@@ -2484,7 +2484,25 @@ export type NbaPossessionDetails = {
   };
 };
 
+export type EventSimulationDetails = {
+  homeWinRange80: [number, number] | null;
+  marginRange80: [number, number];
+  totalRange80: [number, number];
+  retirementProbability: number;
+  lines: Record<string, { win: number; push: number; void: number; ci80: [number, number] }>;
+  marginHistogram: { from: number; through: number; count: number }[];
+  setScoreRates?: { score: string; probability: number }[];
+  totalHistogram: { from: number; through: number; count: number }[];
+  representative: {
+    margin: number; percentile: number; winner: "home" | "away" | null;
+    tiebreak?: "shootout" | "penalties";
+    periods: { label: string; home: number; away: number }[];
+    teams: { id: string; name: string; stats: Record<string, number> }[][];
+  };
+};
+
 export type GameSimulationResult = {
+  eventSimulation?: EventSimulationDetails;
   nbaPossessions?: NbaPossessionDetails;
   driveReplay?: { side: "home" | "away"; points: number }[];
   sport: string;

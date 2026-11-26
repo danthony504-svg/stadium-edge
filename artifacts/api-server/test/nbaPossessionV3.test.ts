@@ -128,3 +128,18 @@ test("review only uses the exact event and reuses draws as a posted line changes
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("WNBA records 40-minute regulation and reconciles player points in every draw", () => {
+  const scale = (t: NbaPregame["home"]) => ({
+    ...t, pace: 83, restDays: 1,
+    players: t.players.map(p => ({ ...p, minutes: p.minutes * 5 / 6 })),
+  });
+  const wnba = simulateNbaPossessions({ ...snapshot, sport: "wnba", leaguePace: 83,
+    home: scale(snapshot.home), away: scale(snapshot.away), market: undefined }, 71);
+  for (const [i, periods] of wnba.periods.entries()) {
+    const players = nbaDrawBox(wnba, "home", i);
+    assert.equal(players.reduce((sum, p) => sum + p.minutes, 0), (40 + (periods.length - 4) * 5) * 5);
+    assert.equal(players.reduce((sum, p) => sum + p.points, 0), wnba.homeScores[i]);
+  }
+  assert.equal(summarizeNbaDraws(wnba, [], false).simModel, "wnba-possession-v3");
+});

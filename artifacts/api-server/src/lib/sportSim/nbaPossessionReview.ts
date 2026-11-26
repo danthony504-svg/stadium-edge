@@ -6,7 +6,7 @@ const cache = new Map<string, { signature: string; draws: NbaDraws }>();
 
 /** The review service receives authenticated pregame snapshots out of band. */
 export async function nbaPossessionReview(input: {
-  eventId: string; homeId: string; awayId: string; queries: readonly NbaLine[]; retainOutcomes: boolean;
+  sport?: "nba" | "wnba"; eventId: string; homeId: string; awayId: string; queries: readonly NbaLine[]; retainOutcomes: boolean;
 }) {
   const path = process.env.NBA_POSSESSION_REVIEW_SNAPSHOTS;
   if (!path) return null;
@@ -18,20 +18,21 @@ export async function nbaPossessionReview(input: {
     source = { path, stamp: info.mtimeMs, snapshots };
   }
   const now = Date.now();
-  const snapshot = source.snapshots.filter(s => s.eventId === input.eventId && s.home?.id === input.homeId &&
+  const snapshot = source.snapshots.filter(s => (s.sport ?? "nba") === (input.sport ?? "nba") && s.eventId === input.eventId && s.home?.id === input.homeId &&
     s.away?.id === input.awayId && s.availableAt <= now && s.availableAt < s.startsAt)
     .sort((a, b) => b.availableAt - a.availableAt)[0];
   if (!snapshot) return null;
   // The odds thresholds requested by the UI are scored after retrieval.
   const signature = JSON.stringify(snapshot);
-  let entry = cache.get(input.eventId);
+  const key = `${input.sport ?? "nba"}:${input.eventId}`;
+  let entry = cache.get(key);
   const cacheHit = entry?.signature === signature;
   if (!entry || entry.signature !== signature) {
     const seed = [...input.eventId].reduce((value, c) => Math.imul(value ^ c.charCodeAt(0), 16777619), 2166136261);
     entry = { signature, draws: simulateNbaPossessions(snapshot, seed) };
   }
-  cache.delete(input.eventId);
-  cache.set(input.eventId, entry);
+  cache.delete(key);
+  cache.set(key, entry);
   if (cache.size > 4) cache.delete(cache.keys().next().value!);
   return { ...summarizeNbaDraws(entry.draws, input.queries, input.retainOutcomes), nbaDrawCacheHit: cacheHit };
 }
