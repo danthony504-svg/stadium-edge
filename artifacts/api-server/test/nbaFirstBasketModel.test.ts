@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { captureOpeningGame } from "../src/lib/nbaFirstBasketCapture.ts";
 import { openingGameSummary, priceFirstBasket, teamScoresFirst, type FirstBasketSnapshot } from "../src/lib/nbaFirstBasketModel.ts";
 import { firstBasketQuotes } from "../src/lib/nbaFirstBasketOdds.ts";
-import { backtestNbaFirstBasket } from "../src/lib/nbaFirstBasketBacktest.ts";
+import { archivedFirstBasketCases, backtestNbaFirstBasket } from "../src/lib/nbaFirstBasketBacktest.ts";
+import { archiveOddsPlan, firstBasketWeek, MINUTE, readFirstBasketArchiveDay, slateDate } from "../src/lib/nbaFirstBasketArchive.ts";
+import { collectFirstBasket } from "../src/lib/nbaFirstBasketCollector.ts";
+import { tuneFirstBasketUsage } from "../src/lib/nbaFirstBasketTuneUsage.ts";
 import { replayFirstBasket } from "../src/lib/nbaFirstBasketReplay.ts";
 import { getFirstBasketModel, getFirstBasketOpening } from "../src/lib/nbaFirstBasketService.ts";
 
@@ -232,4 +235,85 @@ test("one-minute app polling stays within 45 credits in a stable 45-minute windo
   assert.equal(report.requests.length, 15);
   assert.equal(report.maxCredits, 45);
   assert.equal(report.requests.at(-1)?.at, startsAt - 3 * 60_000);
+});
+
+test("a high-confidence edge remains Lean before calibration and closing validation", () => {
+  const past = captureOpeningGame(source)!;
+  const games = Array.from({ length: 10 }, (_, i) => ({ ...past, eventId: `history-${i}` }));
+  const quotes = firstBasketQuotes(snapshot, oddsData([book]), now);
+  const first = { ...quotes[0]!, price: 100_000 };
+  const result = priceFirstBasket(snapshot, games, [first], now);
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") return;
+  const row = result.groups.flatMap(group => group.rows)[0];
+  assert.equal(row?.confidence, "High");
+  assert.equal(row?.grade, "Lean");
+});
+
+test("collector records raw quotes and actual quota across restarts and only enables fast refresh with reserve", async () => {
+  const root = await mkdtemp(join(tmpdir(), "first-basket-archive-"));
+  try {
+    let wall = now;
+    const game = { ...snapshot, startsAt: now + 12 * MINUTE };
+    const capture = { snapshots: [game], history: [] };
+    let remaining = 200;
+    const prices = { ...oddsData([book]), commence_time: new Date(game.startsAt).toISOString() };
+    const poll = () => collectFirstBasket(root, capture, {
+      now: () => wall, fastReserve: 100,
+      requestOdds: async () => new Response(JSON.stringify(prices), { headers: {
+        "x-requests-last": "3", "x-requests-remaining": String(remaining -= 3),
+      } }),
+    });
+    assert.equal((await poll()).requests, 1);
+    wall += MINUTE;
+    assert.equal((await poll()).requests, 0);
+    wall += MINUTE; // ten minutes left, using the shared recorded quota
+    assert.equal((await poll()).requests, 1);
+    const day = slateDate(game.startsAt);
+    const archived = await readFirstBasketArchiveDay(root, day);
+    const quota = archived.flatMap(item => item.kind === "odds" ? [item] : []).sort((a, b) => b.at - a.at)[0];
+    assert.equal(quota?.response?.bookmakers?.[0]?.markets?.length, 3);
+    assert.equal(archiveOddsPlan(game, wall, quota, 100)?.ttlMs, MINUTE);
+    assert.equal(archiveOddsPlan(game, wall, quota)?.ttlMs, 3 * MINUTE);
+    assert.equal(archiveOddsPlan(game, wall, { ...quota!, remaining: 101 }, 100)?.ttlMs, 3 * MINUTE);
+    assert.equal(archiveOddsPlan(game, wall, { ...quota!, at: wall - 6 * MINUTE }, 100)?.ttlMs, 3 * MINUTE);
+    assert.equal(archived.filter(record => record.kind === "lineup").length, 1);
+    const week = await firstBasketWeek(root, day);
+    assert.equal(week.nights.length, 7);
+    assert.equal(week.nightsWithQuota, 1);
+    assert.equal(week.reportedCredits, 6);
+    assert.equal(week.nights[0]?.reportedCredits, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("builds a closing comparison only when pre-tip odds match the latest confirmed five", () => {
+  const past = captureOpeningGame(source)!;
+  const final = { ...past, eventId: snapshot.eventId, finalAt: now + 360_000, availableAt: now + 361_000 };
+  const lineup = { kind: "lineup" as const, snapshot, at: now - 1000 };
+  const quote = { kind: "odds" as const, at: now, eventId: snapshot.eventId, key: archiveOddsPlan(snapshot, now, undefined)!.key,
+    status: 200, credits: 3, remaining: 100, response: oddsData([book]) };
+  const afterTip = { ...quote, at: snapshot.startsAt };
+  assert.equal(archivedFirstBasketCases([lineup, quote, afterTip], [final])[0]?.closing?.at, now);
+  assert.equal(archivedFirstBasketCases([lineup, afterTip], [final])[0]?.closing, undefined);
+  const scratch = { ...lineup, at: now + 1, snapshot: { ...snapshot, availableAt: now + 1, confirmedAt: null } };
+  assert.deepEqual(archivedFirstBasketCases([lineup, quote, scratch], [final]), []);
+});
+
+test("walk-forward usage tuning keeps the final time block out of selection", () => {
+  const past = captureOpeningGame(source)!;
+  const cases = Array.from({ length: 3 }, (_, i) => {
+    const startsAt = now + (i + 1) * 86_400_000;
+    const eventId = `tune-${i}`;
+    return {
+      snapshot: { ...snapshot, eventId, startsAt, confirmedAt: startsAt - 2 * MINUTE, availableAt: startsAt - MINUTE },
+      final: { ...past, eventId, finalAt: startsAt + 120 * MINUTE, availableAt: startsAt + 121 * MINUTE },
+    };
+  });
+  const result = tuneFirstBasketUsage({ history: [past], cases, strengths: [5, 35] });
+  assert.ok(result.selectedStrength != null && result.holdout);
+  assert.equal(result.holdout.selected.games, 1);
+  assert.deepEqual(result.development.map(row => row.folds.map(fold => fold.games)), [[1, 1], [1, 1]]);
+  assert.deepEqual(tuneFirstBasketUsage({ history: [past], cases: cases.slice(0, 1) }).holdout, null);
 });

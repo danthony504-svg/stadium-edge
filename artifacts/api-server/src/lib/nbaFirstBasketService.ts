@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { createSingleFlight } from "./singleFlight.js";
+import { archiveLineupKey, readFirstBasketArchiveDay, slateDate, type OddsRecord } from "./nbaFirstBasketArchive.js";
 import { firstBasketMarkets, priceFirstBasket, supportedVoidRule, validateFirstBasketSnapshot, type FirstBasketSnapshot, type OpeningGame } from "./nbaFirstBasketModel.js";
 import { firstBasketQuotes, type RawFirstBasketOdds } from "./nbaFirstBasketOdds.js";
 
@@ -72,7 +73,7 @@ const readyBoard = new WeakMap<FirstBasketSnapshot, {
 
 export async function reviewFirstBasket(input: Matchup, source: {
   now: () => number; capture: () => Promise<FirstBasketCapture | null>;
-  odds: (plan: OddsPlan) => Promise<RawFirstBasketOdds | null>;
+  odds: (plan: OddsPlan, game: FirstBasketSnapshot, at: number) => Promise<RawFirstBasketOdds | null>;
 }) {
   const data = await source.capture();
   if (!data) return { status: "waiting_for_starters" } as const;
@@ -82,7 +83,7 @@ export async function reviewFirstBasket(input: Matchup, source: {
   if (now >= game.startsAt) return { status: "started" } as const;
   if (game.confirmedAt === null || now - game.confirmedAt > PREGAME_WINDOW_MS) return { status: "waiting_for_starters" } as const;
   const plan = firstBasketOddsPlan(game, now);
-  const odds = plan ? await source.odds(plan).catch(() => null) : null;
+  const odds = plan ? await source.odds(plan, game, now).catch(() => null) : null;
   const current = source.now();
   const latest = plan ? await source.capture() : data;
   if (!latest || latestMatchingSnapshot(latest, input, current) !== game) return { status: "waiting_for_starters" } as const;
@@ -99,10 +100,19 @@ export async function reviewFirstBasket(input: Matchup, source: {
 
 export function getFirstBasketModel(input: Matchup) {
   const key = process.env.ODDS_API_KEY;
+  const archive = process.env.NBA_FIRST_BASKET_ARCHIVE_DIR;
   return reviewFirstBasket(input, {
     now: Date.now,
     capture: readFirstBasketCapture,
-    odds: async plan => {
+    odds: async (plan, game, at) => {
+      if (archive) {
+        const key = archiveLineupKey(game, at);
+        const records = await readFirstBasketArchiveDay(archive, slateDate(game.startsAt), "odds");
+        const captured = records.filter((record): record is OddsRecord => record.kind === "odds" &&
+          record.eventId === game.eventId && record.key === key && record.at <= at && at - record.at < 5 * 60_000)
+          .sort((a, b) => b.at - a.at)[0];
+        return captured?.response ?? null;
+      }
       if (!key) return null;
       const { cachedJson } = await import("./sports.js");
       return cachedJson<RawFirstBasketOdds | null>(plan.key, plan.ttlMs, async () => {

@@ -1,11 +1,35 @@
 import { firstScore, openingGameSummary, priceFirstBasket, type FirstBasketSnapshot, type OpeningGame, type Rule, type Side } from "./nbaFirstBasketModel.js";
+import { archiveLineupKey, MINUTE, type FirstBasketArchiveRecord } from "./nbaFirstBasketArchive.js";
 import { firstBasketQuotes, type RawFirstBasketOdds } from "./nbaFirstBasketOdds.js";
 
-type EvaluationCase = {
+export type FirstBasketEvaluationCase = {
   snapshot: FirstBasketSnapshot;
   final: OpeningGame;
   closing?: { at: number; odds: RawFirstBasketOdds };
 };
+/** Build paired cases from pre-tip observations archived by the collector. */
+export function archivedFirstBasketCases(records: readonly FirstBasketArchiveRecord[], finals: readonly OpeningGame[]) {
+  return finals.flatMap<FirstBasketEvaluationCase>(final => {
+    const lineups = records.flatMap(record => {
+      if (record.kind !== "lineup" || record.snapshot.eventId !== final.eventId ||
+          record.snapshot.home.id !== final.teams[0].id || record.snapshot.away.id !== final.teams[1].id ||
+          record.at < record.snapshot.availableAt || record.at >= record.snapshot.startsAt) return [];
+      return [record];
+    }).sort((a, b) => b.snapshot.availableAt - a.snapshot.availableAt);
+    const lastLineup = lineups[0]?.snapshot;
+    if (!lastLineup || lastLineup.confirmedAt == null || lastLineup.startsAt - lastLineup.confirmedAt > 45 * MINUTE) return [];
+    const key = archiveLineupKey(lastLineup, lastLineup.startsAt - 1);
+    const pretip = records.filter(record => record.kind === "odds" && record.eventId === final.eventId && record.key === key &&
+      record.at < lastLineup.startsAt && lastLineup.startsAt - record.at <= 5 * MINUTE)
+      .sort((a, b) => b.at - a.at)[0];
+    if (pretip?.kind !== "odds" || !pretip.response) return [{ snapshot: lastLineup, final }];
+    const pricingLineup = lineups.find(record => record.at <= pretip.at &&
+      archiveLineupKey(record.snapshot, pretip.at) === key)?.snapshot;
+    if (!pricingLineup || pricingLineup.confirmedAt == null) return [{ snapshot: lastLineup, final }];
+    return [{ snapshot: pricingLineup, final, closing: { at: pretip.at, odds: pretip.response } }];
+  });
+}
+
 type Binary = { probability: number; outcome: number };
 const logLoss = (p: number) => -Math.log(Math.max(1e-12, p));
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -16,20 +40,26 @@ function calibration(rows: Binary[]) {
     logLoss: mean(rows.map(row => logLoss(row.outcome ? row.probability : 1 - row.probability))),
     buckets: Array.from({ length: 10 }, (_, i) => {
       const bucket = rows.filter(row => Math.min(9, Math.floor(row.probability * 10)) === i);
-      return { lower: i / 10, games: bucket.length, predicted: mean(bucket.map(row => row.probability)), actual: mean(bucket.map(row => row.outcome)) };
+      const predicted = mean(bucket.map(row => row.probability));
+      const actual = mean(bucket.map(row => row.outcome));
+      const absoluteGapPp = predicted != null && actual != null ? Math.abs(predicted - actual) * 100 : null;
+      return { lower: i / 10, games: bucket.length, predicted, actual, absoluteGapPp,
+        belowTwoPointTarget: absoluteGapPp == null ? null : absoluteGapPp < 2 };
     }),
   };
 }
 
 export function backtestNbaFirstBasket(input: {
   history: readonly OpeningGame[];
-  cases: readonly EvaluationCase[];
+  cases: readonly FirstBasketEvaluationCase[];
+  usagePriorStrength?: number;
   includeClosing?: boolean;
 }) {
   const seen = new Set<string>();
   const tip: Binary[] = [], firstPoints: Binary[] = [], firstFieldGoal: Binary[] = [];
   const markets = new Map<string, { model: number[]; closing: number[] }>();
   let skipped = 0, gamesWithClosingFields = 0;
+  const evaluatedStarts: number[] = [];
   for (const { snapshot, final, closing } of input.cases) {
     const observed = openingGameSummary(final);
     if (!observed || final.eventId !== snapshot.eventId || final.finalAt <= snapshot.startsAt || seen.has(final.eventId) ||
@@ -38,8 +68,9 @@ export function backtestNbaFirstBasket(input: {
       throw new RangeError("Invalid or duplicate First Basket evaluation game");
     }
     seen.add(final.eventId);
-    const prediction = priceFirstBasket(snapshot, input.history, [], snapshot.availableAt);
+    const prediction = priceFirstBasket(snapshot, input.history, [], snapshot.availableAt, input.usagePriorStrength);
     if (prediction.status !== "ready") { skipped++; continue; }
+    evaluatedStarts.push(snapshot.startsAt);
     tip.push({ probability: prediction.homeTipWin, outcome: Number(observed.tipWinner === 0) });
     firstPoints.push({ probability: prediction.homeScoresFirst.points, outcome: Number(observed.firstPoints.side === 0) });
     firstFieldGoal.push({ probability: prediction.homeScoresFirst.field_goal, outcome: Number(observed.firstFieldGoal.side === 0) });
@@ -84,13 +115,19 @@ export function backtestNbaFirstBasket(input: {
 
   return {
     suppliedGames: seen.size, skipped,
-    stage1: { tip: calibration(tip), firstPoints: calibration(firstPoints), firstFieldGoal: calibration(firstFieldGoal) },
+    stage1: {
+      targetGapPp: 2,
+      firstGameAt: evaluatedStarts.length ? Math.min(...evaluatedStarts) : null,
+      lastGameAt: evaluatedStarts.length ? Math.max(...evaluatedStarts) : null,
+      tip: calibration(tip), firstPoints: calibration(firstPoints), firstFieldGoal: calibration(firstFieldGoal),
+    },
     stage2: {
       gamesWithClosingFields,
       comparisons: [...markets].map(([key, losses]) => {
         const [book, rule, market, scope] = JSON.parse(key) as [string, Rule, string, string];
         return { book, rule, market, scope, fields: losses.model.length,
-          modelLogLoss: mean(losses.model), closingNoVigLogLoss: mean(losses.closing) };
+          modelLogLoss: mean(losses.model), closingNoVigLogLoss: mean(losses.closing),
+          pairedDifference: mean(losses.model.map((loss, i) => loss - losses.closing[i]!)) };
       }),
     },
   };

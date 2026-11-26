@@ -67,6 +67,7 @@ export type Quote = {
 const other = (side: Side): Side => side === 0 ? 1 : 0;
 const validSide = (side: unknown): side is Side => side === 0 || side === 1;
 const POSTERIOR_DRAWS = 4096;
+export const DEFAULT_FIRST_BASKET_USAGE_PRIOR = 35;
 const OPENING_CLOCK_SECONDS = 10 * 60;
 const validClock = (clock: string) => /^(?:12:00(?:\.0+)?|(?:1[01]|[0-9]):[0-5]\d(?:\.\d+)?)$/.test(clock);
 const validTime = (value: number) => Number.isFinite(value) && value > 0;
@@ -163,7 +164,8 @@ const secondsRemaining = (clock?: string) => {
 };
 const fairPrice = (p: number) => Math.round(p >= .5 ? -100 * p / (1 - p) : 100 * (1 - p) / p);
 
-export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonly OpeningGame[], quotes: readonly Quote[], now: number) {
+export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonly OpeningGame[], quotes: readonly Quote[], now: number, usagePriorStrength = DEFAULT_FIRST_BASKET_USAGE_PRIOR) {
+  if (!Number.isFinite(usagePriorStrength) || usagePriorStrength < 0) throw new RangeError("Invalid usage prior strength");
   if (!validateFirstBasketSnapshot(snapshot) || snapshot.availableAt > now) return { status: "waiting_for_starters" } as const;
   if (now >= snapshot.startsAt) return { status: "started" } as const;
   if (snapshot.confirmedAt === null) return { status: "waiting_for_starters" } as const;
@@ -248,7 +250,7 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
     starts.push(homeStarts);
     const masses = teams.map((team, i) => methods.map((_, j) => {
       const stat = stats[i]!;
-      const weights = team.starters.map(player => gamma(.25 + player.usage[j]! * 35 + (stat.shots.get(player.id)?.[j] ?? 0), random));
+      const weights = team.starters.map(player => gamma(.25 + player.usage[j]! * usagePriorStrength + (stat.shots.get(player.id)?.[j] ?? 0), random));
       const denominator = weights.reduce((sum, weight) => sum + weight, 0);
       const methodMass = gamma([3, 12, 6][j]! + stat.made[j]!, random);
       return weights.map(weight => methodMass * weight / denominator);
@@ -296,7 +298,9 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
     const breakEven = implied(quote.price);
     const positiveEvProbability = values.filter(p => p > breakEven).length / values.length;
     const confidence = thinHistory ? "Low" : positiveEvProbability >= .9 ? "High" : positiveEvProbability >= .7 ? "Medium" : "Low";
-    const grade = probability <= breakEven ? "Pass" : confidence === "High" ? "Strong Bet" : confidence === "Medium" ? "Small Edge" : "Lean";
+    // Confidence describes the posterior only. Grades stay capped pending both
+    // season calibration and the independent whole-market closing benchmark.
+    const grade = probability <= breakEven ? "Pass" : "Lean";
     return [{ ...identity, probability, breakEven, fairPrice: fairPrice(probability), positiveEvProbability, confidence, grade }];
   });
   const top = (rule: Rule, market: Market) => {
@@ -320,7 +324,7 @@ export function priceFirstBasket(snapshot: FirstBasketSnapshot, records: readonl
     openingRate: stats.map(stat => (stat.points + 6) / (stat.total + 12)),
     openingUsage: teams.map((team, side) => Object.fromEntries(team.starters.map(player => [
       player.id, player.usage.reduce((sum, value, j) =>
-        sum + .25 + value * 35 + (stats[side]!.shots.get(player.id)?.[j] ?? 0), 0),
+        sum + .25 + value * usagePriorStrength + (stats[side]!.shots.get(player.id)?.[j] ?? 0), 0),
     ]))),
     homeScoresFirst: { points: average(first.points), field_goal: average(first.field_goal) },
     posteriorDraws: POSTERIOR_DRAWS, outcomeProbabilities,
