@@ -1,7 +1,7 @@
 import { propsBrowseDeadline, PROPS_EVENT_BUDGET_MS, PROPS_OPTIONAL_IDS_BUDGET_MS } from "@/lib/propsBrowseDeadline";
 import Feather from "@expo/vector-icons/Feather";
 import { postedMarketKeys } from "@/lib/postedMarketCategories";
-import { positionRankingCandidates, topPlayersByPosition } from "@/lib/topPlayersByPosition";
+import { collectPositionSimulations, positionRankingCandidates, topPlayersByPosition } from "@/lib/topPlayersByPosition";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -48,7 +48,6 @@ import {
   type PlayerProp,
   type PlayerSearchResult,
   type PropPoolEntry,
-  type PropSimulationResult,
 } from "@/lib/api";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
@@ -1175,29 +1174,23 @@ function PropsScreen() {
         tier: "quick" as const,
       };
       return {
-        queryKey: ["props-position-sim", game.sport, opts, requests],
+        queryKey: ["props-position-sim-v2", game.sport, opts, requests],
         staleTime: 5 * 60_000,
         retry: false,
-        queryFn: async ({ signal }: { signal: AbortSignal }) => {
-          const simulations: PropSimulationResult[] = [];
-          const batchSize = 40;
-          for (let i = 0; i < requests.length; i += batchSize) {
-            const chunk = requests.slice(i, i + batchSize);
-            const batch = await fetchPropSimulationsBatch(game.sport, chunk, opts, signal);
-            if (batch.props.length !== chunk.length) throw new Error("Incomplete player prop simulation response");
-            simulations.push(...batch.props);
-          }
-          return simulations;
-        },
+        queryFn: ({ signal }: { signal: AbortSignal }) => collectPositionSimulations(
+          requests,
+          async chunk => (await fetchPropSimulationsBatch(game.sport, chunk, opts, signal)).props,
+          signal,
+        ),
       };
     }),
   });
   const positionGroups = topPlayersByPosition(positionBoards.flatMap((board, index) => {
-    const simulations = positionSimQueries[index]?.data;
+    const simulations = positionSimQueries[index]?.data?.simulations;
     return simulations && Date.parse(board.game.startsAt) > Date.now() ? [{ ...board, simulations }] : [];
   }));
-  const positionSimsPending = positionSimQueries.some(result => result.isPending);
-  const positionSimsFailed = positionSimQueries.some(result => result.isError);
+  const positionSimsPending = positionSimQueries.some(result => result.isFetching);
+  const positionSimsFailed = positionSimQueries.some(result => result.isError || result.data?.incomplete);
   useEffect(() => { setMarketFilter(null); }, [sport]);
 
   return (
@@ -1643,9 +1636,20 @@ function PropsScreen() {
                 No upcoming props with a verified position and a simulation estimate.
               </Text>
             )}
-            {positionSimsFailed && <ErrorState onRetry={() => {
-              for (const result of positionSimQueries) if (result.isError) void result.refetch();
-            }} />}
+            {positionSimsFailed && !positionSimsPending && (
+              <Pressable accessibilityRole="button" onPress={() => {
+                for (const result of positionSimQueries) {
+                  if (result.isError || result.data?.incomplete) void result.refetch();
+                }
+              }} style={{ minHeight: 44, justifyContent: "center", gap: 4 }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+                  {positionGroups.length > 0
+                    ? "Some simulations didn’t load. Rankings use the available results."
+                    : "Player simulations couldn’t load."}
+                </Text>
+                <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>Retry simulations</Text>
+              </Pressable>
+            )}
             {positionGroups.map(({ position, players }) => (
               <View key={position} style={{ gap: 6 }}>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>{position}</Text>

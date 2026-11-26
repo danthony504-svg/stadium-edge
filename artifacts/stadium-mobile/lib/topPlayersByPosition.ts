@@ -79,3 +79,33 @@ export function topPlayersByPosition<Game>(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([position, players]) => ({ position, players }));
 }
+
+export async function collectPositionSimulations<Request>(
+  requests: readonly Request[],
+  fetchBatch: (chunk: Request[]) => Promise<readonly PropSimulationResult[]>,
+  signal: AbortSignal,
+) {
+  const simulations: PropSimulationResult[] = [];
+  let incomplete = false;
+  const batchSize = 40;
+  const checkCancelled = () => {
+    if (!signal.aborted) return;
+    const error = new Error("Player prop simulations cancelled");
+    error.name = "AbortError";
+    throw error;
+  };
+  for (let offset = 0; offset < requests.length; offset += batchSize) {
+    checkCancelled();
+    const chunk = requests.slice(offset, offset + batchSize);
+    try {
+      const rows = await fetchBatch(chunk);
+      simulations.push(...rows);
+      if (rows.length !== chunk.length) incomplete = true;
+    } catch (error) {
+      checkCancelled();
+      incomplete = true;
+      if (error instanceof Error && error.message.startsWith("HTTP 429")) break;
+    }
+  }
+  return { simulations, incomplete };
+}

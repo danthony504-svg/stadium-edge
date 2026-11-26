@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PlayerProp, PropSimulationResult } from "./api";
-import { positionRankingCandidates, topPlayersByPosition } from "./topPlayersByPosition";
+import { collectPositionSimulations, positionRankingCandidates, topPlayersByPosition } from "./topPlayersByPosition";
 
 function postedProp(player: string, position: string | null, market: string, line: number): PlayerProp {
   return {
@@ -60,4 +60,33 @@ test("excludes unposted sides, alternates, unknown positions, and simulations fr
   assert.deepEqual(groups[0]?.players.map(({ game, prop, side, probability }) => [game, prop.player, side, probability]), [
     ["First game", "Adams", "Over", 0.2],
   ]);
+});
+
+test("ranking keeps rows before and after a failed simulation batch", async () => {
+  const prop = postedProp("Adams", "QB", "player_pass_yds", 244.5);
+  const early = simulation(prop, 0.6, 0.4);
+  const late = simulation({ ...prop, line: 250.5 }, 0.55, 0.45);
+  const requests = Array.from({ length: 81 }, (_, index) => index);
+  const result = await collectPositionSimulations(requests, async batch => {
+    if (batch[0] === 40) throw new Error("network timeout");
+    return batch[0] === 0 ? [early] : [late];
+  }, new AbortController().signal);
+  assert.deepEqual(result, { simulations: [early, late], incomplete: true });
+});
+
+test("ranking respects simulation cooldown and cancels queued batches when leaving the screen", async () => {
+  const requests = Array.from({ length: 81 }, (_, index) => index);
+  let calls = 0;
+  const result = await collectPositionSimulations(requests, async () => {
+    calls++;
+    throw new Error("HTTP 429 prop route cooldown");
+  }, new AbortController().signal);
+  assert.deepEqual(result, { simulations: [], incomplete: true });
+  assert.equal(calls, 1);
+
+  const controller = new AbortController();
+  await assert.rejects(collectPositionSimulations(requests, async () => {
+    controller.abort();
+    throw new Error("aborted request");
+  }, controller.signal), { name: "AbortError" });
 });
