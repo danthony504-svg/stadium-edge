@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { comparablePropMatchup, COMPARABLE_MATCHUP_VERSION } from "./comparablePropMatchup.js";
 import { cachedScoringSignals, type FootballTdSignal } from "./footballScoringOpportunities.js";
 import type { PreparedGameContext } from "./preparedGameContext.js";
 import { propHasConfirmedAbsence, propHasConfirmedNonstarter } from "./propAvailability.js";
@@ -240,6 +242,30 @@ async function loadPropHistory(
     return history;
   });
   return value;
+}
+
+function preparedComparableMatchup(prop: SimPropRequest, game: PropSimGameContext, historyCache: HistoryCache) {
+  const prepared = game.preparedContext;
+  const opponentId = prop.opponentTeamId;
+  const correctOpponent = prop.isHome === true ? prepared?.awayTeamId : prop.isHome === false ? prepared?.homeTeamId : null;
+  const snapshot = prepared && prepared.sport === prop.sport && opponentId && opponentId === correctOpponent
+    ? prepared.positionAllowances?.[opponentId]
+    : null;
+  const cutoff = Math.min(Date.parse(prepared?.startsAt ?? ""), prepared?.observedAtMs ?? NaN);
+  const loaded = historyCache.get(`${prop.sport}:${prop.athleteId ?? ""}:${opponentId ?? ""}`);
+  const warm = !loaded && snapshot && prop.athleteId
+    ? peekAuthoritativePlayerHistory(prop.sport, prop.athleteId)
+    : undefined;
+  return comparablePropMatchup({
+    sport: prop.sport, market: prop.market, position: prop.position, cutoff,
+    recent: loaded?.recent ?? (warm ? toPropSimHistoryShape(warm).recent : []),
+    thresholds: snapshot?.thresholds,
+  });
+}
+
+function comparableDistributionFingerprint(base: string, matchup: ReturnType<typeof comparablePropMatchup>): string {
+  const evidence = createHash("sha256").update(JSON.stringify(matchup)).digest("hex").slice(0, 16);
+  return `${base}:${COMPARABLE_MATCHUP_VERSION}:${evidence}`;
 }
 
 function gameCtxForSimulate(gameCtx: PropSimGameContext) {
@@ -532,9 +558,9 @@ export async function runPropSims(
   const deepWarmProps: SimPropRequest[] = [];
 
   for (const rg of resolved) {
-    const { group, primaryReq, parts, history, ctx, fingerprint } = rg;
+    const { group, primaryReq, parts, history, ctx: baseContext, fingerprint } = rg;
 
-    if (!ctx || !fingerprint) {
+    if (!baseContext || !fingerprint) {
       for (const item of group) {
         rows[item.index] = {
           key: `${item.prop.player}|${item.prop.market}|${item.prop.line}|${item.prop.side}`,
@@ -562,7 +588,10 @@ export async function runPropSims(
       continue;
     }
 
-    const distKey = propDistributionCacheKey(parts, fingerprint, tier, simCount);
+    const comparableMatchup = preparedComparableMatchup(primaryReq, gameCtx, historyCache);
+    const ctx = { ...baseContext, comparableMatchup };
+    const cacheFingerprint = comparableDistributionFingerprint(fingerprint, comparableMatchup);
+    const distKey = propDistributionCacheKey(parts, cacheFingerprint, tier, simCount);
 
     const groupLines = [
       ...new Set(
@@ -800,7 +829,8 @@ export async function warmDeepSims(
       }
       if (!cachedCtx) return;
 
-      const fingerprint = cachedCtx.fingerprint;
+      const comparableMatchup = preparedComparableMatchup(primaryReq, gameCtx, historyCache);
+      const fingerprint = comparableDistributionFingerprint(cachedCtx.fingerprint, comparableMatchup);
       const deepKey = propDistributionCacheKey(
         parts,
         fingerprint,
@@ -815,7 +845,7 @@ export async function warmDeepSims(
         const again = await getCachedPropDistribution(deepKey);
         if (again?.samples?.length) return again;
 
-        const ctx = propSimulationContextFromCached(cachedCtx!, primaryReq, gctx);
+        const ctx = { ...propSimulationContextFromCached(cachedCtx!, primaryReq, gctx), comparableMatchup };
         const groupLines = [
           ...new Set(
             group

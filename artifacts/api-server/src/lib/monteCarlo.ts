@@ -1,3 +1,4 @@
+import type { ComparablePropMatchup } from "./comparablePropMatchup.js";
 // Monte Carlo prop simulator — 10,000 draws per prop using real game-log samples,
 // pace, minutes, injuries, matchup splits, weather (MLB), and recent form.
 // Outputs hit probability, most-likely stat line, and a confidence score.
@@ -71,6 +72,7 @@ export type PropSimulationContext = {
   venueExplain?: string | null;
   matchupExplain?: string | null;
   matchupSample?: number;
+  comparableMatchup?: ComparablePropMatchup;
   combinedPreSimExplain?: string | null;
   /** Skip soft home/away blend — already captured in venueFamilyMult. */
   suppressSoftVenueBlend?: boolean;
@@ -291,7 +293,7 @@ export function buildProjectionMean(ctx: PropSimulationContext, baselineOnly = f
     }
   }
 
-  return Math.max(0, mean);
+  return Math.max(0, mean * (ctx.comparableMatchup?.multiplier ?? 1));
 }
 
 /**
@@ -330,7 +332,11 @@ export function explainProjection(ctx: PropSimulationContext) {
   } else if (ctx.opportunityFamilyMult != null && ctx.opportunityFamilyMult !== 1 && ctx.opportunityExplain) {
     reasons.push(ctx.opportunityExplain);
   }
-  return { baseline, adjusted, reasons, opponentHistoryGames: Math.max(ctx.matchupSample ?? 0, versus.length) };
+  const comparable = ctx.comparableMatchup;
+  if (comparable?.status === "applied" && comparable.multiplier !== 1) {
+    reasons.push(`Comparable opponents matched by position and ${comparable.workload} (${comparable.games} games, ${comparable.appearances} appearances) ×${comparable.multiplier.toFixed(3)}`);
+  }
+  return { baseline, adjusted, reasons, comparable, opponentHistoryGames: Math.max(ctx.matchupSample ?? 0, versus.length) };
 }
 
 /** Hit rate from fixed samples — Over = P(X > line), Under = P(X < line). */

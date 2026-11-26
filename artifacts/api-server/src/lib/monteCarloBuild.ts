@@ -64,6 +64,7 @@ export type SimPropRequest = {
 };
 
 export type HistoryGameRow = {
+  date?: string | null;
   stats: Record<string, string>;
   isHome?: boolean | null;
   opponentId?: string | null;

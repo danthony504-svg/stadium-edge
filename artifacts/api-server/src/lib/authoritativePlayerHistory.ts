@@ -310,6 +310,7 @@ export function toPropSimHistoryShape(
     return { games: games.length, averages };
   };
   const mapGame = (g: AuthoritativeFlatGame) => ({
+    date: g.date,
     stats: g.stats,
     isHome: g.isHome,
     opponentId: g.opponentId,

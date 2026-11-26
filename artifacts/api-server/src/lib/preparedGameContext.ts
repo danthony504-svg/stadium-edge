@@ -1,3 +1,5 @@
+import { basketballDefenseAllowed } from "./basketballDefenseAllowed.js";
+import type { PositionAllowance } from "./positionAllowance.js";
 /** Event-bound context prepared by cron. Reads never start provider work. */
 import { warmDepthChartEvidence, type DepthChartEvidence } from "./preparedDepthCharts.js";
 import { cacheGet, cacheSet } from "./store.js";
@@ -11,6 +13,7 @@ export type ContextGame = { id: string; sport?: string; startsAt: string; homeTe
 export type PreparedGameContext = {
   version: 1; sport: string; eventId: string; startsAt: string; observedAtMs: number; expiresAtMs: number;
   homeTeamId: string; awayTeamId: string; requiresEventTime?: boolean;
+  positionAllowances?: Record<string, PositionAllowance | null>;
   depthCharts?: DepthChartEvidence[];
   lineups: Array<{ teamId: string; complete: boolean; players: Array<{ athleteId: string; starter: boolean; position: string | null; battingOrder: number | null }> }>;
   environment: {
@@ -111,6 +114,11 @@ async function prepareOne(sport: string, game: ContextGame): Promise<PreparedGam
   if (sport === "nfl" && Number.isInteger(data.header?.season?.year)) {
     context.depthCharts = (await Promise.all([context.homeTeamId, context.awayTeamId].map(teamId => warmDepthChartEvidence(teamId, data.header!.season!.year!)))).filter((x): x is DepthChartEvidence => x !== null);
   }
+  if (["nba", "wnba", "ncaab", "nfl", "ncaaf"].includes(sport)) {
+    const ids = [context.homeTeamId, context.awayTeamId];
+    const allowances = await Promise.all(ids.map(teamId => basketballDefenseAllowed(sport, teamId)));
+    context.positionAllowances = Object.fromEntries(ids.map((id, index) => [id, allowances[index] ?? null]));
+  }
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey || context.environment.exposure === "indoors" || !["mlb", "nfl", "ncaaf", "soccer", "tennis"].includes(sport)) return context;
   try {
@@ -202,7 +210,10 @@ export async function readPreparedGameContexts(sport: string): Promise<PreparedG
 }
 export async function attachPreparedGameContexts<T extends ContextGame>(sport: string, games: T[]): Promise<Array<T & { preparedContext?: PreparedGameContext }>> {
   const contexts = await readPreparedGameContexts(sport);
-  return games.map(game => { const context = contexts.find(c => c.eventId === game.id && c.homeTeamId === game.homeTeamId && c.awayTeamId === game.awayTeamId && Date.parse(c.startsAt) === Date.parse(game.startsAt)); return context ? { ...game, preparedContext: context } : game; });
+  return games.map(game => { const context = contexts.find(c => c.eventId === game.id && c.homeTeamId === game.homeTeamId && c.awayTeamId === game.awayTeamId && Date.parse(c.startsAt) === Date.parse(game.startsAt)); if (!context) return game;
+    const publicContext = { ...context };
+    delete publicContext.positionAllowances;
+    return { ...game, preparedContext: publicContext }; });
 }
 
 /** Match only an unambiguous event; doubleheaders require the exact start time. */

@@ -1,0 +1,84 @@
+import type { PositionThresholdRow } from "./positionThresholdHistory.js";
+
+export const COMPARABLE_MATCHUP_VERSION = "comparable-workload-v1";
+
+export type ComparablePropMatchup = {
+  status: "applied" | "limited" | "missing" | "unsupported";
+  games: number;
+  appearances: number;
+  multiplier: number;
+  workload: "carries" | "minutes and field-goal attempts" | null;
+};
+
+type PlayerGame = { date?: string | null; stats: Record<string, string>; periodTag?: string | null };
+
+function nonnegative(value?: string): number | null {
+  return value != null && /^\d+$/.test(value) ? Number(value) : null;
+}
+
+export function comparablePropMatchup(input: {
+  sport: string;
+  market: string;
+  position?: string | null;
+  cutoff: number;
+  recent: readonly PlayerGame[];
+  thresholds?: readonly PositionThresholdRow[];
+}): ComparablePropMatchup {
+  const position = input.position?.trim().toUpperCase();
+  const market = input.market.replace(/_alternate$/, "");
+  const rushing = ["nfl", "ncaaf"].includes(input.sport) && market === "player_rush_yds" &&
+    (position === "RB" || position === "HB");
+  const scoring = ["nba", "wnba", "ncaab"].includes(input.sport) && market === "player_points" &&
+    position != null && ["PG", "SG", "SF", "PF", "C", "G", "F"].includes(position);
+  const workload = rushing ? "carries" : scoring ? "minutes and field-goal attempts" : null;
+  const result: ComparablePropMatchup = { status: workload ? "missing" : "unsupported", games: 0, appearances: 0, multiplier: 1, workload };
+  if (!workload || !Number.isFinite(input.cutoff)) return result;
+  const row = input.thresholds?.find(r => r.position === (rushing ? "RB" : position) && r.market === market);
+  if (!row) return result;
+
+  const dates = new Set<string>();
+  const player = input.recent.flatMap(({ date, stats, periodTag }) => {
+    if (!date || !(Date.parse(date) < input.cutoff) || dates.has(date) || (periodTag && periodTag !== "full")) return [];
+    dates.add(date);
+    const time = stats.MIN?.match(/^(\d+(?:\.\d+)?)(?::([0-5]\d))?$/);
+    const shots = stats.FG?.match(/^(\d+)-(\d+)$/);
+    const attempts = [stats.fieldGoalsAttempted, stats.FGA, shots && Number(shots[1]) <= Number(shots[2]) ? shots[2] : undefined]
+      .map(nonnegative).filter((n): n is number => n != null);
+    const volume = rushing ? nonnegative(stats.rushingAttempts) : new Set(attempts).size === 1 ? attempts[0] : null;
+    const minutes = rushing ? 0 : time ? Number(time[1]) + Number(time[2] ?? 0) / 60 : null;
+    const raw = rushing ? stats.rushingYards : stats.PTS;
+    if (volume == null || minutes == null || (rushing ? volume <= 0 : minutes <= 0) || !/^-?\d+$/.test(raw ?? "")) return [];
+    return [{ volume, minutes, value: Number(raw) }];
+  });
+  if (player.length < 3) return { ...result, status: "limited" };
+
+  const average = (values: number[]) => values.reduce((sum, n) => sum + n, 0) / values.length;
+  const volume = average(player.map(p => p.volume));
+  const minutes = average(player.map(p => p.minutes));
+  const seen = new Set<string>();
+  const peerValues: number[] = [];
+  for (const game of row.games) {
+    if (!game.eventId || seen.has(game.eventId) || !(Date.parse(game.date) < input.cutoff)) continue;
+    const volumes = rushing ? game.carries : game.fieldGoalAttempts;
+    if (volumes?.length !== game.values.length || (!rushing && game.minutes?.length !== game.values.length)) continue;
+    const values = game.values.filter((value, index) => {
+      const peerVolume = volumes[index];
+      const peerMinutes = game.minutes?.[index];
+      return Number.isFinite(value) && peerVolume != null && Number.isInteger(peerVolume) &&
+        peerVolume >= (rushing ? 1 : 0) && Math.abs(peerVolume - volume) <= Math.max(2, volume * 0.25) &&
+        (rushing || (peerMinutes != null && Number.isFinite(peerMinutes) && peerMinutes > 0 &&
+          Math.abs(peerMinutes - minutes) <= Math.max(4, minutes * 0.2)));
+    });
+    if (values.length) {
+      seen.add(game.eventId);
+      peerValues.push(...values);
+    }
+  }
+  const sample = { ...result, games: seen.size, appearances: peerValues.length };
+  const playerMean = average(player.map(p => p.value));
+  if (seen.size < 3 || !(playerMean > 0)) return { ...sample, status: "limited" };
+  // Blend a small, sample-shrunk cohort signal into the player projection.
+  const ratioDelta = average(peerValues) / playerMean - 1;
+  const multiplier = 1 + Math.max(-0.08, Math.min(0.08, ratioDelta * seen.size / (seen.size + 12)));
+  return { ...sample, status: "applied", multiplier };
+}

@@ -2137,6 +2137,13 @@ export type PropSimulationResult = {
     adjusted: number;
     reasons: string[];
     opponentHistoryGames: number;
+    comparable?: {
+      status: "applied" | "limited" | "missing" | "unsupported";
+      games: number;
+      appearances: number;
+      multiplier: number;
+      workload: "carries" | "minutes and field-goal attempts" | null;
+    };
   } | null;
   meanProjection: number | null;
   medianProjection: number | null;
