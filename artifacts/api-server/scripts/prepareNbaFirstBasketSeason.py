@@ -1,11 +1,12 @@
 """Normalize the ramirobentes/nba_data regular-season research tables.
 
-Usage: python prepareNbaFirstBasketSeason.py PBP POSSESSIONS STINTS OUTPUT
+Usage: python prepareNbaFirstBasketSeason.py PBP POSSESSIONS STINTS OUTPUT --raw-cdn RAW.csv
 Dependencies: pandas and pyarrow. Recorded starting fives are known in this
 lineup-conditioned replay. Jump candidates and usage priors use earlier finals.
 """
 from collections import Counter, defaultdict
 import argparse
+import csv
 import heapq
 import json
 import re
@@ -41,7 +42,48 @@ def milliseconds(value):
     return int(pd.Timestamp(value).timestamp() * 1000)
 
 
-def read_games(pbp, possessions, stints):
+def raw_opening_evidence(path):
+    """Use raw jump IDs and subsequent live-ball evidence as separate observations."""
+    team_codes = {}
+    openings = {}
+    tips = {}
+    closed = set()
+    with open(path, newline="", encoding="utf-8") as source:
+        for action in csv.DictReader(source):
+            game_id = action["gameId"].zfill(10)
+            team_id = action["teamId"]
+            if team_id and action["teamTricode"]:
+                team_codes.setdefault(game_id, {})[team_id] = action["teamTricode"]
+            if action["period"] != "1" or game_id in closed:
+                continue
+            kind = action["actionType"]
+            if kind == "jumpball":
+                if game_id in tips:
+                    # A re-jump before any usable action leaves the opener ambiguous.
+                    closed.add(game_id)
+                    continue
+                if action["jumpBallWonPersonId"] and action["jumpBallLostPersonId"]:
+                    tips[game_id] = action
+                else:
+                    closed.add(game_id)
+                continue
+            if game_id not in tips:
+                continue
+            # A technical free throw can precede offensive control. Require a
+            # team-tagged basketball event with an observed possession instead.
+            if kind not in {"2pt", "3pt", "turnover", "foul", "violation", "rebound"}:
+                continue
+            possession = action["possession"]
+            if not possession or possession == "0":
+                continue
+            tip = tips[game_id]
+            openings[game_id] = (tip["jumpBallWonPersonId"], tip["jumpBallLostPersonId"], possession)
+            closed.add(game_id)
+    return {game_id: (winner, loser, team_codes.get(game_id, {}).get(team))
+            for game_id, (winner, loser, team) in openings.items()}
+
+
+def read_games(pbp, possessions, stints, raw_openings):
     poss_groups = dict(tuple(possessions[possessions.period == 1].groupby("game_id", sort=False)))
     # Both team perspectives can be present. One team's row supplies both fives.
     rotations = dict(tuple(stints[stints.location_team.str.lower() == "home"].groupby("game_id", sort=False)))
@@ -57,16 +99,18 @@ def read_games(pbp, possessions, stints):
             excluded["missing_start_tip_final_or_possessions"] += 1
             continue
         start = opening.iloc[0]
-        tip = tips.iloc[0]
         end = ends.iloc[-1]
         if pd.isna(start.time_actual) or pd.isna(end.time_actual) or start.time_actual >= end.time_actual:
             excluded["invalid_timestamps"] += 1
             continue
         team_ids = [start.team_home, start.team_away]
         starters = [five(start.lineup_home), five(start.lineup_away)]
-        # In this CDN-derived table a recovered jump-ball row stores the
-        # recovering player in player1 and the ordered jumpers in player2/3.
-        winner, loser = athlete(tip.player2_name)[0], athlete(tip.player3_name)[0]
+        observed = raw_openings.get(str(event_id).zfill(10))
+        if not observed or observed[2] not in team_ids:
+            excluded["missing_independent_opening_evidence"] += 1
+            continue
+        winner, loser, first_team = observed
+        first_possession = team_ids.index(first_team)
         winning_side = [side for side in (0, 1) if winner in starters[side] and loser in starters[1 - side]]
         if any(len(side) != 5 for side in starters) or len(winning_side) != 1:
             excluded["unbound_starters_or_jumpers"] += 1
@@ -76,6 +120,9 @@ def read_games(pbp, possessions, stints):
         poss_rows = poss_groups[event_id]
         if poss_rows.empty or poss_rows.iloc[0].team_poss not in team_ids or clock(poss_rows.iloc[0].start_time) != 720:
             excluded["missing_opening_possession"] += 1
+            continue
+        if poss_rows.iloc[0].team_poss != first_team:
+            excluded["opening_possession_disagreement"] += 1
             continue
         segments = []
         sides_with_field_goal = set()
@@ -132,7 +179,7 @@ def read_games(pbp, possessions, stints):
         record = {"eventId": event_id, "finalAt": final_at, "availableAt": final_at + 60_000,
                   "teams": [{"id": team_id, "starters": list(starters[side]), "jumperId": ordered_jumps[side]}
                             for side, team_id in enumerate(team_ids)], "tipWinner": tip_side,
-                  "firstPossession": segments[0]["side"], "possessions": segments}
+                  "firstPossession": first_possession, "possessions": segments}
         games.append((milliseconds(start.time_actual), record, starters, dict(usage)))
     return sorted(games, key=lambda game: game[0]), excluded
 
@@ -178,9 +225,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for label in ("pbp", "possessions", "stints", "output"):
         parser.add_argument(label)
+    parser.add_argument("--raw-cdn", required=True)
     args = parser.parse_args()
     tables = [parquet.read_table(getattr(args, name)).to_pandas() for name in ("pbp", "possessions", "stints")]
-    games, excluded = read_games(*tables)
+    games, excluded = read_games(*tables, raw_opening_evidence(args.raw_cdn))
     print(json.dumps({"sourceGames": tables[0].game_id.nunique(), "normalizedGames": len(games), "excluded": excluded}))
     with open(args.output, "w", encoding="utf-8") as output:
         json.dump(make_input(games), output, separators=(",", ":"), ensure_ascii=False, allow_nan=False)

@@ -38,6 +38,16 @@ Set the existing Odds API key, the authenticated normalized lineup capture URL a
 
 The pre-release credit defaults are 45 credits per game inclusive of scratches, 675 per slate, and a 100-credit remaining reserve, configurable on the staging worker. Fast refresh remains disabled. Run the bundled worker with `--week YYYY-MM-DD` for the seven-day go/no-go audit against the schedule, provider credit headers, and confirmed lineup revisions. A missing pre-tip quote, a pending scratch, an unrepriced revision, an unknown credit balance, or a budget violation fails that game's audit. The archive records confirmation revision as part of the quote key so a re-confirmation of the same five also fetches again.
 
+### Seven-night go/no-go
+
+Start the seven consecutive Central-time slate days after real credentials, the archive, and both monitoring endpoints are verified. The smoke Blueprint writes a separate disk receipt and exercises monitoring callbacks locally with zero paid calls. Its traffic never counts toward the week.
+
+- Require each scheduled game to have a bound pre-tip quote and verified lineup. Check the schedule independently and explicitly account for off nights.
+- For every observed scratch, require the pending lineup to withhold pricing and the newly confirmed lineup to reprice. If the week has no scratches, retain the recorded scratch replay as the evidence and mark live scratch handling unobserved.
+- Require measured provider credits, at most 45 per game and 675 per slate including scratches, with the 100-credit reserve preserved. Verify that quota failures and low disk stop spending.
+- Require recent daily disk snapshots, more than or equal to 64 MiB free, and verified delivery of both the missing-night alert and an external missed-heartbeat alert. Any missing scheduled game, unexplained credit, or failed alert is a no-go.
+- Report confirmed, unconfirmed, and unknown pricing attempts when the endpoint is serving requests. Keep Lean until holdout tip-win and team-first bins meet the under-two-point target and the comparison with complete no-vig closing fields passes.
+
 Render persistent disk documentation: https://render.com/docs/disks#disk-snapshots
 
 ## 2025–26 regular-season research

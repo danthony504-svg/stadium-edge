@@ -27,6 +27,43 @@ async function signal(url: string, body?: { text: string }) {
   } : { redirect: "error", signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error("First Basket monitoring endpoint returned an error");
 }
+async function smoke(root: string) {
+  const directory = join(root, "smoke");
+  await mkdir(directory, { recursive: true });
+  const minimumBytes = positive("NBA_FIRST_BASKET_MIN_FREE_MIB", 64) * 1024 * 1024;
+  const realFreeBytes = await firstBasketDiskFree(directory);
+  if (realFreeBytes < minimumBytes) throw new Error("Insufficient staging disk space");
+  let freeBytes = realFreeBytes;
+  let heartbeats = 0;
+  let alerts = 0;
+  let collections = 0;
+  const poll = createFirstBasketMonitoredPoll({
+    minimumBytes, freeBytes: async () => freeBytes,
+    collect: async () => { collections++; },
+    alert: async () => { alerts++; },
+    heartbeat: async () => { heartbeats++; },
+  });
+  if (await poll() !== "healthy") throw new Error("Initial staging heartbeat failed");
+  freeBytes = minimumBytes - 1;
+  if (await poll() !== "disk_stop" || await poll() !== "disk_stop") throw new Error("Low disk did not stop collection");
+  const heartbeatWithheld = heartbeats === 1 && collections === 1;
+  freeBytes = realFreeBytes;
+  if (await poll() !== "healthy" || !heartbeatWithheld || heartbeats !== 2 || alerts !== 1 || collections !== 2) {
+    throw new Error("Unexpected staging monitoring signals");
+  }
+  const receipt = { status: "first_basket_smoke_passed", at: Date.now(), heartbeats, alerts, heartbeatWithheld, paidRequests: 0 };
+  await writeFile(join(directory, "receipt.json"), JSON.stringify(receipt) + "\n", { mode: 0o600 });
+  console.log(JSON.stringify(receipt));
+  if (process.argv[2] === "--smoke-once") return;
+  const stop = new AbortController();
+  process.once("SIGTERM", () => stop.abort());
+  process.once("SIGINT", () => stop.abort());
+  while (!stop.signal.aborted) {
+    await delay(MINUTE, undefined, { signal: stop.signal }).catch(() => {});
+    if (!stop.signal.aborted) console.log(JSON.stringify({ status: "first_basket_smoke_heartbeat", at: Date.now() }));
+  }
+}
+
 const root = required("NBA_FIRST_BASKET_ARCHIVE_DIR");
 const limits = {
   creditsPerGame: positive("NBA_FIRST_BASKET_GAME_CREDIT_BUDGET", 45),
@@ -35,6 +72,8 @@ const limits = {
 };
 if (process.argv[2] === "--week") {
   console.log(JSON.stringify(await stagingFirstBasketWeek(root, process.argv[3] ?? offsetDay(slateDate(Date.now()), -1), limits), null, 2));
+} else if (process.env.NBA_FIRST_BASKET_SMOKE_MODE === "1") {
+  await smoke(root);
 } else {
   const file = required("NBA_FIRST_BASKET_CAPTURE");
   const source = required("NBA_FIRST_BASKET_CAPTURE_URL");
