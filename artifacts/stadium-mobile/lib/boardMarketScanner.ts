@@ -2,7 +2,7 @@ import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
 import { propRequestCooldown } from "./propRequestCooldown.ts";
-import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
+import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity, spreadCoachPropSeeds } from "./coachPropSimCoverage.ts";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
@@ -897,9 +897,11 @@ export async function simPropPoolUntilQualified(
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
   // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
   // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
-  const { selected: rankedProps } = footballSkill
-    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim)
-    : selectBoardPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim);
+  const seeds = distinctPropSimSeeds(simReady);
+  const { selected } = footballSkill
+    ? selectFootballMixPropSimCandidates(seeds, maxToSim)
+    : selectBoardPropSimCandidates(seeds, maxToSim);
+  const rankedProps = spreadCoachPropSeeds(selected, seeds, maxToSim);
 
   const scoreOpts = {
     pool,
@@ -1704,9 +1706,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         requirePropMix: opts.requirePropMix,
         exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
-        onWave: (combined) => {
-          emitBoardScanPartial(combined);
-        },
+        onWave: (combined) => emitBoardScanPartial(combined),
         onPropBatch: (size, timedOut, batch) => {
           // Fail-safe: batch football counters must never abort the prop sim loop.
           safeCoachManifestInstrument("onPropBatch-manifest", () => {

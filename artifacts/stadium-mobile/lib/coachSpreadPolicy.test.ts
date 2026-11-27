@@ -39,3 +39,25 @@ test("market cap reports the specific family and the timeout states the count", 
   assert.deepEqual(rejected, ["game_market_family_cap:total"]);
   assert.equal(coachTimeBudgetNote(5, 15), "Stopped at time budget. Returned 5 of 15 qualified legs.");
 });
+
+
+test("the reported extreme puck-line and college spread probabilities remain withheld", () => {
+  const nhl = { sport: "nhl", market: "Puck Line", simHit: 0.966, edgePct: 43.8 };
+  const college = { sport: "ncaaf", market: "Alt Spread", simHit: 0.98, edgePct: 47 };
+  assert.equal(coachLineHoldReason(nhl), "check_line");
+  assert.equal(coachLineHoldReason(college), "check_line");
+});
+
+test("the spread exposure belt and imminent-start cutoff apply together", () => {
+  const rejected: string[] = [];
+  const picks = Array.from({ length: 7 }, (_, i) => ({
+    market: "Puck Line", game: `Away ${i} @ Home ${i}`, pick: "Away +1.5",
+    startsAt: new Date(Date.now() + (i === 0 ? 5 : 60) * 60_000).toISOString(),
+  }));
+  const result = applyDeliveryGroundingGate({
+    picks, target: 15, enforceLongTicketLimits: true,
+    onRejected: (_, reason) => rejected.push(reason),
+  });
+  assert.equal(result.picks.length, 5);
+  assert.deepEqual(rejected, ["game_start_within_30_minutes", "game_market_family_cap:spread"]);
+});
