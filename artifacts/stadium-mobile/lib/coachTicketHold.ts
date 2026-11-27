@@ -156,6 +156,7 @@ export function revalidateCoachTerminalDeliveryPicks<T extends CoachFlushPick>(
   const grounded = applyDeliveryGroundingGate({
     picks: next,
     qualifiedCandidates: eligibleReplacements,
+    enforceLongTicketLimits: target >= 15,
     target,
     legsPerGameCap: opts?.legsPerGameCap,
     maxPropsPerGameCap: opts?.maxPropsPerGameCap,

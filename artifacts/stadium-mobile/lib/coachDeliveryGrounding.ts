@@ -1,3 +1,4 @@
+import { marketFamily } from "./altLinePool.ts";
 /**
  * Final delivery gate — strip proven player/team/game mismatches before the
  * ticket ships, refill only from already-qualified candidates, and leave
@@ -7,7 +8,7 @@
  * must not be removed. Observe-only reliability reporting stays separate.
  */
 
-type GroundablePick = CoachReliabilityGroundingPick & { pick?: string | null; odds?: number | null };
+type GroundablePick = CoachReliabilityGroundingPick & { pick?: string | null; odds?: number | null; startsAt?: string | null };
 import {
   pickHasPlayerGameGroundingMismatch,
   type CoachReliabilityGroundingPick,
@@ -76,6 +77,7 @@ export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
   target: number;
   legsPerGameCap?: number | null;
   maxPropsPerGameCap?: number | null;
+  enforceLongTicketLimits?: boolean;
   onRejected?: (pick: T, reason: string) => void;
 }): DeliveryGroundingResult<T> {
   const target =
@@ -86,8 +88,19 @@ export function applyDeliveryGroundingGate<T extends GroundablePick>(opts: {
   // constraints as staging; a different line/price is not an independent seat.
   const shape = (p: GroundablePick) => ({ ...p, game: p.game ?? "", market: p.market ?? "",
     pick: p.pick ?? "", player: p.player ?? undefined, propMarketKey: p.propMarketKey ?? undefined, athleteId: p.athleteId ?? undefined, isProp: p.isProp === true, sport: p.sport ?? "", odds: p.odds ?? 0 });
+  const cutoff = Date.now() + 30 * 60_000;
   const blockedReason = (p: T, ticket: T[]): string | null => {
     const candidate = shape(p), current = ticket.map(shape);
+    if (opts.enforceLongTicketLimits) {
+      const startsAt = p.startsAt ? Date.parse(p.startsAt) : NaN;
+      if (startsAt <= cutoff) return "game_start_within_30_minutes";
+      const family = marketFamily(candidate.market).split(":").at(-1);
+      if (!p.isProp && family && ["spread", "total", "moneyline"].includes(family)) {
+        const count = current.filter(leg => !leg.isProp &&
+          marketFamily(leg.market).split(":").at(-1) === family).length;
+        if (count >= 5) return `game_market_family_cap:${family}`;
+      }
+    }
     // Provisional buffers can lack a market/game; absence is not a duplicate.
     if (!candidate.game || !candidate.market || !candidate.pick) return null;
     if (current.some(x => marketLadderKey(x) === marketLadderKey(candidate))) return "duplicate_market_ladder";
