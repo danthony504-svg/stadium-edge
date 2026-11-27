@@ -17,10 +17,10 @@ export class OddsQuotaExhausted extends Error {
 }
 
 export type OddsCaller = "scheduled_refresh" | "coach_build" | "first_basket_collection" |
-  "admin_test" | "live_probe" | "app_browse";
+  "admin_test" | "live_probe" | "app_browse" | "unattributed";
 
 let notifiedPeriod = "";
-let notifiedThreshold = 0;
+const notifiedThresholds = new Set<number>();
 const pausedKeys = new Map<string, string>();
 
 function headerInteger(headers: Headers, name: string): number | null {
@@ -28,24 +28,43 @@ function headerInteger(headers: Headers, name: string): number | null {
   return raw != null && /^\d+$/.test(raw) ? Number(raw) : null;
 }
 
-export async function oddsProviderFetch(url: string, caller: OddsCaller, init?: RequestInit): Promise<Response> {
+export async function sendOddsCreditAlert(text: string): Promise<boolean> {
+  const destination = process.env.ODDS_CREDIT_ALERT_WEBHOOK_URL;
+  if (!destination) return false;
+  try {
+    if (new URL(destination).protocol !== "https:") return false;
+    const result = await fetch(destination, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }), signal: AbortSignal.timeout(3000), redirect: "error",
+    });
+    return result.ok;
+  } catch { return false; }
+}
+
+export async function oddsProviderFetch(url: string, caller: OddsCaller = "unattributed", init?: RequestInit): Promise<Response> {
   const endpoint = new URL(url);
   const day = new Date().toISOString().slice(0, 10);
+  const suppliedKey = endpoint.searchParams.get("apiKey");
+  const isTestKey = Boolean(process.env.ODDS_TEST_API_KEY) &&
+    suppliedKey === process.env.ODDS_TEST_API_KEY;
+  if (isTestKey && (suppliedKey === process.env.ODDS_API_KEY ||
+      (caller !== "live_probe" && caller !== "admin_test"))) {
+    return Response.json({ error_code: "ODDS_TEST_KEY_ISOLATION" }, { status: 503 });
+  }
   const budget = process.env[`ODDS_DAILY_BUDGET_${caller.toUpperCase()}`];
   const key = createHash("sha256").update(endpoint.searchParams.get("apiKey") ?? "").digest("hex");
   const paused = pausedKeys.get(key);
   if (paused && Date.parse(paused) > Date.now()) throw new OddsQuotaExhausted(paused);
-  if (budget != null && /^\d+$/.test(budget)) {
+  if (isTestKey || (budget != null && /^\d+$/.test(budget))) {
     const markets = endpoint.searchParams.get("markets")?.split(",").length ?? 0;
     const regions = endpoint.searchParams.get("regions")?.split(",").length ?? 1;
     const reserved = markets * regions;
-    if (!await reserveDailyOddsCredits(caller, reserved, Number(budget))) {
+    const cap = budget != null && /^\d+$/.test(budget) ? Number(budget) : 25;
+    if (!await reserveDailyOddsCredits(isTestKey ? "test_key" : caller, reserved, isTestKey ? Math.min(25, cap) : cap)) {
       logger.warn({ caller, day, reserved }, "odds provider daily budget reached");
       return Response.json({ error_code: "LOCAL_DAILY_CREDIT_BUDGET" }, { status: 403 });
     }
   }
-  const isTestKey = Boolean(process.env.ODDS_TEST_API_KEY) &&
-    endpoint.searchParams.get("apiKey") === process.env.ODDS_TEST_API_KEY;
   const keyTier = isTestKey ? "test" : "production";
   const response = await fetch(url, init).catch((error: unknown) => {
     logger.warn({ caller, keyTier, endpoint: endpoint.pathname, status: null, remaining: null, cost: null }, "odds provider request failed");
@@ -58,12 +77,17 @@ export async function oddsProviderFetch(url: string, caller: OddsCaller, init?: 
   logger.info({ caller, keyTier, endpoint: endpoint.pathname, status: response.status, remaining, cost, used }, "odds provider usage");
   if (!isTestKey && monthly > 0 && used != null) {
     const period = day.slice(0, 7);
-    if (period !== notifiedPeriod) { notifiedPeriod = period; notifiedThreshold = 0; }
+    if (period !== notifiedPeriod) { notifiedPeriod = period; notifiedThresholds.clear(); }
     for (const percent of [70, 90]) {
-      if (used * 100 >= monthly * percent && percent > notifiedThreshold) {
-        notifiedThreshold = percent;
-        logger.warn({ caller, percent, used, remaining, monthly, period }, "odds provider credit threshold");
-      }
+      if (used * 100 < monthly * percent || notifiedThresholds.has(percent)) continue;
+      notifiedThresholds.add(percent);
+      logger.warn({ caller, percent, used, remaining, monthly, period }, "odds provider credit threshold");
+      void sendOddsCreditAlert(`Stadium Edge Odds API usage reached ${percent}% for ${period}. ${used} of ${monthly} credits used.`).then(sent => {
+        if (!sent) {
+          if (notifiedPeriod === period) notifiedThresholds.delete(percent);
+          logger.warn({ percent, period }, "odds credit alert delivery unavailable");
+        }
+      });
     }
   }
   if (response.status === 401) {

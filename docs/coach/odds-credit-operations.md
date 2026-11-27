@@ -13,3 +13,11 @@ The November 2026 outage was confirmed by the provider's `OUT_OF_USAGE_CREDITS` 
 ## First-basket credit week
 
 Reserve credits inside the production budget for initial collection. At 45–66 credits per game, an 11-game night costs 495–726 credits. Seven such slates cost 3,465–5,082 before late-scratch refreshes. With a 20% reserve, cap this scenario at 6,100 credits for the week and reserve up to 875 on an 11-game day. Recompute for the actual slate and cap refreshed quotes inside the same reservation. Start the week after live caller totals are reconciled, alert routing is verified, and staging confirms that the collector can stop at its cap. These are planning figures. The collector is not wired to this branch's credit limits.
+
+## Rotation and reconciliation
+
+Before rotation, capture the dashboard counter and available activity for each key. Create replacement keys, update the API, collector, CI and local secret stores that use each key, then apply the production secret and verify a successful provider call with the replacement. Revoke exposed keys after verification and take a second dashboard reading. If quota exhaustion prevents a paid verification, check a zero-credit endpoint and record that paid verification is pending. Never record key values in the audit.
+
+Collect at least 72 hours of live logs before choosing a plan. Take start and end readings in the same quota period and key generation. Run `reconcileOddsCredits` from `scripts/reconcile-odds-credits.mjs` with the dashboard readings and normalized production usage rows. Compare the signed delta, unattributed logs and missing-cost rows. Investigate refresh jobs, Coach builds and possible credential use first. The gap alone cannot identify a caller.
+
+Configure `ODDS_CREDIT_ALERT_WEBHOOK_URL` only with the approved HTTPS destination. Verify a test alert at the destination before relying on threshold notifications. The diagnostic key is isolated from production callers and has a hard shared ceiling of 25 reserved credits per UTC day, or a lower configured budget. Use Redis for cross-process enforcement.
