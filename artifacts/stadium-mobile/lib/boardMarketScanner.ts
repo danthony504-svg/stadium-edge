@@ -1629,7 +1629,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         if (sim) manifestRecorder.recordGameLineSimulated();
         const lineHold = coachLineHoldReason({ ...row.pick, finalAiScore: row.finalAiScore });
         if (lineHold) {
-          if (lineHold === "check_line" && simHit != null) opts.onCheckLine?.(row.pick);
+          if (lineHold === "check_line") opts.onCheckLine?.(row.pick);
           opts.propAudit?.observe(row.pick, "grading", lineHold);
           continue;
         }

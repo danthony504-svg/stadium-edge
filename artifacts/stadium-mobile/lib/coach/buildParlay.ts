@@ -1,3 +1,4 @@
+import { recordCoachTimingBoard, type CoachTimingBoard } from "../coachTimingBoardStore.ts";
 import { coachLineHoldReason, coachTimeBudgetNote } from "../coachSpreadPolicy.ts";
 import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
 import { createCandidateTracking, trackCandidateAudit } from "../coachCandidateTracking.ts";
@@ -217,6 +218,7 @@ export async function loadScanInputs(
   askText: string | null | undefined,
   onStatus?: (status: string) => void,
   priorUserTexts: string[] = [],
+  onPartialBoard?: (board: CoachTimingBoard) => void,
 ): Promise<{
   espnGames: EspnGame[];
   oddsGames: OddsGame[];
@@ -286,6 +288,7 @@ export async function loadScanInputs(
     sportsPresentOnSlate(oddsGames),
   );
 
+  onPartialBoard?.({ espnGames, oddsGames, sports, prioritySports, slateDay });
   onStatus?.("Loading player props and alt lines across the board…");
   const constraint = parseCoachAskMarketConstraint(askText, priorUserTexts);
   const gameLinesOnly = constraint.gameLinesOnly && !constraint.propsOnly;
@@ -341,6 +344,7 @@ async function buildCoachParlayImpl(opts: {
    * Fires after prop/alt board + context load. UI must NOT reset the absolute
    * clock here — the monotonic deadline already includes load time.
    */
+  onBoardSnapshot?: (board: CoachTimingBoard, complete: boolean) => void;
   onTimingState?: (timing: CoachRequestTiming) => void;
   onCheckLine?: (pick: ParsedPick) => void;
   onResolvedAsk?: (askText: string) => void;
@@ -467,7 +471,9 @@ async function buildCoachParlayImpl(opts: {
       opts.askText,
       opts.onStatus,
       opts.priorUserTexts ?? [],
+      board => opts.onBoardSnapshot?.(board, false),
     );
+    opts.onBoardSnapshot?.(inputs, !loadArm.signal.aborted);
   } finally {
     loadArm.dispose();
   }
@@ -1774,6 +1780,9 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const lines = [...heldLines];
     return [
       note,
+      returned < terminalTarget && lines.length
+        ? "Spreads were held out pending calibration, reducing the pool for this ticket."
+        : "",
       returned < terminalTarget && capsHit.size
         ? `Five-leg market limits reached for ${[...capsHit].join(", ")}.`
         : "",
@@ -1810,12 +1819,23 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
   opts = { ...opts, reliabilityRequestId: opts.reliabilityRequestId || `greenfield-${requestStartedAtMs}` };
   let closed = false;
   let observedTiming: CoachRequestTiming | undefined;
+  const capture: { board: CoachTimingBoard | null; state: "not_loaded" | "partial" | "loaded" } =
+    { board: null, state: "not_loaded" };
+  const logTiming = (timing: CoachRequestTiming | undefined, returnedLegs: number, perf?: CoachParlayBuildResult["perf"]) => {
+    void recordCoachTimingBoard(opts.reliabilityRequestId!, {
+      ...timing, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
+      requestedLegs: terminalTarget, returnedLegs, updateId: resolveCoachClientUpdateId(),
+    }, capture.board, capture.state);
+  };
   let lastQualified: ParsedPick[] = [];
   let propPoolSize = 0;
   try {
     const result = await runCoachBounded(signal => buildCoachParlayImpl({
       ...opts, signal, requestStartedAtMs, propAudit: audit, onCheckLine: recordCheckLine,
       onTimingState: timing => { observedTiming = timing; },
+      onBoardSnapshot: (board, complete) => {
+        if (!closed) { capture.board = board; capture.state = complete ? "loaded" : "partial"; }
+      },
       onResolvedAsk: ask => {
         if (closed || signal.aborted) return;
         terminalCaps = shouldActivateSingleEventSeating(ask) ? singleEventCapsForTarget(terminalTarget) : null;
@@ -1836,10 +1856,7 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
     const buffered = result.timedOut ? safePicks(lastQualified) : [];
     const picks = buffered.length > scopedPicks.length && satisfiesExplicitGamePropMix(opts.askText, buffered)
       ? buffered : mixUnavailable ? [] : scopedPicks;
-    if (terminalTarget >= 15) console.info("[coach-build-timing]", {
-      ...result.timing, gameSimMs: result.perf?.gameSimMs, propSimMs: result.perf?.propSimMs,
-      requestedLegs: terminalTarget, returnedLegs: picks.length,
-    });
+    if (terminalTarget >= 15) logTiming(result.timing, picks.length, result.perf);
     reportCandidateTerminal(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed");
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
     const note = result.timedOut
@@ -1858,7 +1875,7 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
       timing.timedOut = true;
       timing.timeoutReason = "absolute_budget";
       finalizeCoachRequestTiming(timing);
-      if (terminalTarget >= 15) console.info("[coach-build-timing]", { ...timing, requestedLegs: terminalTarget, returnedLegs: picks.length });
+      if (terminalTarget >= 15) logTiming(timing, picks.length);
       reportCandidateTerminal(picks, "timed_out");
       audit.finish(picks, "timed_out", report => { void persistCoachPropAudit(report); });
       reportCoachScanReliability({
