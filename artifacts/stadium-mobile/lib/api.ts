@@ -287,7 +287,12 @@ async function getJsonAttempts<T>(
         return data;
       }
       observed = true;
-      boardCircuit?.observe(res.status, Date.now() - attemptStarted);
+      const quota = boardCircuit && res.status === 429
+        ? await res.clone().json().catch(() => null) as { code?: string; resetAt?: string } | null
+        : null;
+      const resetAt = quota?.code === "ODDS_PROVIDER_QUOTA_EXHAUSTED"
+        ? quota.resetAt || "unknown" : undefined;
+      boardCircuit?.observe(res.status, Date.now() - attemptStarted, resetAt);
       if (boardCircuit && !boardCircuit.allowsAttempt()) throw new Error("Prop board circuit open");
       // A prop-board 429 covers every event on this route, not just this URL.
       // Do not triple each fan-out request while the same bucket is exhausted.
@@ -555,14 +560,14 @@ export async function sendTestPush(): Promise<{ ok: boolean; sent: number }> {
 
 /** Coach must distinguish a failed request from a successfully loaded empty slate. */
 export async function getCoachOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
-  const rows = await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
+  const rows = await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}&coach=1`, signal);
   if (!Array.isArray(rows)) throw new Error("invalid_odds_board");
   return rows;
 }
 
 export async function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
   try {
-    return await getCoachOdds(sport, signal);
+    return await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
   } catch {
     // Browse surfaces (Home / upcoming) must never hard-crash on a missing route or
     // transient 404 — return an empty slate and let the UI show an empty state.
@@ -1077,6 +1082,7 @@ export type GetPropsArgs = {
   startsAt?: string | null;
   /** Coach full-board scan — include milestone alt yard/attempt rungs server-side. */
   fullBoard?: boolean;
+  marketKeys?: readonly string[];
 };
 
 // Per-event player props. Pass home/away names so the server can resolve the
@@ -1095,6 +1101,7 @@ export async function getProps(args: GetPropsArgs, signal?: AbortSignal, boardCi
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   if (args.startsAt) q.set("startsAt", args.startsAt);
   if (args.fullBoard) q.set("fullBoard", "1");
+  if (args.marketKeys?.length) q.set("marketKeys", args.marketKeys.join(","));
   // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
   try {
     return await getJsonUncached<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000, boardCircuit);
@@ -5431,6 +5438,7 @@ export async function fetchFullBoardPropPool(
   basePool: PropPoolEntry[],
   signal?: AbortSignal,
   onHealth?: (health: CoachPropBoardHealth) => void,
+  marketKeys?: readonly string[] | null,
 ): Promise<PropPoolEntry[]> {
   const circuit = createCoachPropBoardHealth(Date.now, onHealth);
   const poolKey = (e: PropPoolEntry) =>
@@ -5484,6 +5492,7 @@ export async function fetchFullBoardPropPool(
           awayTeamId: ids?.awayTeamId,
           startsAt: g.commenceTime,
           fullBoard: true,
+          marketKeys: marketKeys ?? undefined,
         };
         try {
           const r =

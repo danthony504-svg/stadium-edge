@@ -151,7 +151,8 @@ async function warmSport(
     }
   }
   let propCount = 0;
-  await pooled(upcoming, PROPS_CONCURRENCY, async (g) => {
+  const propRefreshCutoff = Date.now() + 6 * 60 * 60_000;
+  await pooled(upcoming.filter(g => Date.parse(g.startsAt) <= propRefreshCutoff), PROPS_CONCURRENCY, async (g) => {
     if (!MARKETS_BY_SPORT[sport] || !g.homeTeam || !g.awayTeam) return;
     const q = new URLSearchParams({ sport, eventId: g.id });
     q.set("home", g.homeTeam);
@@ -195,8 +196,9 @@ async function runPrebuildJobsBody(): Promise<{
   const perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number; opponentTeams: number }> = [];
 
   // Warm sports in small staggered batches so upstream bursts stay bounded.
-  for (let i = 0; i < PROPS_SPORTS.length; i += SPORT_CONCURRENCY) {
-    const batch = PROPS_SPORTS.slice(i, i + SPORT_CONCURRENCY);
+  const scheduledSports = process.env.ODDS_SCHEDULED_REFRESH_DISABLED === "1" ? [] : PROPS_SPORTS;
+  for (let i = 0; i < scheduledSports.length; i += SPORT_CONCURRENCY) {
+    const batch = scheduledSports.slice(i, i + SPORT_CONCURRENCY);
     const results = await Promise.all(batch.map((s) => warmSport(s)));
     perSport.push(...results);
     if (i + SPORT_CONCURRENCY < PROPS_SPORTS.length) await sleep(STAGGER_MS);
@@ -216,5 +218,6 @@ async function runPrebuildJobsBody(): Promise<{
 
 /** Coalesce overlapping scheduled runs; there is no app-open cron trigger. */
 export async function runPrebuildJobs() {
+
   return (await withInflightCoalesce("prebuild-context", runPrebuildJobsBody)).value;
 }

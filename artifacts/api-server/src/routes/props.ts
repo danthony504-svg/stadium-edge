@@ -1,3 +1,4 @@
+import { ODDS_QUOTA_EXHAUSTED, OddsQuotaExhausted, oddsDiagnosticCaller, oddsProviderFetch, type OddsCaller } from "../lib/oddsProviderQuota.js";
 import { Router, type IRouter } from "express";
 import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
@@ -25,9 +26,9 @@ const router: IRouter = Router();
 // transient failures (429 + 5xx); a 4xx like 422 (unsupported market) fails
 // fast. On success the result is cached 5 min, so only the cold burst pays this
 // cost. Jitter de-syncs concurrent retries so they don't collide in lockstep.
-async function fetchOddsApi(url: string, attempts = 4): Promise<Response> {
+async function fetchOddsApi(url: string, caller: OddsCaller, attempts = 4): Promise<Response> {
   for (let i = 0; i < attempts; i++) {
-    const r = await fetch(url);
+    const r = await oddsProviderFetch(url, caller);
     if (r.ok) return r;
     const retryable = r.status === 429 || r.status >= 500;
     if (!retryable || i === attempts - 1) return r;
@@ -38,7 +39,7 @@ async function fetchOddsApi(url: string, attempts = 4): Promise<Response> {
   }
   // Unreachable (the loop always returns on the last attempt), but satisfies the
   // type checker that a Response is always produced.
-  return fetch(url);
+  return oddsProviderFetch(url, caller);
 }
 
 // Raised from 30 → 120/min: a single chat parlay request fans out up to
@@ -530,6 +531,20 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   const fullBoard = ["1", "true", "yes"].includes(
     String(req.query["fullBoard"] ?? "").toLowerCase(),
   );
+  const coreOnly = req.query["marketScope"] === "core";
+  const internal = req.get("x-internal-call") === "1" &&
+    ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
+  const diagnostic = oddsDiagnosticCaller(req.get("x-odds-diagnostic-token"), req.get("x-odds-caller"));
+  if ((req.get("x-odds-diagnostic-token") || req.get("x-odds-caller")) && !diagnostic) {
+    res.status(403).json({ code: "ODDS_DIAGNOSTIC_UNAUTHORIZED" });
+    return;
+  }
+  const caller: OddsCaller = diagnostic ?? (internal ? "scheduled_refresh" : coreOnly ? "live_probe" : fullBoard ? "coach_build" : "app_browse");
+  const cacheTier = diagnostic ? "test" : "production";
+  const cleanMarket = (key: string) => key.replace(/_alternate$/, "");
+  const scopedMarkets = [...new Set(String(req.query["marketKeys"] ?? "")
+    .split(",").filter(key => /^[a-z0-9_]{1,64}$/.test(key)).slice(0, 40).map(cleanMarket))].sort();
+  const propCacheTier = scopedMarkets.length ? `${cacheTier}:${scopedMarkets.join(",")}` : cacheTier;
   let identityDiag: PropEventTeamIdentityDiag | null = null;
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
@@ -545,8 +560,9 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     res.json({ home: null, away: null, props: [] });
     return;
   }
-  const apiKey = process.env["ODDS_API_KEY"];
+  const apiKey = diagnostic ? process.env.ODDS_TEST_API_KEY : process.env.ODDS_API_KEY;
   if (!apiKey) {
+    if (diagnostic) { res.status(503).json({ code: "ODDS_TEST_KEY_UNAVAILABLE" }); return; }
     res.status(502).json({ error: "ODDS_API_KEY not configured" });
     return;
   }
@@ -565,11 +581,11 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // 5-min-cached events list (0 quota credits).
     const fetchEvents = (key: string) =>
       cachedJson<OddsEventRow[]>(
-        `odds-events:${key}`,
+        `odds-events:${cacheTier}:${key}`,
         5 * 60 * 1000,
         async () => {
           const url = `https://api.the-odds-api.com/v4/sports/${key}/events?apiKey=${apiKey}&dateFormat=iso`;
-          const r = await fetchOddsApi(url);
+          const r = await fetchOddsApi(url, caller);
           if (!r.ok) throw new Error(`events ${r.status}`);
           return (await r.json()) as OddsEventRow[];
         },
@@ -629,6 +645,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
               "Odds API event-id resolution ambiguous/not-found",
             );
         } catch (err) {
+          if (err instanceof OddsQuotaExhausted) throw err;
           req.log.warn({ err, sport, homeName, awayName, startsAt }, "Odds API event-id resolution failed");
         }
       }
@@ -715,8 +732,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     }
 
     const fetchOdds = async (mkList: string[]) => {
+      if (scopedMarkets.length) mkList = mkList.filter(market => scopedMarkets.includes(cleanMarket(market)));
+      if (!mkList.length) return { bookmakers: [] } satisfies RawEventOdds;
       const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${effectiveEventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
-      const r = await fetchOddsApi(url);
+      const r = await fetchOddsApi(url, caller);
       if (!r.ok) {
         const text = await r.text();
         throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
@@ -724,14 +743,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       return (await r.json()) as RawEventOdds;
     };
 
-    const coreMarkets = markets.slice(0, Math.min(4, markets.length));
+    const coreMarkets = markets.slice(0, Math.min(coreOnly ? 3 : 4, markets.length));
     const loadBaseOdds = async () => {
+      if (coreOnly) return cachedJson<RawEventOdds>(`props-core3:${propCacheTier}:${oddsKey}:${effectiveEventId}`, 5 * 60_000, () => fetchOdds(coreMarkets));
       try {
-        return await cachedJson<RawEventOdds>(`props:${oddsKey}:${effectiveEventId}`, 5 * 60 * 1000, () =>
+        return await cachedJson<RawEventOdds>(`props:${propCacheTier}:${oddsKey}:${effectiveEventId}`, 5 * 60 * 1000, () =>
           fetchOdds(markets),
         );
       } catch (err) {
-        if (coreMarkets.length === markets.length) throw err;
+        if (err instanceof OddsQuotaExhausted || coreMarkets.length === markets.length) throw err;
         req.log.warn({ err, sport, effectiveEventId }, "full props fetch failed; retrying core markets only");
         return fetchOdds(coreMarkets);
       }
@@ -744,25 +764,25 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const dstMarkets = MARKETS_DST_BY_SPORT[sport] ?? [];
     const [data, qhData, altData, altExtendedData, extendedMainData, dstData] = await Promise.all([
       loadBaseOdds(),
-      qhMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
+      !coreOnly && qhMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-qh:${propCacheTier}:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
             // Honest fallback: if a quarter/half segment 422s for this sport/event
             // (e.g. game not in-window for QH lines yet) we return null and keep
             // the base props rather than failing the whole request.
             try { return await fetchOdds(qhMarkets); } catch { return null; }
           })
         : Promise.resolve(null),
-      altMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
+      !coreOnly && altMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-alt:${propCacheTier}:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
             // Same honest fallback as QH: the alternate-ladder batch is all-or-
             // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
             // window) returns null and the base + QH props stand on their own.
             try { return await fetchOdds(altMarkets); } catch { return null; }
           })
         : Promise.resolve(null),
-      altExtendedMarkets.length
+      !coreOnly && altExtendedMarkets.length
         ? cachedJson<RawEventOdds | null>(
-            `props-alt-ext:${oddsKey}:${effectiveEventId}:v2`,
+            `props-alt-ext:${propCacheTier}:${oddsKey}:${effectiveEventId}:v2`,
             5 * 60 * 1000,
             async () => {
               try {
@@ -773,9 +793,9 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             },
           )
         : Promise.resolve(null),
-      extendedMainMarkets.length
+      !coreOnly && extendedMainMarkets.length
         ? cachedJson<RawEventOdds | null>(
-            `props-ext:${oddsKey}:${effectiveEventId}:v1`,
+            `props-ext:${propCacheTier}:${oddsKey}:${effectiveEventId}:v1`,
             5 * 60 * 1000,
             async () => {
               try {
@@ -786,9 +806,9 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             },
           )
         : Promise.resolve(null),
-      dstMarkets.length
+      !coreOnly && dstMarkets.length
         ? cachedJson<RawEventOdds | null>(
-            `props-dst:${oddsKey}:${effectiveEventId}:v1`,
+            `props-dst:${propCacheTier}:${oddsKey}:${effectiveEventId}:v1`,
             5 * 60 * 1000,
             async () => {
               // Isolated D/ST batch — 422 must not wipe skill extended mains.
@@ -1179,6 +1199,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }),
     );
   } catch (err) {
+    if (err instanceof OddsQuotaExhausted) {
+      res.status(429).json({ code: ODDS_QUOTA_EXHAUSTED, resetAt: err.resetAt });
+      return;
+    }
     req.log.error({ err, sport, homeName, awayName }, "Failed to fetch player props; trying PrizePicks fallback");
     if (homeName && awayName) {
       try {

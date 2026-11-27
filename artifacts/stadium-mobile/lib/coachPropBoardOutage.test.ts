@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fetchFullBoardPropPool, type OddsGame } from "./api.ts";
 import { buildCoachParlay } from "./coach/buildParlay.ts";
-import { createCoachPropBoardHealth, type CoachPropBoardHealth } from "./coachPropBoardHealth.ts";
+import { createCoachPropBoardHealth, propBoardPauseMessage, type CoachPropBoardHealth } from "./coachPropBoardHealth.ts";
 
 const games: OddsGame[] = Array.from({ length: 15 }, (_, i) => ({
   id: String(i + 1).padStart(32, "0"), sport: "nba",
@@ -69,5 +69,23 @@ test("Coach returns no invented legs and tells the user when the entire prop boa
     assert.match(result.note, /Prop markets unavailable right now/);
     assert.ok(propRequests.length >= 3 && propRequests.length <= 6);
     assert.equal(new Set(propRequests).size, propRequests.length);
+  } finally { globalThis.fetch = original; }
+});
+
+test("provider quota code opens the board circuit without waiting for three 502s", async () => {
+  const original = globalThis.fetch;
+  const resetAt = "2026-12-01T00:00:00.000Z";
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts++;
+    return Response.json({ code: "ODDS_PROVIDER_QUOTA_EXHAUSTED", resetAt }, { status: 429 });
+  };
+  try {
+    const reports: CoachPropBoardHealth[] = [];
+    assert.deepEqual(await fetchFullBoardPropPool(games, [], [], undefined, health => reports.push(health)), []);
+    assert.equal(reports[0]?.attempts, 1);
+    assert.equal(reports[0]?.quotaResetAt, resetAt);
+    assert.equal(attempts, 6);
+    assert.match(propBoardPauseMessage(reports.at(-1)), /quota resets \(Nov 30, 6:00 PM Central\)/);
   } finally { globalThis.fetch = original; }
 });

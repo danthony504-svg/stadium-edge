@@ -1,4 +1,4 @@
-import type { CoachPropBoardHealth } from "../coachPropBoardHealth.ts";
+import { propBoardPauseMessage, type CoachPropBoardHealth } from "../coachPropBoardHealth.ts";
 import { recordCoachTimingBoard, type CoachTimingBoard } from "../coachTimingBoardStore.ts";
 import { coachLineHoldReason, coachTimeBudgetNote } from "../coachSpreadPolicy.ts";
 import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
@@ -298,7 +298,7 @@ export async function loadScanInputs(
     gameLinesOnly,
     allowNcaafPlayerProps: askAllowsNcaafPlayerProps(askText),
   });
-  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal, onPropBoardHealth).catch(
+  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal, onPropBoardHealth, constraint.allowedMarketKeys).catch(
     () => [] as PropPoolEntry[],
   );
   const liveFeed = await liveFeedPromise;
@@ -1785,7 +1785,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const lines = [...heldLines];
     return [
       note,
-      propBoardStatus.health?.circuitOpen ? "Prop markets unavailable right now." : "",
+      propBoardPauseMessage(propBoardStatus.health),
       returned < terminalTarget && lines.length
         ? "Spreads were held out pending calibration, reducing the pool for this ticket."
         : "",

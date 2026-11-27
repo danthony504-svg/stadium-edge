@@ -184,6 +184,9 @@ export async function runCoachSlateJob(): Promise<{
   ok: boolean;
   summary: CoachSlateJobSummary;
 }> {
+  if (process.env.ODDS_SCHEDULED_REFRESH_DISABLED === "1") {
+    return { ok: true, summary: { skipped: true, reason: "scheduled-refresh-disabled" } };
+  }
   if (jobRunning) {
     return { ok: true, summary: { skipped: true, reason: "already-running" } };
   }
