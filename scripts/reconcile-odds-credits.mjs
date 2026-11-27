@@ -1,7 +1,9 @@
 // Input contains two observations of the same production key and usage period.
-export function reconcileOddsCredits({ start, end, rows }) {
+export function reconcileOddsCredits({ start, end, rows, windowStartAt = start.at }) {
   const from = Date.parse(start.at), to = Date.parse(end.at);
-  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to ||
+  const expectedStart = Date.parse(windowStartAt);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(expectedStart) ||
+      expectedStart > from || from >= to ||
       start.at.slice(0, 7) !== end.at.slice(0, 7) ||
       !Number.isSafeInteger(start.used) || !Number.isSafeInteger(end.used) ||
       start.used < 0 || end.used < start.used) throw new Error("Invalid quota comparison window");
@@ -18,6 +20,10 @@ export function reconcileOddsCredits({ start, end, rows }) {
   const logged = Object.values(byCaller).reduce((sum, value) => sum + value, 0);
   const dashboard = end.used - start.used;
   const gap = dashboard - logged;
-  return { start: start.at, end: end.at, dashboard, logged, byCaller, missingCost, gap,
-    unattributedGap: Math.max(0, gap), requiresReview: Math.abs(gap) > Math.max(100, dashboard * 0.05) };
+  const uncoveredInterval = from > expectedStart
+    ? { start: windowStartAt, end: start.at }
+    : null;
+  const threshold = Math.max(100, dashboard * 0.05);
+  return { windowStartAt, coverageComplete: uncoveredInterval === null, uncoveredInterval, threshold, start: start.at, end: end.at, dashboard, logged, byCaller, missingCost, gap,
+    unattributedGap: Math.max(0, gap), requiresReview: uncoveredInterval !== null || Math.abs(gap) > threshold };
 }
