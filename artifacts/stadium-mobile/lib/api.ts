@@ -1,3 +1,4 @@
+import { createCoachPropBoardHealth, type CoachPropBoardCircuit, type CoachPropBoardHealth } from "./coachPropBoardHealth";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { matchExplicitMarketLocks, canonicalExplicitMarketKey } from "./explicitMarketLock.ts";
 import type { PreparedCoachGameContext } from "./preparedGameContext.ts";
@@ -250,22 +251,27 @@ async function getJsonUncached<T>(
   path: string,
   signal?: AbortSignal,
   timeoutMs = REQUEST_TIMEOUT_MS,
+  boardCircuit?: CoachPropBoardCircuit,
 ): Promise<T> {
   // Headers, body, retries and backoff share one deadline.
-  return runCoachBounded(child => getJsonAttempts<T>(path, child, timeoutMs), timeoutMs, signal);
+  return runCoachBounded(child => getJsonAttempts<T>(path, child, timeoutMs, boardCircuit), timeoutMs, signal);
 }
 
 async function getJsonAttempts<T>(
   path: string,
   signal: AbortSignal,
   timeoutMs: number,
+  boardCircuit?: CoachPropBoardCircuit,
 ): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new Error(`aborted: ${path}`);
+    if (boardCircuit && !boardCircuit.allowsAttempt()) throw new Error("Prop board circuit open");
     propRequestCooldown.assertAllowed(path);
+    const attemptStarted = Date.now();
+    let observed = false;
     try {
       const res = await withTimeout(
         expoFetch(`${API_BASE}${path}`, {
@@ -276,8 +282,13 @@ async function getJsonAttempts<T>(
         path,
       );
       if (res.ok) {
-        return await withTimeout(res.json() as Promise<T>, timeoutMs, `${path} (body)`);
+        const data = await withTimeout(res.json() as Promise<T>, timeoutMs, `${path} (body)`);
+        boardCircuit?.observe(res.status, Date.now() - attemptStarted);
+        return data;
       }
+      observed = true;
+      boardCircuit?.observe(res.status, Date.now() - attemptStarted);
+      if (boardCircuit && !boardCircuit.allowsAttempt()) throw new Error("Prop board circuit open");
       // A prop-board 429 covers every event on this route, not just this URL.
       // Do not triple each fan-out request while the same bucket is exhausted.
       if (res.status === 429 && propRequestCooldown.block(path, res.headers.get("retry-after"))) {
@@ -289,7 +300,9 @@ async function getJsonAttempts<T>(
       if (attempt < MAX_ATTEMPTS) await sleepBackoff(attempt);
     } catch (e) {
       // A genuine caller abort (unmount / cancel) must never be retried.
-      if (signal?.aborted || propRequestCooldown.isBlocked(path)) throw e;
+      if (!observed) boardCircuit?.observe(0, Date.now() - attemptStarted);
+      if (signal?.aborted || propRequestCooldown.isBlocked(path) ||
+          (boardCircuit && !boardCircuit.allowsAttempt())) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       // A deterministic HTTP error we threw above (any non-429/5xx) → propagate.
       if (/^HTTP (?!429|5\d\d)/.test(msg)) throw e;
@@ -1071,7 +1084,7 @@ export type GetPropsArgs = {
 // team ids when known (server re-validates via propEventTeamIdentity; wrong or
 // swapped ids fail closed). startsAt disambiguates same-team rematches
 // (e.g. MLB doubleheaders) when resolving the Odds API event id.
-export async function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
+export async function getProps(args: GetPropsArgs, signal?: AbortSignal, boardCircuit?: CoachPropBoardCircuit): Promise<PropsResponse> {
   if (!args?.sport || !args?.eventId) {
     return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
   }
@@ -1084,7 +1097,7 @@ export async function getProps(args: GetPropsArgs, signal?: AbortSignal): Promis
   if (args.fullBoard) q.set("fullBoard", "1");
   // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
   try {
-    return await getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+    return await getJsonUncached<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000, boardCircuit);
   } catch {
     return { home: null, away: null, bookmaker: null, props: [] };
   }
@@ -1154,17 +1167,18 @@ export function getPrizePicksProps(
 export async function getPropsWithPrizePicksFallback(
   args: GetPropsArgs,
   signal?: AbortSignal,
+  boardCircuit?: CoachPropBoardCircuit,
 ): Promise<PropsResponse> {
   if (!args?.sport || !args?.eventId) {
     return { home: null, away: null, bookmaker: null, props: [] };
   }
   try {
-    const r = await getProps(args, signal);
+    const r = await getProps(args, signal, boardCircuit);
     if (Array.isArray(r.props) && r.props.length > 0) return r;
   } catch {
     // Upstream 502 (e.g. stale deploy passing ESPN ids to Odds API) — try PP.
   }
-  if (!args.home || !args.away) {
+  if (!args.home || !args.away || (boardCircuit && !boardCircuit.allowsAttempt())) {
     return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
   }
   try {
@@ -5416,7 +5430,9 @@ export async function fetchFullBoardPropPool(
   espnGames: EspnGame[],
   basePool: PropPoolEntry[],
   signal?: AbortSignal,
+  onHealth?: (health: CoachPropBoardHealth) => void,
 ): Promise<PropPoolEntry[]> {
+  const circuit = createCoachPropBoardHealth(Date.now, onHealth);
   const poolKey = (e: PropPoolEntry) =>
     JSON.stringify([e.sport, e.eventId ?? e.game, e.athleteId ?? e.player, e.marketKey, e.line, e.side, e.odds, e.sportsbook]);
   const seen = new Set(basePool.map(poolKey));
@@ -5452,7 +5468,7 @@ export async function fetchFullBoardPropPool(
   );
 
   for (let i = 0; i < candidates.length; i += FULL_BOARD_PROP_BATCH) {
-    if (signal?.aborted) break;
+    if (signal?.aborted || !circuit.allowsAttempt()) break;
     const batch = candidates.slice(i, i + FULL_BOARD_PROP_BATCH);
     const responses = await Promise.all(
       batch.map(async (g) => {
@@ -5472,8 +5488,8 @@ export async function fetchFullBoardPropPool(
         try {
           const r =
             g.sport === "soccer"
-              ? await getPropsWithPrizePicksFallback(args, signal)
-              : await getProps(args, signal);
+              ? await getPropsWithPrizePicksFallback(args, signal, circuit)
+              : await getProps(args, signal, circuit);
           return { r, ids };
         } catch {
           return null;
@@ -5549,6 +5565,7 @@ export async function fetchFullBoardPropPool(
     }
   }
 
+  onHealth?.(circuit.snapshot());
   return out;
 }
 

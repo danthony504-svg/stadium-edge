@@ -13,7 +13,7 @@ Require a second holdout test on the predeclared edge-qualified selections. Comp
 
 ## Collection planning
 
-Illustrative rates are usable settled games with complete quote and closing records per active week. At 45–55 NHL puck-line games per week, 500 takes about 10–12 weeks. At 8–15 large college football spreads per week, it takes about 34–63 active weeks. At 12–25 large college basketball spreads per week, it takes about 20–42 active weeks. Offseason gaps and probability-band minimums can extend those windows. Historical backfill can shorten the calendar wait.
+Illustrative rates are usable settled games with complete quote and closing records per active week. At 45–55 NHL puck-line games per week, 500 takes about 10–12 weeks. At 8–15 large college football spreads per week, it takes about 34–63 active weeks. At 12–25 large college basketball spreads per week, it takes about 20–42 active weeks. Offseason gaps and probability-band minimums can extend those windows. Historical backfill can shorten the calendar wait. Coach excludes large college football and basketball spreads from tickets pending validation. Limited samples remain research evidence and cannot qualify a ticket leg.
 
 Set a review 30 calendar days after data intake starts and record the date in the cohort manifest. At that review, publish actual coverage and an expected decision date per cohort, using measured usable-game rates and archive coverage. Keep the cohort withheld if its gate is still open.
 

@@ -1,3 +1,4 @@
+import type { CoachPropBoardHealth } from "../coachPropBoardHealth.ts";
 import { recordCoachTimingBoard, type CoachTimingBoard } from "../coachTimingBoardStore.ts";
 import { coachLineHoldReason, coachTimeBudgetNote } from "../coachSpreadPolicy.ts";
 import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
@@ -219,6 +220,7 @@ export async function loadScanInputs(
   onStatus?: (status: string) => void,
   priorUserTexts: string[] = [],
   onPartialBoard?: (board: CoachTimingBoard) => void,
+  onPropBoardHealth?: (health: CoachPropBoardHealth) => void,
 ): Promise<{
   espnGames: EspnGame[];
   oddsGames: OddsGame[];
@@ -296,7 +298,7 @@ export async function loadScanInputs(
     gameLinesOnly,
     allowNcaafPlayerProps: askAllowsNcaafPlayerProps(askText),
   });
-  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal).catch(
+  let propPool = await fetchFullBoardPropPool(propOddsGames, espnGames, [], signal, onPropBoardHealth).catch(
     () => [] as PropPoolEntry[],
   );
   const liveFeed = await liveFeedPromise;
@@ -344,6 +346,7 @@ async function buildCoachParlayImpl(opts: {
    * Fires after prop/alt board + context load. UI must NOT reset the absolute
    * clock here — the monotonic deadline already includes load time.
    */
+  onPropBoardHealth?: (health: CoachPropBoardHealth) => void;
   onBoardSnapshot?: (board: CoachTimingBoard, complete: boolean) => void;
   onTimingState?: (timing: CoachRequestTiming) => void;
   onCheckLine?: (pick: ParsedPick) => void;
@@ -472,6 +475,7 @@ async function buildCoachParlayImpl(opts: {
       opts.onStatus,
       opts.priorUserTexts ?? [],
       board => opts.onBoardSnapshot?.(board, false),
+      opts.onPropBoardHealth,
     );
     opts.onBoardSnapshot?.(inputs, !loadArm.signal.aborted);
   } finally {
@@ -1776,10 +1780,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const recordCheckLine = (pick: ParsedPick) => {
     if (pick.pick && pick.game) heldLines.add(`${pick.pick} · ${pick.game}`);
   };
+  const propBoardStatus: { health?: CoachPropBoardHealth } = {};
   const withDeliveryNotes = (note: string, returned: number) => {
     const lines = [...heldLines];
     return [
       note,
+      propBoardStatus.health?.circuitOpen ? "Prop markets unavailable right now." : "",
       returned < terminalTarget && lines.length
         ? "Spreads were held out pending calibration, reducing the pool for this ticket."
         : "",
@@ -1824,6 +1830,7 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
   const logTiming = (timing: CoachRequestTiming | undefined, returnedLegs: number, perf?: CoachParlayBuildResult["perf"]) => {
     void recordCoachTimingBoard(opts.reliabilityRequestId!, {
       ...timing, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
+      propBoard: propBoardStatus.health,
       requestedLegs: terminalTarget, returnedLegs, updateId: resolveCoachClientUpdateId(),
     }, capture.board, capture.state);
   };
@@ -1833,6 +1840,7 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
     const result = await runCoachBounded(signal => buildCoachParlayImpl({
       ...opts, signal, requestStartedAtMs, propAudit: audit, onCheckLine: recordCheckLine,
       onTimingState: timing => { observedTiming = timing; },
+      onPropBoardHealth: health => { propBoardStatus.health = health; },
       onBoardSnapshot: (board, complete) => {
         if (!closed) { capture.board = board; capture.state = complete ? "loaded" : "partial"; }
       },
