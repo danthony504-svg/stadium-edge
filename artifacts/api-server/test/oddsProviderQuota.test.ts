@@ -40,9 +40,11 @@ test("a bad key stays distinct and a daily budget blocks work before fetch", asy
   assert.equal(oddsDiagnosticCaller(undefined, "admin_test"), null);
 });
 
-test("diagnostics have a shared low cap and production callers cannot use the test key", async () => {
+test("diagnostics fail closed without Redis and production callers cannot use the test key", async () => {
   const original = globalThis.fetch;
   const previous = process.env.ODDS_TEST_API_KEY;
+  const previousRedis = process.env.REDIS_URL;
+  delete process.env.REDIS_URL;
   process.env.ODDS_TEST_API_KEY = "fixture-isolated-test";
   let calls = 0;
   globalThis.fetch = async () => { calls++; return Response.json({}); };
@@ -50,11 +52,13 @@ test("diagnostics have a shared low cap and production callers cannot use the te
   const url = `https://api.the-odds-api.com/v4/sports/test/odds?apiKey=fixture-isolated-test&markets=${marketList}&regions=us`;
   try {
     assert.equal((await oddsProviderFetch(url, "coach_build")).status, 503);
-    assert.equal((await oddsProviderFetch(url, "live_probe")).status, 200);
+    assert.equal((await oddsProviderFetch(url, "live_probe")).status, 403);
+    assert.equal((await oddsProviderFetch(url.split("&markets=")[0]!, "live_probe")).status, 403);
     assert.equal((await oddsProviderFetch(url, "admin_test")).status, 403);
-    assert.equal(calls, 1);
+    assert.equal(calls, 0);
   } finally {
     globalThis.fetch = original;
+    if (previousRedis != null) process.env.REDIS_URL = previousRedis;
     if (previous == null) delete process.env.ODDS_TEST_API_KEY;
     else process.env.ODDS_TEST_API_KEY = previous;
   }

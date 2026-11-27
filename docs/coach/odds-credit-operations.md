@@ -21,3 +21,7 @@ Before rotation, capture the dashboard counter and available activity for each k
 Collect at least 72 hours of live logs before choosing a plan. Take start and end readings in the same quota period and key generation. Run `reconcileOddsCredits` from `scripts/reconcile-odds-credits.mjs` with the dashboard readings and normalized production usage rows. Compare the signed delta, unattributed logs and missing-cost rows. Investigate refresh jobs, Coach builds and possible credential use first. The gap alone cannot identify a caller.
 
 Configure `ODDS_CREDIT_ALERT_WEBHOOK_URL` only with the approved HTTPS destination. Verify a test alert at the destination before relying on threshold notifications. The diagnostic key is isolated from production callers and has a hard shared ceiling of 25 reserved credits per UTC day, or a lower configured budget. Use Redis for cross-process enforcement.
+
+### December reconciliation window
+
+Start at the reset on November 30, 2026 at 6:00 p.m. Central (December 1 at 00:00 UTC). Capture the dashboard counter and key generation. At 24 hours, capture the second counter and reconcile production logs from the same interval. At 72 hours, capture the final counter and repeat. If a key changes or instrumentation starts mid-window, report that incomplete coverage explicitly. Diagnostics require a working Redis reservation before every upstream call, even on routes that would normally cost zero credits.

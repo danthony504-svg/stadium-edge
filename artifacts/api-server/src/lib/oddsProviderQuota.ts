@@ -60,7 +60,7 @@ export async function oddsProviderFetch(url: string, caller: OddsCaller = "unatt
     const regions = endpoint.searchParams.get("regions")?.split(",").length ?? 1;
     const reserved = markets * regions;
     const cap = budget != null && /^\d+$/.test(budget) ? Number(budget) : 25;
-    if (!await reserveDailyOddsCredits(isTestKey ? "test_key" : caller, reserved, isTestKey ? Math.min(25, cap) : cap)) {
+    if (!await reserveDailyOddsCredits(isTestKey ? "test_key" : caller, reserved, isTestKey ? Math.min(25, cap) : cap, isTestKey)) {
       logger.warn({ caller, day, reserved }, "odds provider daily budget reached");
       return Response.json({ error_code: "LOCAL_DAILY_CREDIT_BUDGET" }, { status: 403 });
     }

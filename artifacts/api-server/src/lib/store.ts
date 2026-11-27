@@ -183,10 +183,10 @@ const localCreditReservations = new Map<string, number>();
 let localReservationDay = "";
 
 /** Reserve the upper-bound cost before an upstream call. */
-export async function reserveDailyOddsCredits(caller: string, credits: number, limit: number): Promise<boolean> {
+export async function reserveDailyOddsCredits(caller: string, credits: number, limit: number, requireRedis = false): Promise<boolean> {
   const now = new Date();
   const day = now.toISOString().slice(0, 10);
-  if (credits === 0) return true;
+  if (credits === 0 && !requireRedis) return true;
   const key = `odds-credits:${day}:${caller}`;
   const redis = getRedis();
   if (redis) {
@@ -200,7 +200,7 @@ export async function reserveDailyOddsCredits(caller: string, credits: number, l
       return false;
     }
   }
-  if (process.env.REDIS_URL) return false;
+  if (requireRedis || process.env.REDIS_URL) return false;
   if (day !== localReservationDay) { localCreditReservations.clear(); localReservationDay = day; }
   const used = localCreditReservations.get(key) ?? 0;
   if (used + credits > limit) return false;
