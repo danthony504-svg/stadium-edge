@@ -370,7 +370,9 @@ async function buildCoachParlayImpl(opts: {
   onPropBoardHealth?: (health: CoachPropBoardHealth) => void;
   onBoardSnapshot?: (board: CoachTimingBoard, complete: boolean) => void;
   onTimingState?: (timing: CoachRequestTiming) => void;
-  onGameLineEvaluated?: (pick: ParsedPick, scored: boolean) => void;
+  onGameLineBoard?: (eligible: number, held: number) => void;
+  onGameLineEvaluated?: (pick: ParsedPick, reason: string) => void;
+  onGameLinesChecked?: (count: number) => void;
   onCheckLine?: (pick: ParsedPick) => void;
   onResolvedAsk?: (askText: string) => void;
   onReadyToScan?: (info: { propPoolSize: number }) => void;
@@ -1334,7 +1336,9 @@ async function buildCoachParlayImpl(opts: {
     target,
     stopWhenTargetQualified: target >= 15 || (target === 2 && isAutomaticFreeCoachAsk(opts.askText)),
     onCheckLine: opts.onCheckLine,
+    onGameLineBoard: opts.onGameLineBoard,
     onGameLineEvaluated: opts.onGameLineEvaluated,
+    onGameLinesChecked: opts.onGameLinesChecked,
     oddsGames: inputs.oddsGames,
     propPool: activePropPool,
     realOdds: scanRealOdds,
@@ -1808,11 +1812,26 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const heldSpreads = new Map<string, string>();
   const heldTotals = new Map<string, string>();
   const capsHit = new Set<string>();
-  const scoredGameLines = new Set<string>();
+  const gameLineDecisions = new Map<string, string>();
   let moneylinesReached = false;
-  const recordGameLine = (pick: ParsedPick, scored: boolean) => {
+  let boardCounts: { eligible: number; held: number; checked: number } | undefined;
+  const recordGameLine = (pick: ParsedPick, reason: string) => {
+    if (closed) return;
     if (marketFamily(pick.market ?? "").endsWith("moneyline")) moneylinesReached = true;
-    if (scored) scoredGameLines.add(JSON.stringify([pick.sport, pick.game, pick.market, pick.pick]));
+    gameLineDecisions.set(JSON.stringify([pick.sport, pick.game, pick.market, pick.pick]), reason);
+  };
+  const recordGameLineBoard = (eligible: number, held: number) => {
+    if (!closed) boardCounts = { eligible, held, checked: 0 };
+  };
+  const gameLineProgress = () => {
+    const decisions = [...gameLineDecisions.values()];
+    const count = (reason: string) => decisions.filter(value => value === reason).length;
+    const edge = count("non_positive_edge") + count("sim_not_above_implied") + count("non_positive_ev");
+    const grade = count("grade_floor");
+    const confidence = count("confidence_floor");
+    const scored = decisions.length - count("simulation_or_grade_unavailable") - count("college_evidence_missing");
+    return { scored, edge, grade, confidence, other: decisions.length - edge - grade - confidence - count("ok"), moneylinesReached,
+      held: boardCounts?.held, unscoredAtCutoff: boardCounts ? Math.max(0, boardCounts.eligible - boardCounts.checked) : undefined };
   };
   const recordCheckLine = (pick: ParsedPick) => {
     if (!pick.pick || !pick.game) return;
@@ -1824,9 +1843,18 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const withDeliveryNotes = (note: string, returned: number, timedOut = false) => {
     const heldCount = heldSpreads.size + heldTotals.size;
     const propPause = propBoardPauseMessage(propBoardStatus.health);
+    if (returned === 0 && timedOut) {
+      const progress = gameLineProgress();
+      const cutoff = progress.unscoredAtCutoff == null ? "Board count unavailable." : `${progress.unscoredAtCutoff} unscored at cutoff.`;
+      return [
+        `Stopped at time budget. Returned 0 of ${terminalTarget} qualified legs.`,
+        [propPause, progress.held ? `${progress.held} spread and total lines held.` : "", `${progress.scored} game lines scored. ${cutoff} Moneylines ${moneylinesReached ? "reached" : "not reached"}. First rejection: edge ${progress.edge}, grade ${progress.grade}, confidence ${progress.confidence}, other ${progress.other}.`].filter(Boolean).join(" "),
+        propPause ? "Try again after player props return." : "Try again with a sport or market specified.",
+      ].join("\n");
+    }
     return [
       note,
-      timedOut ? `Scored ${scoredGameLines.size} game lines before cutoff. Moneylines ${moneylinesReached ? "reached" : "not reached"}.` : "",
+      timedOut ? `Scored ${gameLineProgress().scored} game lines before cutoff. Moneylines ${moneylinesReached ? "reached" : "not reached"}.` : "",
       propPause && returned === 0 ? "Try again after player props return." : "",
       propPause && returned > 0 ? `${propPause} Any legs shown came from the markets that could be loaded.` : propPause,
       returned < terminalTarget && heldCount > 0
@@ -1870,7 +1898,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     { board: null, state: "not_loaded" };
   const logTiming = (timing: CoachRequestTiming | undefined, returnedLegs: number, perf?: CoachParlayBuildResult["perf"]) => {
     void recordCoachTimingBoard(opts.reliabilityRequestId!, {
-      ...timing, scoredGameLines: scoredGameLines.size, moneylinesReached, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
+      ...timing, gameLineProgress: gameLineProgress(), scoredGameLines: gameLineProgress().scored, moneylinesReached, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
       propBoard: propBoardStatus.health,
       requestedLegs: terminalTarget, returnedLegs, updateId: resolveCoachClientUpdateId(),
     }, capture.board, capture.state);
@@ -1903,6 +1931,8 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       }
       return buildCoachParlayImpl({
         ...opts, signal, requestStartedAtMs, propAudit: audit, slateReuse, onCheckLine: recordCheckLine, onGameLineEvaluated: recordGameLine,
+        onGameLineBoard: recordGameLineBoard,
+        onGameLinesChecked: count => { if (!closed && boardCounts) boardCounts.checked += count; },
         onTimingState: timing => { observedTiming = timing; },
         onPropBoardHealth: health => { propBoardStatus.health = health; },
         onBoardSnapshot: (board, complete) => {

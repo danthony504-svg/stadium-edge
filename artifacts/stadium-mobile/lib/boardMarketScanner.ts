@@ -1,3 +1,4 @@
+import { marketFamily } from "./altLinePool.ts";
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
@@ -1405,7 +1406,9 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   stopWhenTargetQualified?: boolean;
-  onGameLineEvaluated?: (pick: ParsedPick, scored: boolean) => void;
+  onGameLineBoard?: (eligible: number, held: number) => void;
+  onGameLineEvaluated?: (pick: ParsedPick, reason: string) => void;
+  onGameLinesChecked?: (count: number) => void;
   onCheckLine?: (pick: ParsedPick) => void;
   onTargetSatisfied?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
@@ -1482,6 +1485,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   // Apply request/football period exclusions before any simulation queries.
   // Final delivery repeats the same constraint; discarded markets never qualify.
   const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
+  let heldGameLines = 0;
   for (const [label, lines] of evalLinesByGame) {
     const eligible = filterGameLinesForCoachSimulation(lines, simulationConstraint);
     if (opts.propAudit) {
@@ -1491,9 +1495,18 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         opts.propAudit.observe(line as ParsedPick, allowed.has(line) ? "eligible" : "scope_excluded", allowed.has(line) ? "eligible" : "request_market_or_period_exclusion");
       }
     }
-    if (eligible.length) evalLinesByGame.set(label, eligible);
+    const scoreable = eligible.filter(line => {
+      const pick = line as ParsedPick;
+      if (coachLineHoldReason(pick) !== "check_line") return true;
+      heldGameLines++;
+      opts.onCheckLine?.(pick);
+      opts.propAudit?.observe(pick, "grading", "check_line");
+      return false;
+    });
+    if (scoreable.length) evalLinesByGame.set(label, scoreable);
     else evalLinesByGame.delete(label);
   }
+  opts.onGameLineBoard?.([...evalLinesByGame.values()].reduce((count, lines) => count + lines.length, 0), heldGameLines);
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.
@@ -1537,6 +1550,9 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     [...evalLinesByGame.entries()],
     (_game, lines) => String(lines?.[0]?.sport ?? "").toLowerCase(),
   );
+  const isMoneyline = (line: RealOddsEntry) => marketFamily(line.market).endsWith("moneyline");
+  const hasMoneyline = (lines: RealOddsEntry[]) => lines.some(isMoneyline);
+  gameEntries.sort((a, b) => Number(hasMoneyline(b[1])) - Number(hasMoneyline(a[1])));
   // Phase 2.3: outer batch 4 matches inner SLATE_SIM_CONCURRENCY (was effective 2).
   // Progressive partials preserved — still awaited per batch; scoring order follows
   // gameEntries insertion order independent of Promise completion order.
@@ -1617,12 +1633,13 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       // Fuzzy bind — sims may be keyed under ESPN labels while eval uses odds labels.
       const sim = lookupGameSim(game, gameSimulations);
       const evaluated = evaluateGameLines({
-        lines,
+        lines: [...lines].sort((a, b) => Number(isMoneyline(b)) - Number(isMoneyline(a))),
         gameSim: sim,
         realOdds: mergedOdds,
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
       });
+      opts.onGameLinesChecked?.(lines.length);
       totalScanned += evaluated.length;
       for (const row of evaluated) {
         opts.propAudit?.observe(row.pick, "posted", "posted");
@@ -1630,14 +1647,18 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
-        opts.onGameLineEvaluated?.(row.pick, Number.isFinite(row.finalAiScore?.rubric?.composite));
         const lineHold = coachLineHoldReason({ ...row.pick, finalAiScore: row.finalAiScore });
         if (lineHold) {
+          opts.onGameLineEvaluated?.(row.pick, lineHold);
           if (lineHold === "check_line") opts.onCheckLine?.(row.pick);
           opts.propAudit?.observe(row.pick, "grading", lineHold);
           continue;
         }
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
+        opts.onGameLineEvaluated?.(
+          row.pick,
+          leg ? evaluateCoachQualification(leg.pick).reason : "simulation_or_grade_unavailable",
+        );
         if (leg) {
           opts.propAudit?.observe(leg.pick, "grading", "graded");
           scored.push(leg);
