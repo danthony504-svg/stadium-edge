@@ -1,5 +1,5 @@
 /**
- * Structural regressions for the phone five-leg 75s budget acceptance failure:
+ * Structural regressions for the phone five-leg 30s budget acceptance failure:
  * full tickets must not paint budget-stop copy; absolute flush revalidates;
  * early complete tickets terminate without waiting for the wall.
  */
@@ -32,8 +32,8 @@ const buildSrc = readFileSync(
   "utf8",
 );
 
-test("5-leg absolute budget is 75s", () => {
-  assert.equal(coachAbsoluteBudgetMs(5), 75_000);
+test("5-leg absolute budget is 30s", () => {
+  assert.equal(coachAbsoluteBudgetMs(5), 30_000);
 });
 
 test("coach.tsx early-terminals when partials reach a complete revalidated ticket", () => {
@@ -87,8 +87,8 @@ test("budget-stop note gated on incomplete tickets only", () => {
     propsPending: false,
     shortfallLead: "",
     timedOut: true,
-    budgetMs: 75_000,
+    budgetMs: 30_000,
   });
   assert.equal(note, "");
-  assert.doesNotMatch(note, /Stopped at the 75s/i);
+  assert.doesNotMatch(note, /Stopped at the 30s/i);
 });

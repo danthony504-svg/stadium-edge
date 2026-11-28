@@ -43,7 +43,7 @@ export function coachAbsoluteBudgetMs(requestedLegs: number): number {
   if (requestedLegs >= 10) return 120_000;
   if (requestedLegs >= 8) return 110_000;
   if (requestedLegs >= 6) return 90_000;
-  if (requestedLegs >= 3) return 75_000;
+  if (requestedLegs >= 3) return 30_000;
   return 45_000;
 }
 
