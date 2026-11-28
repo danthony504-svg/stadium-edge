@@ -370,7 +370,7 @@ async function buildCoachParlayImpl(opts: {
   onPropBoardHealth?: (health: CoachPropBoardHealth) => void;
   onBoardSnapshot?: (board: CoachTimingBoard, complete: boolean) => void;
   onTimingState?: (timing: CoachRequestTiming) => void;
-  onGameLineBoard?: (eligible: number, held: number) => void;
+  onGameLineBoard?: (eligible: number, held: number, capped: number) => void;
   onGameLineEvaluated?: (pick: ParsedPick, reason: string) => void;
   onGameLinesChecked?: (count: number) => void;
   onCheckLine?: (pick: ParsedPick) => void;
@@ -1814,24 +1814,42 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const capsHit = new Set<string>();
   const gameLineDecisions = new Map<string, string>();
   let moneylinesReached = false;
-  let boardCounts: { eligible: number; held: number; checked: number } | undefined;
+  let boardCounts: { eligible: number; held: number; capped: number; checked: number } | undefined;
   const recordGameLine = (pick: ParsedPick, reason: string) => {
     if (closed) return;
     if (marketFamily(pick.market ?? "").endsWith("moneyline")) moneylinesReached = true;
     gameLineDecisions.set(JSON.stringify([pick.sport, pick.game, pick.market, pick.pick]), reason);
   };
-  const recordGameLineBoard = (eligible: number, held: number) => {
-    if (!closed) boardCounts = { eligible, held, checked: 0 };
+  const recordGameLineBoard = (eligible: number, held: number, capped: number) => {
+    if (!closed) boardCounts = { eligible, held, capped, checked: 0 };
   };
   const gameLineProgress = () => {
     const decisions = [...gameLineDecisions.values()];
-    const count = (reason: string) => decisions.filter(value => value === reason).length;
-    const edge = count("non_positive_edge") + count("sim_not_above_implied") + count("non_positive_ev");
-    const grade = count("grade_floor");
-    const confidence = count("confidence_floor");
-    const scored = decisions.length - count("simulation_or_grade_unavailable") - count("college_evidence_missing");
-    return { scored, edge, grade, confidence, other: decisions.length - edge - grade - confidence - count("ok"), moneylinesReached,
-      held: boardCounts?.held, unscoredAtCutoff: boardCounts ? Math.max(0, boardCounts.eligible - boardCounts.checked) : undefined };
+    const counts = new Map<string, number>();
+    const labels: Record<string, string> = {
+      non_positive_edge: "edge at or below zero",
+      sim_not_above_implied: "model chance below price threshold",
+      non_positive_ev: "expected value at or below zero",
+      grade_floor: "below grade floor",
+      confidence_floor: "below confidence floor",
+      simulation_or_grade_unavailable: "simulation or grade unavailable",
+      college_evidence_missing: "missing college evidence",
+      missing_score: "missing score",
+      sim_unsupported: "unsupported simulation",
+      sim_invalid: "invalid simulation",
+      check_line: "held pending calibration",
+    };
+    for (const reason of decisions) {
+      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    }
+    const failures = [...counts].filter(([reason]) => reason !== "ok");
+    const rejected = failures.reduce((total, [, count]) => total + count, 0);
+    const scored = decisions.length - (counts.get("simulation_or_grade_unavailable") ?? 0) -
+      (counts.get("college_evidence_missing") ?? 0) - (counts.get("check_line") ?? 0);
+    return { scored, evaluated: decisions.length, rejected,
+      firstRejections: failures.map(([reason, count]) => `${labels[reason] ?? reason.replaceAll("_", " ")} ${count}`),
+      moneylinesReached, held: boardCounts?.held, capped: boardCounts?.capped,
+      unscoredAtCutoff: boardCounts ? Math.max(0, boardCounts.eligible - boardCounts.checked) : undefined };
   };
   const recordCheckLine = (pick: ParsedPick) => {
     if (!pick.pick || !pick.game) return;
@@ -1845,10 +1863,16 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     const propPause = propBoardPauseMessage(propBoardStatus.health);
     if (returned === 0 && timedOut) {
       const progress = gameLineProgress();
-      const cutoff = progress.unscoredAtCutoff == null ? "Board count unavailable." : `${progress.unscoredAtCutoff} unscored at cutoff.`;
+      const cutoff = progress.unscoredAtCutoff == null ? "Board count unavailable." : `${progress.unscoredAtCutoff} eligible sides left unchecked.`;
       return [
-        `Stopped at time budget. Returned 0 of ${terminalTarget} qualified legs.`,
-        [propPause, progress.held ? `${progress.held} spread and total lines held.` : "", `${progress.scored} game lines scored. ${cutoff} Moneylines ${moneylinesReached ? "reached" : "not reached"}. First rejection: edge ${progress.edge}, grade ${progress.grade}, confidence ${progress.confidence}, other ${progress.other}.`].filter(Boolean).join(" "),
+        "Stopped at time budget. No legs qualified before cutoff.",
+        [
+          propPause,
+          progress.held ? `${progress.held} spread and total sides held.` : "",
+          progress.capped ? `${progress.capped} alternate or period sides skipped by the per-game cap.` : "",
+          `${progress.scored} eligible sides scored. ${cutoff} Moneylines ${moneylinesReached ? "reached" : "not reached"}.`,
+          progress.rejected ? `First rejection for ${progress.rejected} of ${progress.evaluated} evaluated sides: ${progress.firstRejections.join(", ")}.` : "",
+        ].filter(Boolean).join(" "),
         propPause ? "Try again after player props return." : "Try again with a sport or market specified.",
       ].join("\n");
     }

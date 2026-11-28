@@ -1235,7 +1235,7 @@ export default function CoachScreen() {
                         ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
                         : (item.picks?.length ?? 0) === 0 && item.buildDurationMs != null &&
                             item.text.startsWith("Stopped at time budget.")
-                          ? item.text.trim().replace(" qualified legs.", ` qualified legs in ${(item.buildDurationMs / 1000).toFixed(1)}s.`)
+                          ? item.text.trim().replace("Stopped at time budget.", `Stopped at time budget after ${(item.buildDurationMs / 1000).toFixed(1)}s.`)
                           : item.text.trim()}
                     </Text>
                     {freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal && item.picks && item.picks.length > 0 ? (
@@ -1282,8 +1282,8 @@ export default function CoachScreen() {
                     >
                       <Text style={{ color: colors.primary, fontFamily: FONT.medium, paddingVertical: 8 }}>
                         {[
-                          item.heldLines.spreads.length ? `${item.heldLines.spreads.length} spreads held` : "",
-                          item.heldLines.totals.length ? `${item.heldLines.totals.length} totals held` : "",
+                          item.heldLines.spreads.length ? `${item.heldLines.spreads.length} games with spreads held` : "",
+                          item.heldLines.totals.length ? `${item.heldLines.totals.length} games with totals held` : "",
                         ].filter(Boolean).join(" · ")}
                       </Text>
                     </Pressable>

@@ -1,4 +1,4 @@
-import { marketFamily } from "./altLinePool.ts";
+import { isAlternateOrPeriodMarket, marketFamily } from "./altLinePool.ts";
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
@@ -1406,7 +1406,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   stopWhenTargetQualified?: boolean;
-  onGameLineBoard?: (eligible: number, held: number) => void;
+  onGameLineBoard?: (eligible: number, held: number, capped: number) => void;
   onGameLineEvaluated?: (pick: ParsedPick, reason: string) => void;
   onGameLinesChecked?: (count: number) => void;
   onCheckLine?: (pick: ParsedPick) => void;
@@ -1486,6 +1486,8 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   // Final delivery repeats the same constraint; discarded markets never qualify.
   const simulationConstraint = parseCoachAskMarketConstraint(opts.varietyContext?.askText);
   let heldGameLines = 0;
+  let cappedGameLines = 0;
+  const maxAlternateSidesPerGame = 12;
   for (const [label, lines] of evalLinesByGame) {
     const eligible = filterGameLinesForCoachSimulation(lines, simulationConstraint);
     if (opts.propAudit) {
@@ -1495,9 +1497,19 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         opts.propAudit.observe(line as ParsedPick, allowed.has(line) ? "eligible" : "scope_excluded", allowed.has(line) ? "eligible" : "request_market_or_period_exclusion");
       }
     }
+    let alternateSidesKept = 0;
     const scoreable = eligible.filter(line => {
       const pick = line as ParsedPick;
-      if (coachLineHoldReason(pick) !== "check_line") return true;
+      if (coachLineHoldReason(pick) !== "check_line") {
+        if (!isAlternateOrPeriodMarket(line.market)) return true;
+        if (alternateSidesKept < maxAlternateSidesPerGame) {
+          alternateSidesKept++;
+          return true;
+        }
+        cappedGameLines++;
+        opts.propAudit?.observe(pick, "scope_excluded", "alternate_side_cap");
+        return false;
+      }
       heldGameLines++;
       opts.onCheckLine?.(pick);
       opts.propAudit?.observe(pick, "grading", "check_line");
@@ -1506,7 +1518,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     if (scoreable.length) evalLinesByGame.set(label, scoreable);
     else evalLinesByGame.delete(label);
   }
-  opts.onGameLineBoard?.([...evalLinesByGame.values()].reduce((count, lines) => count + lines.length, 0), heldGameLines);
+  opts.onGameLineBoard?.([...evalLinesByGame.values()].reduce((count, lines) => count + lines.length, 0), heldGameLines, cappedGameLines);
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.
