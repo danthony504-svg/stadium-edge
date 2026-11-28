@@ -1,4 +1,4 @@
-import { coachGameLinePasses, coachGameSideCounts } from "./coachGameLineOrder.ts";
+import { coachCanStartRemainingGameLines, coachGameLinePasses, coachGameSideCounts } from "./coachGameLineOrder.ts";
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
@@ -1870,10 +1870,14 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         continue;
       }
     }
-    if (!opts.signal?.aborted && !moneylinePassIncomplete &&
-        linePasses.moneylines.size <= scannedGames.filter(game => linePasses.moneylines.has(game)).length &&
-        (gamePhaseBudgetMs == null || Date.now() - gamePhaseStartedAt < gamePhaseBudgetMs) &&
-        (scoringWorkBudgetMs == null || Date.now() - scoringStartedAt < scoringWorkBudgetMs)) {
+    const now = Date.now();
+    if (coachCanStartRemainingGameLines({
+      aborted: opts.signal?.aborted ?? false,
+      moneylinePassComplete: !moneylinePassIncomplete &&
+        scannedGames.filter(game => linePasses.moneylines.has(game)).length === linePasses.moneylines.size,
+      gamePhaseRemainingMs: gamePhaseBudgetMs == null ? Infinity : gamePhaseBudgetMs - (now - gamePhaseStartedAt),
+      scoringRemainingMs: scoringWorkBudgetMs == null ? Infinity : scoringWorkBudgetMs - (now - scoringStartedAt),
+    })) {
       await scoreGamesAndMaybePartial(scannedGames, linePasses.remaining);
     }
     gameSimMs = coachPerfElapsedMs(gamePhasePerfStartedAt);

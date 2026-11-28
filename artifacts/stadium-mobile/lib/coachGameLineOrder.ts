@@ -38,3 +38,13 @@ export function coachGameSideCounts<T extends GameSide>(eligible: T[], isHeld: (
   alternates.sort(compareCoachAlternateSides);
   return { held, scoreable: main.concat(alternates.slice(0, maxAlternates)), capped: alternates.slice(maxAlternates) };
 }
+
+export function coachCanStartRemainingGameLines(options: {
+  aborted: boolean;
+  moneylinePassComplete: boolean;
+  gamePhaseRemainingMs: number;
+  scoringRemainingMs: number;
+}): boolean {
+  return !options.aborted && options.moneylinePassComplete &&
+    options.gamePhaseRemainingMs > 0 && options.scoringRemainingMs > 0;
+}
