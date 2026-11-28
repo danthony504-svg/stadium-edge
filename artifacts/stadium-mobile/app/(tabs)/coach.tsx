@@ -1233,7 +1233,10 @@ export default function CoachScreen() {
                     >
                       {!coachPremiumUnlocked && !isFreeTwoLegCoachPreview(item.requestedLegs) && item.picks && item.picks.length > 0
                         ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-                        : item.text.trim()}
+                        : (item.picks?.length ?? 0) === 0 && item.buildDurationMs != null &&
+                            item.text.startsWith("Stopped at time budget.")
+                          ? item.text.trim().replace(" qualified legs.", ` qualified legs in ${(item.buildDurationMs / 1000).toFixed(1)}s.`)
+                          : item.text.trim()}
                     </Text>
                     {freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal && item.picks && item.picks.length > 0 ? (
                       <Pressable
@@ -1299,7 +1302,8 @@ export default function CoachScreen() {
                     ) : null}
                   </View>
                 ) : null}
-                {!item.building && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) ? (
+                {!item.building && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) &&
+                  ((item.picks?.length ?? 0) > 0 || !item.text.startsWith("Stopped at time budget.")) ? (
                   <Text
                     accessibilityRole="text"
                     style={{ marginHorizontal: 16, marginTop: 6, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}
