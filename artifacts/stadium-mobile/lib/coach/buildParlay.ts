@@ -1,3 +1,4 @@
+import { summarizeCoachGameLineDecisions } from "../coachGameLineProgress.ts";
 import { propBoardPauseMessage, type CoachPropBoardHealth } from "../coachPropBoardHealth.ts";
 import { recordCoachTimingBoard, type CoachTimingBoard } from "../coachTimingBoardStore.ts";
 import { coachLineHoldReason, coachTimeBudgetNote, coachTotalIsUncalibrated } from "../coachSpreadPolicy.ts";
@@ -1824,30 +1825,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     if (!closed) boardCounts = { eligible, held, capped, checked: 0 };
   };
   const gameLineProgress = () => {
-    const decisions = [...gameLineDecisions.values()];
-    const counts = new Map<string, number>();
-    const labels: Record<string, string> = {
-      non_positive_edge: "edge at or below zero",
-      sim_not_above_implied: "model chance below price threshold",
-      non_positive_ev: "expected value at or below zero",
-      grade_floor: "below grade floor",
-      confidence_floor: "below confidence floor",
-      simulation_or_grade_unavailable: "simulation or grade unavailable",
-      college_evidence_missing: "missing college evidence",
-      missing_score: "missing score",
-      sim_unsupported: "unsupported simulation",
-      sim_invalid: "invalid simulation",
-      check_line: "held pending calibration",
-    };
-    for (const reason of decisions) {
-      counts.set(reason, (counts.get(reason) ?? 0) + 1);
-    }
-    const failures = [...counts].filter(([reason]) => reason !== "ok");
-    const rejected = failures.reduce((total, [, count]) => total + count, 0);
-    const scored = decisions.length - (counts.get("simulation_or_grade_unavailable") ?? 0) -
-      (counts.get("college_evidence_missing") ?? 0) - (counts.get("check_line") ?? 0);
-    return { scored, evaluated: decisions.length, rejected,
-      firstRejections: failures.map(([reason, count]) => `${labels[reason] ?? reason.replaceAll("_", " ")} ${count}`),
+    return { ...summarizeCoachGameLineDecisions([...gameLineDecisions.values()]),
       moneylinesReached, held: boardCounts?.held, capped: boardCounts?.capped,
       unscoredAtCutoff: boardCounts ? Math.max(0, boardCounts.eligible - boardCounts.checked) : undefined };
   };
@@ -1865,7 +1843,9 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       const progress = gameLineProgress();
       const cutoff = progress.unscoredAtCutoff == null ? "Board count unavailable." : `${progress.unscoredAtCutoff} eligible sides left unchecked.`;
       return [
-        "Stopped at time budget. No legs qualified before cutoff.",
+        (progress.unscoredAtCutoff ?? 0) > 0
+          ? "Stopped at time budget. Partial scan. No legs qualified before cutoff."
+          : "Stopped at time budget. No legs qualified before cutoff.",
         [
           propPause,
           progress.held ? `${progress.held} spread and total sides held.` : "",

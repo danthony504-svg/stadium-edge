@@ -1,4 +1,4 @@
-import { isAlternateOrPeriodMarket, marketFamily } from "./altLinePool.ts";
+import { coachGameLinePasses, coachGameSideCounts } from "./coachGameLineOrder.ts";
 import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
@@ -1497,24 +1497,15 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         opts.propAudit.observe(line as ParsedPick, allowed.has(line) ? "eligible" : "scope_excluded", allowed.has(line) ? "eligible" : "request_market_or_period_exclusion");
       }
     }
-    let alternateSidesKept = 0;
-    const scoreable = eligible.filter(line => {
-      const pick = line as ParsedPick;
-      if (coachLineHoldReason(pick) !== "check_line") {
-        if (!isAlternateOrPeriodMarket(line.market)) return true;
-        if (alternateSidesKept < maxAlternateSidesPerGame) {
-          alternateSidesKept++;
-          return true;
-        }
-        cappedGameLines++;
-        opts.propAudit?.observe(pick, "scope_excluded", "alternate_side_cap");
-        return false;
-      }
-      heldGameLines++;
-      opts.onCheckLine?.(pick);
-      opts.propAudit?.observe(pick, "grading", "check_line");
-      return false;
-    });
+    const { held, scoreable, capped } = coachGameSideCounts(eligible,
+      line => coachLineHoldReason(line as ParsedPick) === "check_line", maxAlternateSidesPerGame);
+    heldGameLines += held.length;
+    cappedGameLines += capped.length;
+    for (const line of held) {
+      opts.onCheckLine?.(line as ParsedPick);
+      opts.propAudit?.observe(line as ParsedPick, "grading", "check_line");
+    }
+    for (const line of capped) opts.propAudit?.observe(line as ParsedPick, "scope_excluded", "alternate_side_cap");
     if (scoreable.length) evalLinesByGame.set(label, scoreable);
     else evalLinesByGame.delete(label);
   }
@@ -1562,9 +1553,8 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
     [...evalLinesByGame.entries()],
     (_game, lines) => String(lines?.[0]?.sport ?? "").toLowerCase(),
   );
-  const isMoneyline = (line: RealOddsEntry) => marketFamily(line.market).endsWith("moneyline");
-  const hasMoneyline = (lines: RealOddsEntry[]) => lines.some(isMoneyline);
-  gameEntries.sort((a, b) => Number(hasMoneyline(b[1])) - Number(hasMoneyline(a[1])));
+  const linePasses = coachGameLinePasses(gameEntries);
+  gameEntries.sort((a, b) => Number(linePasses.moneylines.has(b[0])) - Number(linePasses.moneylines.has(a[0])));
   // Phase 2.3: outer batch 4 matches inner SLATE_SIM_CONCURRENCY (was effective 2).
   // Progressive partials preserved — still awaited per batch; scoring order follows
   // gameEntries insertion order independent of Promise completion order.
@@ -1630,11 +1620,11 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
    * same draws, same ordering within a game, same outputs. Abort mid-yield
    * stops this scan cleanly without touching shared game-sim caches.
    */
-  const scoreGamesAndMaybePartial = async (games: string[]) => {
+  const scoreGamesAndMaybePartial = async (games: string[], pass: ReadonlyMap<string, RealOddsEntry[]>) => {
     for (let gi = 0; gi < games.length; gi++) {
       if (opts.signal?.aborted) return;
       const game = games[gi]!;
-      const lines = evalLinesByGame.get(game);
+      const lines = pass.get(game);
       if (!lines?.length) {
         if (gi + 1 < games.length) {
           await new Promise<void>((r) => setImmediate(r));
@@ -1645,7 +1635,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       // Fuzzy bind — sims may be keyed under ESPN labels while eval uses odds labels.
       const sim = lookupGameSim(game, gameSimulations);
       const evaluated = evaluateGameLines({
-        lines: [...lines].sort((a, b) => Number(isMoneyline(b)) - Number(isMoneyline(a))),
+        lines,
         gameSim: sim,
         realOdds: mergedOdds,
         matchupHistory: opts.matchupHistory,
@@ -1840,6 +1830,8 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       simulateSession?.markGamePhaseStart();
     }
     const SLATE_SIM_BATCH_REBUILD = footballMixPath || opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
+    const scannedGames: string[] = [];
+    let moneylinePassIncomplete = false;
     for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH_REBUILD) {
       if (opts.signal?.aborted) break;
       // Football mix only: stop starting new game simulate work so staging
@@ -1865,15 +1857,24 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         for (const [label, sim] of batchResult.sims) gameSimulations.set(label, sim);
         gameSimsFetchNull += batchResult.fetchNull.length;
         slateUnresolved += batchResult.unresolved.length;
-        await scoreGamesAndMaybePartial(batch.map(([game]) => game));
+        const games = batch.map(([game]) => game);
+        await scoreGamesAndMaybePartial(games, linePasses.moneylines);
+        scannedGames.push(...games);
         if (opts.signal?.aborted) break;
       } catch {
         // Keep scanning remaining games + props. A thrown slate batch used to
         // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
         // instant 0-of-N on phone.
+        if (batch.some(([game]) => linePasses.moneylines.has(game))) moneylinePassIncomplete = true;
         gameSimsFetchNull += batch.length;
         continue;
       }
+    }
+    if (!opts.signal?.aborted && !moneylinePassIncomplete &&
+        linePasses.moneylines.size <= scannedGames.filter(game => linePasses.moneylines.has(game)).length &&
+        (gamePhaseBudgetMs == null || Date.now() - gamePhaseStartedAt < gamePhaseBudgetMs) &&
+        (scoringWorkBudgetMs == null || Date.now() - scoringStartedAt < scoringWorkBudgetMs)) {
+      await scoreGamesAndMaybePartial(scannedGames, linePasses.remaining);
     }
     gameSimMs = coachPerfElapsedMs(gamePhasePerfStartedAt);
     if (footballMixOverlap && gameEntries.length > 0) {
