@@ -17,7 +17,7 @@ test("skip scanner prop expand only when pool is already loaded", () => {
 });
 
 test("fixed-leg scoring budgets leave room for prop/alt scoring after game lines", () => {
-  assert.equal(coachAbsoluteBudgetMs(5), 75_000);
+  assert.equal(coachAbsoluteBudgetMs(5), 30_000);
   assert.equal(coachAbsoluteBudgetMs(6), 90_000);
   assert.ok(coachAbsoluteBudgetMs(6) > 45_000);
 });

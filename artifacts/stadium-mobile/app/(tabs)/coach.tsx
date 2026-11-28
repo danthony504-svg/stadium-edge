@@ -55,7 +55,6 @@ import {
 import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
-  coachPropLoadFailsafeMs,
   coachSessionIsTerminal,
   coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
@@ -97,6 +96,7 @@ type Role = "user" | "assistant";
 type CoachResponseKind = "nleg_ticket" | "recommendation" | "qa";
 
 type CoachMessage = {
+  heldLines?: { spreads: string[]; totals: string[] };
   id: string;
   role: Role;
   text: string;
@@ -140,6 +140,7 @@ export default function CoachScreen() {
   ]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expandedHeldLines, setExpandedHeldLines] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
@@ -335,6 +336,7 @@ export default function CoachScreen() {
         exception?: boolean;
         /** Absolute flush while props still scoring — honest shortfall, not quality bar. */
         propsPending?: boolean;
+        heldLines?: CoachMessage["heldLines"];
       },
     ) => {
       const picks = dedupePicksByMarketLadder(opts.picks);
@@ -413,6 +415,8 @@ export default function CoachScreen() {
             ? Math.max(0, Date.now() - sessionRef.current.startedAtMs)
             : undefined,
         text: storedText,
+        heldLines: storedPicks.length && !coachPremiumUnlocked && !isFreeTwoLegCoachPreview(opts.requestedLegs)
+          ? undefined : opts.heldLines,
         requestedLegs: opts.requestedLegs || undefined,
         // Automatic N-leg / multi-leg Coach builds never use the legacy slip CTA.
         responseKind:
@@ -731,16 +735,6 @@ export default function CoachScreen() {
           reliabilityRequestIdRef.current = reliabilityRequestId;
           reliabilityStartedAtRef.current = sessionRef.current.startedAtMs;
           reliabilityPerfRef.current = null;
-          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-
-          // Failsafe equals total budget (same deadline) — not absolute+15s.
-          let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-            loadTimer = null;
-            if (sendGenRef.current !== sendGen) return;
-            if (coachSessionIsTerminal(sessionRef.current)) return;
-            fireAbsoluteTerminal();
-          }, coachPropLoadFailsafeMs(requestedLegs));
-
           const priorUserTexts = messagesRef.current
             .filter((m) => m.role === "user")
             .map((m) => m.text)
@@ -805,25 +799,7 @@ export default function CoachScreen() {
                 }
               }
             },
-            onReadyToScan: () => {
-              if (sendGenRef.current !== sendGen) return;
-              if (loadTimer) {
-                clearTimeout(loadTimer);
-                loadTimer = null;
-              }
-              // Keep the original startedAtMs — remaining time is what scan gets.
-              if (
-                sessionRef.current.outcome === "open" &&
-                !sessionRef.current.absoluteTimer
-              ) {
-                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-              }
-            },
           });
-          if (loadTimer) {
-            clearTimeout(loadTimer);
-            loadTimer = null;
-          }
           // Stash observe-only timings for delivery-commit / cancel reports.
           if (result.timing || result.perf) {
             reliabilityPerfRef.current = {
@@ -989,9 +965,8 @@ export default function CoachScreen() {
           finishSession(assistantId, {
             picks,
             // Full N/N after revalidation — never surface budget-stop copy.
-            text: coachTerminalTicketIsComplete({ picks, requestedLegs })
-              ? ""
-              : sanitizeCoachUserNote(result.note),
+            text: sanitizeCoachUserNote(result.note),
+            heldLines: result.heldLines,
             requestedLegs,
           });
           return;
@@ -1232,6 +1207,22 @@ export default function CoachScreen() {
                     </View>
                   </View>
                 ) : null}
+                {item.picks?.map((pick, idx) => {
+                  const displayPick = freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).revealPick
+                    ? pick
+                    : (redactPremiumPickFields(pick as never) as ParsedPick);
+                  return (
+                    <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
+                      <PickCard
+                        pick={displayPick}
+                        freeCoachPreview={isFreeTwoLegCoachPreview(item.requestedLegs)}
+                        onPress={statsHandlerFor(pick)}
+                        lockPickDetails={freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal}
+                        allowSlipActions={item.responseKind !== "nleg_ticket" && freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).allowSlipActions}
+                      />
+                    </View>
+                  );
+                })}
                 {item.text.trim() || (item.picks && item.picks.length > 0) ? (
                   <View style={{ paddingHorizontal: 16 }}>
                     <Text
@@ -1280,22 +1271,27 @@ export default function CoachScreen() {
                     ) : null}
                   </View>
                 ) : null}
-                {item.picks?.map((pick, idx) => {
-                  const displayPick = freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).revealPick
-                    ? pick
-                    : (redactPremiumPickFields(pick as never) as ParsedPick);
-                  return (
-                    <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
-                      <PickCard
-                        pick={displayPick}
-                        freeCoachPreview={isFreeTwoLegCoachPreview(item.requestedLegs)}
-                        onPress={statsHandlerFor(pick)}
-                        lockPickDetails={freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).showSubscribeToReveal}
-                        allowSlipActions={item.responseKind !== "nleg_ticket" && freeCoachCardPresentation(item.requestedLegs, coachPremiumUnlocked).allowSlipActions}
-                      />
-                    </View>
-                  );
-                })}
+                {item.heldLines && (item.heldLines.spreads.length + item.heldLines.totals.length > 0) ? (
+                  <View style={{ paddingHorizontal: 16 }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: expandedHeldLines === item.id }}
+                      onPress={() => setExpandedHeldLines(expandedHeldLines === item.id ? null : item.id)}
+                    >
+                      <Text style={{ color: colors.primary, fontFamily: FONT.medium, paddingVertical: 8 }}>
+                        {[
+                          item.heldLines.spreads.length ? `${item.heldLines.spreads.length} spreads held` : "",
+                          item.heldLines.totals.length ? `${item.heldLines.totals.length} totals held` : "",
+                        ].filter(Boolean).join(" · ")}
+                      </Text>
+                    </Pressable>
+                    {expandedHeldLines === item.id ? (
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>
+                        {[...item.heldLines.spreads, ...item.heldLines.totals].join("\n")}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
                 {showBuildDuration && !item.building && (item.picks?.length ?? 0) > 0 && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) ? (
                   <Text
                     accessibilityRole="text"

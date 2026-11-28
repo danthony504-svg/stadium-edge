@@ -142,3 +142,16 @@ test("15-leg requests use the same 30-second ceiling for load and delivery", () 
   assert.equal(coachTotalRequestBudgetMs(15), 30_000);
   assert.equal(coachPropLoadFailsafeMs(15), 30_000);
 });
+
+test("five-leg cutoff preserves the completed and pending stages", () => {
+  const budgetMs = coachTotalRequestBudgetMs(5);
+  assert.equal(budgetMs, 30_000);
+  const timing = createCoachRequestTiming({ requestStartedAtMs: 0, budgetMs });
+  markCoachPhase(timing, "load", 12_000);
+  markCoachPending(timing, "context");
+  timing.timedOut = true;
+  finalizeCoachRequestTiming(timing, 30_000);
+  assert.equal(timing.lastCompletedPhase, "load");
+  assert.equal(timing.pendingOperation, "context");
+  assert.equal(timing.totalMs, 30_000);
+});

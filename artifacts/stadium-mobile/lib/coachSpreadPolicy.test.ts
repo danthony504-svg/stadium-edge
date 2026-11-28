@@ -12,7 +12,7 @@ test("uncalibrated spreads are withheld even below the old limits and after stag
 });
 
 test("college legs need both a sportsbook and score breakdown", () => {
-  const pick = { sport: "ncaaf", market: "Total", qualificationStatus: "qualified" as const };
+  const pick = { sport: "ncaaf", market: "Moneyline", qualificationStatus: "qualified" as const };
   assert.equal(coachLineHoldReason({ ...pick, sportsbook: "Book" }), "college_evidence_missing");
   assert.equal(coachLineHoldReason({ ...pick, finalAiScore: { rubric: { composite: 7 } } }), "college_evidence_missing");
   assert.equal(coachLineHoldReason({
@@ -60,4 +60,12 @@ test("the spread exposure belt and imminent-start cutoff apply together", () => 
   });
   assert.equal(result.picks.length, 5);
   assert.deepEqual(rejected, ["game_start_within_30_minutes", "game_market_family_cap:spread"]);
+});
+
+test("Coach holds game and team totals while preserving player overs and unders", () => {
+  const extreme = { sport: "ncaaf", edgePct: 46.4, simHit: 0.98 };
+  for (const market of ["Total", "Alt Total", "1H Total", "Team Total", "Over/Under"]) {
+    assert.equal(coachLineHoldReason({ ...extreme, market }), "check_line");
+  }
+  assert.equal(coachLineHoldReason({ market: "Total", sport: "nba", isProp: true }), null);
 });

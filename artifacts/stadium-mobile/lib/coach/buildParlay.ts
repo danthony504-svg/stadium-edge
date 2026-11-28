@@ -1,6 +1,6 @@
 import { propBoardPauseMessage, type CoachPropBoardHealth } from "../coachPropBoardHealth.ts";
 import { recordCoachTimingBoard, type CoachTimingBoard } from "../coachTimingBoardStore.ts";
-import { coachLineHoldReason, coachTimeBudgetNote } from "../coachSpreadPolicy.ts";
+import { coachLineHoldReason, coachTimeBudgetNote, coachTotalIsUncalibrated } from "../coachSpreadPolicy.ts";
 import { confirmedSingleGameAsk } from "../coachConfirmedSingleGame.ts";
 import { createCandidateTracking, trackCandidateAudit } from "../coachCandidateTracking.ts";
 import { reportCoachCandidates } from "../coachCandidateReporter.ts";
@@ -182,6 +182,7 @@ import { loadFootballOppRushDefense } from "@/lib/footballOppDefenseContext";
 export type CoachParlayBuildResult = {
   picks: ParsedPick[];
   note: string;
+  heldLines?: { spreads: string[]; totals: string[] };
   scan: FullBoardScanResult | null;
   timedOut: boolean;
   propPoolSize: number;
@@ -1774,10 +1775,11 @@ async function buildCoachParlayImpl(opts: {
 
 function appendResearchDisclaimer(note: string | null | undefined): string {
   const base = String(note ?? "").trim();
-  if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) return base;
-  return base
-    ? `${base}\n\n${RESEARCH_NOT_VALIDATED_LABEL}`
-    : RESEARCH_NOT_VALIDATED_LABEL;
+  if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) {
+    return base.replace(RESEARCH_NOT_VALIDATED_LABEL, `${RESEARCH_NOT_VALIDATED_LABEL}. The model’s accuracy for these markets has not been verified against historical results.`);
+  }
+  const explanation = `${RESEARCH_NOT_VALIDATED_LABEL}. The model’s accuracy for these markets has not been verified against historical results.`;
+  return [base, explanation].filter(Boolean).join("\n\n");
 }
 
 /** Preparation never extends the foreground deadline or competes with its queue. */
@@ -1801,25 +1803,28 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     collegeTeamMarketStacks: askAllowsCollegeTeamMarketStacks(opts.askText),
   });
   let terminalCaps = shouldActivateSingleEventSeating(opts.askText) ? singleEventCapsForTarget(terminalTarget) : null;
-  const heldLines = new Set<string>();
+  const heldSpreads = new Map<string, string>();
+  const heldTotals = new Map<string, string>();
   const capsHit = new Set<string>();
   const recordCheckLine = (pick: ParsedPick) => {
-    if (pick.pick && pick.game) heldLines.add(`${pick.pick} · ${pick.game}`);
+    if (!pick.pick || !pick.game) return;
+    const lines = coachTotalIsUncalibrated(pick) ? heldTotals : heldSpreads;
+    const game = pick.game.trim().toLowerCase();
+    if (!lines.has(game)) lines.set(game, `${pick.game} · ${pick.pick}`);
   };
   const propBoardStatus: { health?: CoachPropBoardHealth } = {};
   const withDeliveryNotes = (note: string, returned: number) => {
-    const lines = [...heldLines];
+    const heldCount = heldSpreads.size + heldTotals.size;
+    const propPause = propBoardPauseMessage(propBoardStatus.health);
     return [
       note,
-      propBoardPauseMessage(propBoardStatus.health),
-      returned < terminalTarget && lines.length
-        ? "Spreads were held out pending calibration, reducing the pool for this ticket."
+      propPause && returned > 0 ? `${propPause} Any legs shown came from the markets that could be loaded.` : propPause,
+      returned < terminalTarget && heldCount > 0
+        ? "Spreads or totals were held out pending calibration, reducing the pool for this ticket."
         : "",
       returned < terminalTarget && capsHit.size
         ? `Five-leg market limits reached for ${[...capsHit].join(", ")}.`
         : "",
-      lines.length ? `Check line · Spread calibration pending
-${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n${lines.length - 8} more spreads held.` : ""}` : "",
     ].filter(Boolean).join("\n\n");
   };
   const safePicks = (picks: ParsedPick[]) => applyDeliveryGroundingGate({
@@ -1914,15 +1919,16 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
     const buffered = result.timedOut ? safePicks(lastQualified) : [];
     const picks = buffered.length > scopedPicks.length && satisfiesExplicitGamePropMix(opts.askText, buffered)
       ? buffered : mixUnavailable ? [] : scopedPicks;
-    if (terminalTarget >= 15) logTiming(result.timing, picks.length, result.perf);
+    if (terminalTarget >= 15 || result.timedOut) logTiming(result.timing, picks.length, result.perf);
     reportCandidateTerminal(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed");
     audit.finish(picks, opts.signal.aborted ? "cancelled" : result.timedOut ? "timed_out" : "completed", report => { void persistCoachPropAudit(report); });
-    const note = result.timedOut
+    const note = result.timedOut && picks.length < terminalTarget
       ? coachTimeBudgetNote(picks.length, terminalTarget)
       : mixUnavailable ? `${result.timedOut ? "Scoring reached its time limit before the scan finished. " : ""}The requested game-line/player-prop mix did not produce qualifying picks from both categories. No mixed ticket was built.` : picks.length < result.picks.length ? `Returned ${picks.length} of ${Math.max(1, Math.min(opts.requestedLegs || 6, 15))} requested picks. Some candidates did not pass final delivery checks, so I left them out.` : result.note;
     return {
       ...result,
       picks,
+      heldLines: { spreads: [...heldSpreads.values()], totals: [...heldTotals.values()] },
       note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(note) : note, picks.length),
     };
   } catch (e) {
@@ -1933,7 +1939,7 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
       timing.timedOut = true;
       timing.timeoutReason = "absolute_budget";
       finalizeCoachRequestTiming(timing);
-      if (terminalTarget >= 15) logTiming(timing, picks.length);
+      logTiming(timing, picks.length);
       reportCandidateTerminal(picks, "timed_out");
       audit.finish(picks, "timed_out", report => { void persistCoachPropAudit(report); });
       reportCoachScanReliability({
@@ -1944,9 +1950,10 @@ ${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n
         durationMs: timing.totalMs, timeoutReason: "absolute_budget",
         rootCause: "absolute_budget", realOddsAvailable: picks.length ? true : null,
       });
-      const timeoutNote = coachTimeBudgetNote(picks.length, terminalTarget);
+      const timeoutNote = picks.length < terminalTarget ? coachTimeBudgetNote(picks.length, terminalTarget) : "";
       return {
         picks,
+        heldLines: { spreads: [...heldSpreads.values()], totals: [...heldTotals.values()] },
         note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(timeoutNote) : timeoutNote, picks.length),
         scan: null,
         timedOut: true,

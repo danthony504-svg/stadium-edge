@@ -137,8 +137,10 @@ export function finalizeCoachRequestTiming(
   now = Date.now(),
 ): CoachRequestTiming {
   timing.totalMs = Math.max(0, now - timing.requestStartedAtMs);
-  timing.pendingOperation = null;
-  timing.lastCompletedPhase = "terminal";
+  if (!timing.timedOut) {
+    timing.pendingOperation = null;
+    timing.lastCompletedPhase = "terminal";
+  }
   return timing;
 }
 
