@@ -1776,9 +1776,9 @@ async function buildCoachParlayImpl(opts: {
 function appendResearchDisclaimer(note: string | null | undefined): string {
   const base = String(note ?? "").trim();
   if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) {
-    return base.replace(RESEARCH_NOT_VALIDATED_LABEL, `${RESEARCH_NOT_VALIDATED_LABEL}. The model’s accuracy for these markets has not been verified against historical results.`);
+    return base.replace(RESEARCH_NOT_VALIDATED_LABEL, `${RESEARCH_NOT_VALIDATED_LABEL} The model’s accuracy for these markets has not been verified against historical results.`);
   }
-  const explanation = `${RESEARCH_NOT_VALIDATED_LABEL}. The model’s accuracy for these markets has not been verified against historical results.`;
+  const explanation = `${RESEARCH_NOT_VALIDATED_LABEL} The model’s accuracy for these markets has not been verified against historical results.`;
   return [base, explanation].filter(Boolean).join("\n\n");
 }
 
