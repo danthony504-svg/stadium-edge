@@ -1,3 +1,4 @@
+import { oddsProviderFetch } from "./oddsProviderQuota.js";
 import { createSingleFlight } from "./singleFlight.js";
 import type { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
@@ -72,7 +73,7 @@ export async function resolveOddsKeys(sportId: string): Promise<string[]> {
       "odds:sportslist:v1",
       30 * 60 * 1000,
       async () => {
-        const r = await fetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`);
+        const r = await oddsProviderFetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`, "app_browse");
         if (!r.ok) throw new Error(`Odds API sports list ${r.status}`);
         return (await r.json()) as Array<{ key?: string; active?: boolean }>;
       },

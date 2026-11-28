@@ -39,7 +39,7 @@ export function coachFinalizationReserveMs(): number {
 export function coachAbsoluteBudgetMs(requestedLegs: number): number {
   // Sized for football mix skill wave (≤72) overlapping game lines, plus
   // finalization reserve inside the same absolute window.
-  if (requestedLegs >= 15) return 130_000;
+  if (requestedLegs >= 15) return 30_000;
   if (requestedLegs >= 10) return 120_000;
   if (requestedLegs >= 8) return 110_000;
   if (requestedLegs >= 6) return 90_000;

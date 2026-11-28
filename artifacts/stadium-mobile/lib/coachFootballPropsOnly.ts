@@ -1,3 +1,4 @@
+import { wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 /**
  * Greenfield props-only selection — pure, no api.ts.
  *
@@ -41,7 +42,7 @@ import {
   isAnytimeTdPropMarket,
 } from "./anytimeTdPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
-import { distinctPropSimSeeds } from "./coachPropSimCoverage.ts";
+import { distinctPropSimSeeds, spreadCoachPropSeeds } from "./coachPropSimCoverage.ts";
 import { requiresScoringOrder } from "./binaryPropMarket.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -141,12 +142,10 @@ export function selectFootballPropsOnlyFromPicks(
   const max = footballPropsOnlyMaxCandidates(targetLegs, ranked.length);
   const footballHeavy =
     poolSports != null ? poolIsFootballHeavy(poolSports) : poolIsFootballHeavy(ranked);
-  if (footballHeavy) {
-    const { selected } = selectFootballMixPropSimCandidates(seeds, max);
-    return selected;
-  }
-  const { selected } = selectBoardPropSimCandidates(seeds, max);
-  return selected;
+  const { selected } = footballHeavy
+    ? selectFootballMixPropSimCandidates(seeds, max)
+    : selectBoardPropSimCandidates(seeds, max);
+  return spreadCoachPropSeeds(selected, seeds, max);
 }
 
 export const selectPropsOnlyFromPicks = selectFootballPropsOnlyFromPicks;
@@ -392,6 +391,10 @@ function stageFootballPropsOnlyLegsWithCap(
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) {
+      bumpFail("ladder");
+      continue;
+    }
+    if (wouldRepeatPlayerProp({ ...p, isProp: true }, picks)) {
       bumpFail("ladder");
       continue;
     }

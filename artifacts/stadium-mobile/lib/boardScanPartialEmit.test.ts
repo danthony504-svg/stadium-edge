@@ -27,7 +27,7 @@ test("prop-wave onPartial must receive combined game+prop scored legs", () => {
   assert.match(src, /export function shouldEmitBoardScanPartial/);
   assert.match(
     src,
-    /onWave:\s*\(combined\)\s*=>\s*\{\s*emitBoardScanPartial\(combined\);/,
+    /onWave:\s*\(combined\)\s*=>\s*emitBoardScanPartial\(combined\)/,
   );
   assert.match(src, /const emitBoardScanPartial = \(legs: BoardScoredLeg\[\] = scored\)/);
   assert.match(

@@ -6,7 +6,7 @@ import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAi
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { normalizeCombinedPickScore } from "@/lib/pickScore";
-import { confidenceTierLabel } from "@/lib/finalAiScore";
+import { capGradeForConfidence, confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
 import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
@@ -242,7 +242,7 @@ function HeaderTiles({
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
-  const displayGrade = gradeLabel ?? data.grade ?? "—";
+  const displayGrade = capGradeForConfidence(gradeLabel ?? data.grade ?? "—", confidenceBlurb(data.confidencePct, data.composite));
   const notRecommended = displayGrade === NOT_AI_RECOMMENDED || displayGrade === NOT_YET_AI_GRADED;
   const gradeColor = notRecommended ? colors.mutedForeground : scoreColor(data.composite);
   const edge = data.edgePct;

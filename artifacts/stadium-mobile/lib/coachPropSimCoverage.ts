@@ -48,3 +48,24 @@ export function prioritizeUnscannedPropSeeds<T extends ParsedPick>(remaining: re
   const players=new Set(attempted.map(player)), families=new Set(attempted.map(family));
   return remaining.map((pick,index)=>({pick,index,p:Number(players.has(player(pick))),f:Number(families.has(family(pick)))})).sort((a,b)=>a.p-b.p||a.f-b.f||a.index-b.index).map(x=>x.pick);
 }
+
+/** Place one distribution per athlete in each pass. Posted rungs share the draw. */
+export function spreadCoachPropSeeds<T extends ParsedPick>(
+  priority: readonly T[], remaining: readonly T[], limit: number,
+): T[] {
+  const rounds: T[][] = [[], [], []];
+  const counts = new Map<string, number>();
+  for (const pick of distinctPropSimSeeds([...priority, ...remaining])) {
+    if (!pick.athleteId || !pick.sport) {
+      rounds[0]!.push(pick);
+      continue;
+    }
+    const key = `${pick.sport.toLowerCase()}|${pick.athleteId}`;
+    const count = counts.get(key) ?? 0;
+    const round = rounds[count];
+    if (!round) continue;
+    round.push(pick);
+    counts.set(key, count + 1);
+  }
+  return rounds.flat().slice(0, limit);
+}

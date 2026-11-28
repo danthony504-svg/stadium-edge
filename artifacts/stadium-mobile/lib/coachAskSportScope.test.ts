@@ -218,3 +218,12 @@ test("shortfall shape: 5 requested + 3 scoped NFL candidates stays 3/5", () => {
   assert.equal(staged, 3);
   assert.ok(staged < target);
 });
+
+
+test("explicit NBA NFL NHL asks retain the three named leagues", () => {
+  const askText = "15 leg NBA NFL NHL";
+  assert.equal(explicitFootballPropsSportScope(askText), null);
+  assert.deepEqual(new Set(resolveImmutableAskSportScope({
+    askText, boardSports: ["nba", "nfl", "nhl", "mlb"],
+  })), new Set(["nba", "nfl", "nhl"]));
+});

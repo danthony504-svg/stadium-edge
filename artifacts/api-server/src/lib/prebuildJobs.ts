@@ -1,3 +1,4 @@
+import { opponentMarketAllowance } from "./loadOpponentMarketAllowance.js";
 import { warmPreparedGameContexts } from "./preparedGameContext.js";
 import { loadAuthoritativePlayerHistory } from "./authoritativePlayerHistory";
 import { fetchEspnInjuries } from "./espnInjuries";
@@ -115,7 +116,7 @@ type GameRow = {
 // for the soonest games. Returns a small per-sport tally for the run summary.
 async function warmSport(
   sport: string,
-): Promise<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }> {
+): Promise<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number; opponentTeams: number }> {
   // Odds + games in parallel — independent caches.
   const [odds, games, injuries] = await Promise.all([
     warmGet<unknown[]>(`/sports/odds?sport=${sport}`),
@@ -127,7 +128,7 @@ async function warmSport(
   const rows = Array.isArray(games) ? games : [];
   // Soonest UPCOMING games first. Skip finished/in-progress games — props are
   // only useful pregame and a finished game's props are dead weight.
-  const upcoming = rows
+  const future = rows
     .filter((g) => {
       const st = (g.state || "").toLowerCase();
       const status = (g.status || "").toLowerCase();
@@ -135,8 +136,8 @@ async function warmSport(
       const t = Date.parse(g.startsAt);
       return Number.isFinite(t) && t > Date.now();
     })
-    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
-    .slice(0, PROPS_GAMES_PER_SPORT);
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  const upcoming = future.slice(0, PROPS_GAMES_PER_SPORT);
 
   // Precompute reusable source data, not frozen tickets. This job is server-side
   // so it can run while phones are closed; never invoke it from a public GET.
@@ -150,7 +151,8 @@ async function warmSport(
     }
   }
   let propCount = 0;
-  await pooled(upcoming, PROPS_CONCURRENCY, async (g) => {
+  const propRefreshCutoff = Date.now() + 6 * 60 * 60_000;
+  await pooled(upcoming.filter(g => Date.parse(g.startsAt) <= propRefreshCutoff), PROPS_CONCURRENCY, async (g) => {
     if (!MARKETS_BY_SPORT[sport] || !g.homeTeam || !g.awayTeam) return;
     const q = new URLSearchParams({ sport, eventId: g.id });
     q.set("home", g.homeTeam);
@@ -172,20 +174,31 @@ async function warmSport(
     const result = await loadAuthoritativePlayerHistory(sport, athleteId).catch(() => null);
     if (result?.history) histories++;
   });
+  let opponentTeams = 0;
+  if (sport === "nba") {
+    const cutoff = Date.now() + 48 * 60 * 60_000;
+    const ids = [...new Set(future.filter(g => Date.parse(g.startsAt) <= cutoff)
+      .flatMap(g => [g.homeTeamId, g.awayTeamId]))]
+      .filter((id): id is string => Boolean(id)).slice(0, 24);
+    await pooled(ids, 2, async id => {
+      if ((await opponentMarketAllowance(sport, id, true)).length) opponentTeams++;
+    });
+  }
   const contexts = await warmPreparedGameContexts(sport, rows);
-  return { sport, odds: oddsOk, games: rows.length, props: propCount, histories, contexts };
+  return { sport, odds: oddsOk, games: rows.length, props: propCount, histories, contexts, opponentTeams };
 }
 
 async function runPrebuildJobsBody(): Promise<{
   ok: true;
-  summary: { sports: number; gamesWarmed: number; propsWarmed: number; historiesWarmed: number; contextsWarmed: number };
-  perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }>;
+  summary: { sports: number; gamesWarmed: number; propsWarmed: number; historiesWarmed: number; contextsWarmed: number; opponentTeamsWarmed: number };
+  perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number; opponentTeams: number }>;
 }> {
-  const perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number }> = [];
+  const perSport: Array<{ sport: string; odds: boolean; games: number; props: number; histories: number; contexts: number; opponentTeams: number }> = [];
 
   // Warm sports in small staggered batches so upstream bursts stay bounded.
-  for (let i = 0; i < PROPS_SPORTS.length; i += SPORT_CONCURRENCY) {
-    const batch = PROPS_SPORTS.slice(i, i + SPORT_CONCURRENCY);
+  const scheduledSports = process.env.ODDS_SCHEDULED_REFRESH_DISABLED === "1" ? [] : PROPS_SPORTS;
+  for (let i = 0; i < scheduledSports.length; i += SPORT_CONCURRENCY) {
+    const batch = scheduledSports.slice(i, i + SPORT_CONCURRENCY);
     const results = await Promise.all(batch.map((s) => warmSport(s)));
     perSport.push(...results);
     if (i + SPORT_CONCURRENCY < PROPS_SPORTS.length) await sleep(STAGGER_MS);
@@ -197,6 +210,7 @@ async function runPrebuildJobsBody(): Promise<{
     propsWarmed: perSport.reduce((n, s) => n + s.props, 0),
     historiesWarmed: perSport.reduce((n, s) => n + s.histories, 0),
     contextsWarmed: perSport.reduce((n, s) => n + s.contexts, 0),
+    opponentTeamsWarmed: perSport.reduce((n, s) => n + s.opponentTeams, 0),
   };
   logger.info({ summary }, "prebuild cron run");
   return { ok: true, summary, perSport };
@@ -204,5 +218,6 @@ async function runPrebuildJobsBody(): Promise<{
 
 /** Coalesce overlapping scheduled runs; there is no app-open cron trigger. */
 export async function runPrebuildJobs() {
+
   return (await withInflightCoalesce("prebuild-context", runPrebuildJobsBody)).value;
 }

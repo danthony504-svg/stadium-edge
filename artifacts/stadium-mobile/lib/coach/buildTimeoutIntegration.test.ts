@@ -20,7 +20,7 @@ test('actual Coach build returns on its shared deadline when loading ignores can
   });
   assert.equal(result.timedOut, true);
   assert.deepEqual(result.picks, []);
-  assert.match(result.note, /time limit before the scan finished/);
+  assert.match(result.note, /Stopped at time budget/);
   assert.doesNotMatch(result.note, /only .*eligible/i);
   assert.ok(['absolute_budget', 'load_deadline'].includes(result.timing?.timeoutReason ?? ''));
   assert.ok(calls > 0);

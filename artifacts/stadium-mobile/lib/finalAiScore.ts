@@ -341,3 +341,9 @@ export function gameSimRequiredButMissing(
 ): boolean {
   return isGameLinePick(pick) && !gameSimHasValidRun(gameSim);
 }
+
+
+/** Display guard shared by every ScoreBreakdown header. */
+export function capGradeForConfidence(grade: string, tier: string): string {
+  return tier === "Medium" && /^A[+-]?$/.test(grade) ? "B" : grade;
+}
