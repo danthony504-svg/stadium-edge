@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after, before, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   filterOddsForSlateDay,
@@ -22,6 +22,8 @@ import {
 import { parseCoachAskMarketConstraint } from "../coachAskMarketFilter.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+before(() => mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 27, 12) }));
+after(() => mock.timers.reset());
 
 function isoHoursFromNow(h: number): string {
   return new Date(Date.now() + h * 3600_000).toISOString();
