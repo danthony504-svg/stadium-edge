@@ -1809,17 +1809,18 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const propBoardStatus: { health?: CoachPropBoardHealth } = {};
   const withDeliveryNotes = (note: string, returned: number) => {
     const lines = [...heldLines];
+    const propPause = propBoardPauseMessage(propBoardStatus.health);
     return [
       note,
-      propBoardPauseMessage(propBoardStatus.health),
+      propPause && returned > 0 ? `${propPause} Any legs shown came from the markets that could be loaded.` : propPause,
       returned < terminalTarget && lines.length
-        ? "Spreads were held out pending calibration, reducing the pool for this ticket."
+        ? "Spreads or totals were held out pending calibration, reducing the pool for this ticket."
         : "",
       returned < terminalTarget && capsHit.size
         ? `Five-leg market limits reached for ${[...capsHit].join(", ")}.`
         : "",
-      lines.length ? `Check line · Spread calibration pending
-${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n${lines.length - 8} more spreads held.` : ""}` : "",
+      lines.length ? `Check line · Spread or total calibration pending
+${lines.slice(0, 8).map(line => `- ${line}`).join("\n")}${lines.length > 8 ? `\n${lines.length - 8} more lines held.` : ""}` : "",
     ].filter(Boolean).join("\n\n");
   };
   const safePicks = (picks: ParsedPick[]) => applyDeliveryGroundingGate({
