@@ -1405,6 +1405,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   stopWhenTargetQualified?: boolean;
+  onGameLineEvaluated?: (pick: ParsedPick, scored: boolean) => void;
   onCheckLine?: (pick: ParsedPick) => void;
   onTargetSatisfied?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
@@ -1629,6 +1630,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
+        opts.onGameLineEvaluated?.(row.pick, Number.isFinite(row.finalAiScore?.rubric?.composite));
         const lineHold = coachLineHoldReason({ ...row.pick, finalAiScore: row.finalAiScore });
         if (lineHold) {
           if (lineHold === "check_line") opts.onCheckLine?.(row.pick);

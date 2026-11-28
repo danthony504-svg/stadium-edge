@@ -370,6 +370,7 @@ async function buildCoachParlayImpl(opts: {
   onPropBoardHealth?: (health: CoachPropBoardHealth) => void;
   onBoardSnapshot?: (board: CoachTimingBoard, complete: boolean) => void;
   onTimingState?: (timing: CoachRequestTiming) => void;
+  onGameLineEvaluated?: (pick: ParsedPick, scored: boolean) => void;
   onCheckLine?: (pick: ParsedPick) => void;
   onResolvedAsk?: (askText: string) => void;
   onReadyToScan?: (info: { propPoolSize: number }) => void;
@@ -1333,6 +1334,7 @@ async function buildCoachParlayImpl(opts: {
     target,
     stopWhenTargetQualified: target >= 15 || (target === 2 && isAutomaticFreeCoachAsk(opts.askText)),
     onCheckLine: opts.onCheckLine,
+    onGameLineEvaluated: opts.onGameLineEvaluated,
     oddsGames: inputs.oddsGames,
     propPool: activePropPool,
     realOdds: scanRealOdds,
@@ -1775,11 +1777,11 @@ async function buildCoachParlayImpl(opts: {
 
 function appendResearchDisclaimer(note: string | null | undefined): string {
   const base = String(note ?? "").trim();
+  const notice = "Research only. Model accuracy is unverified.";
   if (base.includes(RESEARCH_NOT_VALIDATED_LABEL)) {
-    return base.replace(RESEARCH_NOT_VALIDATED_LABEL, `${RESEARCH_NOT_VALIDATED_LABEL} The model’s accuracy for these markets has not been verified against historical results.`);
+    return base.replace(RESEARCH_NOT_VALIDATED_LABEL, notice);
   }
-  const explanation = `${RESEARCH_NOT_VALIDATED_LABEL} The model’s accuracy for these markets has not been verified against historical results.`;
-  return [base, explanation].filter(Boolean).join("\n\n");
+  return [base, notice].filter(Boolean).join("\n\n");
 }
 
 /** Preparation never extends the foreground deadline or competes with its queue. */
@@ -1806,6 +1808,12 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
   const heldSpreads = new Map<string, string>();
   const heldTotals = new Map<string, string>();
   const capsHit = new Set<string>();
+  const scoredGameLines = new Set<string>();
+  let moneylinesReached = false;
+  const recordGameLine = (pick: ParsedPick, scored: boolean) => {
+    if (marketFamily(pick.market ?? "").endsWith("moneyline")) moneylinesReached = true;
+    if (scored) scoredGameLines.add(JSON.stringify([pick.sport, pick.game, pick.market, pick.pick]));
+  };
   const recordCheckLine = (pick: ParsedPick) => {
     if (!pick.pick || !pick.game) return;
     const lines = coachTotalIsUncalibrated(pick) ? heldTotals : heldSpreads;
@@ -1813,11 +1821,13 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     if (!lines.has(game)) lines.set(game, `${pick.game} · ${pick.pick}`);
   };
   const propBoardStatus: { health?: CoachPropBoardHealth } = {};
-  const withDeliveryNotes = (note: string, returned: number) => {
+  const withDeliveryNotes = (note: string, returned: number, timedOut = false) => {
     const heldCount = heldSpreads.size + heldTotals.size;
     const propPause = propBoardPauseMessage(propBoardStatus.health);
     return [
       note,
+      timedOut ? `Scored ${scoredGameLines.size} game lines before cutoff. Moneylines ${moneylinesReached ? "reached" : "not reached"}.` : "",
+      propPause && returned === 0 ? "Try again after player props return." : "",
       propPause && returned > 0 ? `${propPause} Any legs shown came from the markets that could be loaded.` : propPause,
       returned < terminalTarget && heldCount > 0
         ? "Spreads or totals were held out pending calibration, reducing the pool for this ticket."
@@ -1860,7 +1870,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
     { board: null, state: "not_loaded" };
   const logTiming = (timing: CoachRequestTiming | undefined, returnedLegs: number, perf?: CoachParlayBuildResult["perf"]) => {
     void recordCoachTimingBoard(opts.reliabilityRequestId!, {
-      ...timing, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
+      ...timing, scoredGameLines: scoredGameLines.size, moneylinesReached, gameSimMs: perf?.gameSimMs, propSimMs: perf?.propSimMs,
       propBoard: propBoardStatus.health,
       requestedLegs: terminalTarget, returnedLegs, updateId: resolveCoachClientUpdateId(),
     }, capture.board, capture.state);
@@ -1892,7 +1902,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
         }
       }
       return buildCoachParlayImpl({
-        ...opts, signal, requestStartedAtMs, propAudit: audit, slateReuse, onCheckLine: recordCheckLine,
+        ...opts, signal, requestStartedAtMs, propAudit: audit, slateReuse, onCheckLine: recordCheckLine, onGameLineEvaluated: recordGameLine,
         onTimingState: timing => { observedTiming = timing; },
         onPropBoardHealth: health => { propBoardStatus.health = health; },
         onBoardSnapshot: (board, complete) => {
@@ -1929,7 +1939,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       ...result,
       picks,
       heldLines: { spreads: [...heldSpreads.values()], totals: [...heldTotals.values()] },
-      note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(note) : note, picks.length),
+      note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(note) : note, picks.length, result.timedOut),
     };
   } catch (e) {
     closed = true;
@@ -1954,7 +1964,7 @@ export async function buildCoachParlay(opts: Parameters<typeof buildCoachParlayI
       return {
         picks,
         heldLines: { spreads: [...heldSpreads.values()], totals: [...heldTotals.values()] },
-        note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(timeoutNote) : timeoutNote, picks.length),
+        note: withDeliveryNotes(researchUnlocked ? appendResearchDisclaimer(timeoutNote) : timeoutNote, picks.length, true),
         scan: null,
         timedOut: true,
         propPoolSize,
