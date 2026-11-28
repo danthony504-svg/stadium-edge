@@ -1,3 +1,4 @@
+import { oddsProviderFetch } from "../lib/oddsProviderQuota.js";
 import { Router, type IRouter } from "express";
 import { cachedJson, rateLimit } from "../lib/sports";
 
@@ -108,7 +109,7 @@ async function activeGolfKeys(apiKey: string): Promise<Array<{ key: string; titl
     "odds:sportslist:v1",
     30 * 60 * 1000,
     async () => {
-      const r = await fetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`);
+      const r = await oddsProviderFetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`, "app_browse");
       if (!r.ok) throw new Error(`Odds API sports list ${r.status}`);
       return (await r.json()) as Array<{ key?: string; active?: boolean; title?: string }>;
     },
@@ -228,7 +229,7 @@ router.get("/sports/golf", async (_req, res): Promise<void> => {
           5 * 60 * 1000,
           async () => {
             const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=us,us2&markets=outrights&oddsFormat=american`;
-            const r = await fetch(url);
+            const r = await oddsProviderFetch(url, "app_browse");
             if (!r.ok) {
               const text = await r.text();
               throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);

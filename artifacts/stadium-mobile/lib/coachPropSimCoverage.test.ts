@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { distinctPropSimSeeds, postedPropCoverageForBatch } from "./coachPropSimCoverage.ts";
+import { distinctPropSimSeeds, postedPropCoverageForBatch, spreadCoachPropSeeds } from "./coachPropSimCoverage.ts";
 import { buildFootballPropsOnlyTicket } from "./coachFootballPropsOnlyTicket.ts";
 import { propsOnlySimLookupKey } from "./coachFootballPropsOnlyGrade.ts";
 import { propProvenanceAllowsSeating } from "./coachPropProbabilityProvenance.ts";
@@ -93,4 +93,16 @@ test("direct/recovery scorer builder rejects passing TD and No sides before any 
     assert.equal(result.picks.length,0);
     assert.equal(result.perf?.candidatesSelected,0);
   } finally { globalThis.fetch=oldFetch; }
+});
+
+test("scan budget reaches fresh athletes before fallback markets and never exceeds three per athlete", () => {
+  const first = pick();
+  const second = pick({ propMarketKey: "player_rush_yds" });
+  const third = pick({ propMarketKey: "player_receptions" });
+  const fourth = pick({ propMarketKey: "player_targets" });
+  const fresh = pick({ athleteId: "fresh" });
+  const duplicateRung = pick({ propLine: 22.5 });
+  assert.deepEqual(spreadCoachPropSeeds([first, second, duplicateRung], [third, fourth, fresh], 10),
+    [first, fresh, second, third]);
+  assert.deepEqual(spreadCoachPropSeeds([first, second], [fresh], 2), [first, fresh]);
 });

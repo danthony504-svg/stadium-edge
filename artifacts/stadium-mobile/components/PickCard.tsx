@@ -19,6 +19,7 @@ import {
   ML_CUSHION_MAX_PTS,
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
+import { coachSpreadIsUncalibrated } from "@/lib/coachSpreadPolicy";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, pickHasSimGrade } from "@/lib/simMarketSupport";
 import { altLadderSimulationCaption } from "@/lib/coachPropProbabilityProvenance";
@@ -657,6 +658,7 @@ export function PickCard({
   const sub = useSubscriptionOptional();
   const metricsLocked = useAiMetricsLocked();
   const premiumLocked = !!lockPickDetails && metricsLocked;
+  const checkSpread = !!lockPickDetails && coachSpreadIsUncalibrated(pick);
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
@@ -930,7 +932,12 @@ export function PickCard({
       )}
       <LineLadder pick={pick} locked={premiumLocked} />
 
-      {hideReadout ? null : pick.scores ||
+      {!premiumLocked && (pick.sportsbook || lockPickDetails) ? (
+        <Text style={{ color: colors.foreground, fontSize: 12 }}>Line source · {pick.sportsbook ?? "Unavailable"}</Text>
+      ) : null}
+      {hideReadout ? null : checkSpread && !premiumLocked ? (
+        <Text style={{ color: colors.foreground, fontSize: 14 }}>Check line · Spread calibration pending</Text>
+      ) : pick.scores ||
         pick.finalAiScore?.rubric ||
         pick.finalAiScore?.grade ||
         pick.finalAiScore?.confidencePct != null ||
@@ -1001,7 +1008,7 @@ export function PickCard({
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
 
-      {pick.edge && !premiumLocked ? (
+      {pick.edge && !premiumLocked && !checkSpread ? (
         <View>
           <Pressable
             onPress={toggleEdge}

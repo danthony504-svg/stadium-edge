@@ -1,5 +1,8 @@
+import { evaluateCoachQualification } from "./coach/qualifyCoachCandidate.ts";
+import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
+import { applyDeliveryGroundingGate } from "./coachDeliveryGrounding.ts";
 import { propRequestCooldown } from "./propRequestCooldown.ts";
-import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity } from "./coachPropSimCoverage.ts";
+import { prioritizeUnscannedPropSeeds, distinctPropSimSeeds, postedPropCoverageForBatch, propDistributionIdentity, spreadCoachPropSeeds } from "./coachPropSimCoverage.ts";
 import { runCoachBounded } from "./coachAbortable.ts";
 import { filterGameLinesForCoachSimulation, parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import { bestPostedPropQuoteCandidates } from "./coachPropQuoteCandidates.ts";
@@ -894,9 +897,11 @@ export async function simPropPoolUntilQualified(
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
   // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
   // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
-  const { selected: rankedProps } = footballSkill
-    ? selectFootballMixPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim)
-    : selectBoardPropSimCandidates(distinctPropSimSeeds(simReady), maxToSim);
+  const seeds = distinctPropSimSeeds(simReady);
+  const { selected } = footballSkill
+    ? selectFootballMixPropSimCandidates(seeds, maxToSim)
+    : selectBoardPropSimCandidates(seeds, maxToSim);
+  const rankedProps = spreadCoachPropSeeds(selected, seeds, maxToSim);
 
   const scoreOpts = {
     pool,
@@ -1400,6 +1405,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   stopWhenTargetQualified?: boolean;
+  onCheckLine?: (pick: ParsedPick) => void;
   onTargetSatisfied?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
   varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
@@ -1574,7 +1580,14 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
       excludedTeams,
       teamScope: opts.teamScope,
     });
-    if (canCompleteAutomaticSmallTicket({ enabled: opts.stopWhenTargetQualified, target: opts.target, picks: partial.picks, awaitingPropSlots: partial.awaitingPropSlots, propPhaseIncomplete: partial.propPhaseIncomplete })) {
+    const longTicketReady = opts.stopWhenTargetQualified && opts.target >= 15 &&
+      !partial.awaitingPropSlots &&
+      partial.picks.every(p => !coachLineHoldReason(p) && evaluateCoachQualification(p).status === "qualified") &&
+      applyDeliveryGroundingGate({
+        picks: partial.picks, target: opts.target, enforceLongTicketLimits: true,
+        legsPerGameCap: opts.legsPerGameCap,
+      }).picks.length >= opts.target;
+    if (longTicketReady || canCompleteAutomaticSmallTicket({ enabled: opts.stopWhenTargetQualified, target: opts.target, picks: partial.picks, awaitingPropSlots: partial.awaitingPropSlots, propPhaseIncomplete: partial.propPhaseIncomplete })) {
       opts.onTargetSatisfied?.({ ...partial, scanComplete: true, note: "", manifest: manifestRecorder.finalize({ scanComplete: true, boardExhausted: false, deliveredLegs: partial.picks.length }) });
       return partial;
     }
@@ -1616,6 +1629,12 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
         manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
+        const lineHold = coachLineHoldReason({ ...row.pick, finalAiScore: row.finalAiScore });
+        if (lineHold) {
+          if (lineHold === "check_line") opts.onCheckLine?.(row.pick);
+          opts.propAudit?.observe(row.pick, "grading", lineHold);
+          continue;
+        }
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           opts.propAudit?.observe(leg.pick, "grading", "graded");
@@ -1966,7 +1985,7 @@ async function buildTopLegsFromFullBoardScanImpl(opts: {
 }
 
 export async function buildTopLegsFromFullBoardScan(opts: Parameters<typeof buildTopLegsFromFullBoardScanImpl>[0]): Promise<FullBoardScanResult> {
-  return runScanUntilTargetSatisfied(opts.signal, opts.stopWhenTargetQualified === true && opts.target === 2, (signal, complete) =>
+  return runScanUntilTargetSatisfied(opts.signal, opts.stopWhenTargetQualified === true, (signal, complete) =>
     buildTopLegsFromFullBoardScanImpl({ ...opts, signal, onTargetSatisfied: complete }));
 }
 

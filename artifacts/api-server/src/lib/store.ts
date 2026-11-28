@@ -178,3 +178,32 @@ export async function rateLimitHit(
   rlMem.set(bucketKey, arr);
   return false;
 }
+
+const localCreditReservations = new Map<string, number>();
+let localReservationDay = "";
+
+/** Reserve the upper-bound cost before an upstream call. */
+export async function reserveDailyOddsCredits(caller: string, credits: number, limit: number, requireRedis = false): Promise<boolean> {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+  if (credits === 0 && !requireRedis) return true;
+  const key = `odds-credits:${day}:${caller}`;
+  const redis = getRedis();
+  if (redis) {
+    try {
+      return (await redis.eval(
+        "local used=tonumber(redis.call('GET',KEYS[1]) or '0'); if used+tonumber(ARGV[1])>tonumber(ARGV[2]) then return 0 end; redis.call('INCRBY',KEYS[1],ARGV[1]); redis.call('EXPIRE',KEYS[1],86400); return 1",
+        1, key, credits, limit,
+      )) === 1;
+    } catch {
+      logger.warn({ caller }, "odds credit reservation unavailable");
+      return false;
+    }
+  }
+  if (requireRedis || process.env.REDIS_URL) return false;
+  if (day !== localReservationDay) { localCreditReservations.clear(); localReservationDay = day; }
+  const used = localCreditReservations.get(key) ?? 0;
+  if (used + credits > limit) return false;
+  localCreditReservations.set(key, used + credits);
+  return true;
+}

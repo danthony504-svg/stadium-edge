@@ -385,3 +385,34 @@ test("incomplete first holdout contexts defer writing until usage and history ca
   record.datasetRole = "development_only";
   assert.doesNotThrow(() => assertRecordableContext(record, {games}));
 });
+
+test('context archive lookup loads only the newest conference receipts', async () => {
+  const { loadContextArchives } = await import('./ncaaf-context-dataset.mjs');
+  const calls = [];
+  const keys = ['ACC', 'B10', 'B12', 'SEC'].map(c => `research:ncaaf:conference-availability-v2:${c}:2026-11-03T02:00:00Z`);
+  const query = async (sql, params) => {
+    calls.push({ sql, params });
+    if (calls.length === 1) {
+      assert.match(sql, /SELECT a.key/);
+      assert.match(sql, /LIMIT 1/);
+      assert.doesNotMatch(sql, /value\s*->/);
+      assert.equal(params[0].length, 4);
+      return { rows: keys.map(key => ({ key })) };
+    }
+    assert.equal(sql, 'SELECT key,value FROM public.app_kv WHERE key=$1');
+    assert.ok(keys.includes(params[0]));
+    return { rows: [{ key: params[0], value: { receipt: params[0] } }] };
+  };
+  const result = await loadContextArchives(query);
+  assert.deepEqual(result.map(r => r.key), keys);
+  assert.equal(calls.length, 5);
+});
+
+test('context archive lookup propagates storage failures and skips vanished receipts', async () => {
+  const { loadContextArchives } = await import('./ncaaf-context-dataset.mjs');
+  const failure = Object.assign(new Error('Query read timeout'), { code: '57014' });
+  await assert.rejects(loadContextArchives(async () => { throw failure; }), e => e === failure);
+  let calls = 0;
+  assert.deepEqual(await loadContextArchives(async () => ++calls === 1
+    ? { rows: [{ key: 'gone' }] } : { rows: [] }), []);
+});

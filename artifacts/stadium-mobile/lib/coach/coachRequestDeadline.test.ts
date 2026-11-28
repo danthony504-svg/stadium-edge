@@ -135,3 +135,10 @@ test("6-leg previously ~180s: load+full-scan no longer fits after fix contract",
   assert.equal(coachRemainingBudgetMs(0, budget, 90_000), 0);
   assert.ok(90_000 + 90_000 > budget);
 });
+
+
+test("15-leg requests use the same 30-second ceiling for load and delivery", () => {
+  assert.equal(coachAbsoluteBudgetMs(15), 30_000);
+  assert.equal(coachTotalRequestBudgetMs(15), 30_000);
+  assert.equal(coachPropLoadFailsafeMs(15), 30_000);
+});

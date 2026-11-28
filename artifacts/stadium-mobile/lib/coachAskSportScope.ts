@@ -48,7 +48,7 @@ export function explicitFootballPropsSportScope(
   text?: string | null,
 ): ExplicitFootballSport {
   const t = String(text ?? "").toLowerCase();
-  if (!t) return null;
+  if (!t || focalSportsFromText(t).size > 1) return null;
   const hasCollege = askHasCollegeFootballTokens(t);
   const hasNfl = /\bnfl\b/.test(t);
   // Explicit NFL wins over bare "football"; college tokens without NFL → NCAAF.

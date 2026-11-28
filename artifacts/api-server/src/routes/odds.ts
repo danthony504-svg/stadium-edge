@@ -1,3 +1,4 @@
+import { oddsProviderFetch, type OddsCaller } from "../lib/oddsProviderQuota.js";
 import { Router, type IRouter } from "express";
 import { GetOddsQueryParams, GetOddsResponse } from "@workspace/api-zod";
 import { ODDS_SPORT_KEYS, resolveOddsKeys, cachedJson, rateLimit } from "../lib/sports";
@@ -37,6 +38,11 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     return;
   }
   const sportId = parsed.data.sport.toLowerCase();
+  const scheduled = req.get("x-internal-call") === "1" &&
+    ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
+  const coachBoard = req.query["coach"] === "1";
+  const caller: OddsCaller = scheduled ? "scheduled_refresh" : coachBoard ? "coach_build" : "app_browse";
+  const regions = scheduled || coachBoard ? "us" : "us,us2";
   if (ODDS_SPORT_KEYS[sportId] === undefined) {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
@@ -84,7 +90,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     const perKey = await Promise.all(
       oddsKeys.map((key) =>
         cachedJson(
-          `odds:${key}:v3`,
+          `odds:${key}:${regions}:v4`,
           5 * 60 * 1000,
           async () => {
             // Scan us + us2 so we cover MORE sportsbooks (Fanatics, ESPN BET,
@@ -92,8 +98,8 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             // more real arbitrage/value found, and a better chance of catching a
             // higher-% edge when one genuinely exists. (Real arbs stay small —
             // this widens the net, it does not inflate the number.)
-            const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${bulkMarkets}&oddsFormat=american`;
-            const r = await fetch(url);
+            const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=${regions}&markets=${bulkMarkets}&oddsFormat=american`;
+            const r = await oddsProviderFetch(url, caller);
             if (!r.ok) {
               const text = await r.text();
               throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
@@ -199,14 +205,14 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     // Min two-sided books to trust a cross-book no-vig fair value (mirrors props.ts).
     const MIN_DEVIG_BOOKS = 3;
     const now = Date.now();
-    const WINDOW_MS = 48 * 60 * 60 * 1000;
+    const WINDOW_MS = (scheduled ? 6 : 48) * 60 * 60 * 1000;
     // Sports without halves/quarters (table tennis, tennis) skip the per-event
     // alt/period fetch entirely — those endpoints serve period ladders that
     // don't exist for them. Tennis still gets its main spreads/totals from the
     // bulk call above; it just has no per-event alt/period markets to add.
     const upcoming = skipAltPeriod ? [] : games.filter((g) => {
       const t = new Date(g.commence_time).getTime();
-      return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
+      return !isNaN(t) && t > (scheduled ? now : now - 30 * 60 * 1000) && t < now + WINDOW_MS;
     }).slice(0, 20); // cap credit spend — raised for full-board period/alt coverage
     // Per-event extra markets: alternate ladders PLUS period markets
     // (game-level halves/quarters: h2h/spreads/totals for h1, h2, q1-q4,
@@ -283,11 +289,11 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             // (which league/tour it belongs to) so merged multi-key sports hit
             // the correct endpoint and cache bucket. v7 preserves cross-book
             // prices for Steals (us+us2 regions, books[] + no-vig).
-            `odds:${g.sport_key}:alt:${g.id}:v7`,
+            `odds:${g.sport_key}:${regions}:alt:${g.id}:v8`,
             10 * 60 * 1000,
             async () => {
-              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;
-              const r = await fetch(url);
+              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=${regions}&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;
+              const r = await oddsProviderFetch(url, caller);
               if (!r.ok) return null;
               return (await r.json()) as RawOddsGame;
             },

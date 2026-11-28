@@ -1,3 +1,4 @@
+import { readCoachTimingBoards } from "@/lib/coachTimingBoardStore";
 import { readCoachPropAuditReport } from "@/lib/coachPropAuditStore";
 import { downloadCoachPropAudit } from "@/lib/coachPropAuditExport";
 import { shouldShowOtaHomeDiagnostics } from "@/lib/navMenuAuth";
@@ -1062,6 +1063,18 @@ function OtaDebugScreenInner() {
                 style={{ paddingVertical: 12, alignItems: "center" }}
               >
                 <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>Copy latest prop audit</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void readCoachTimingBoards().then(async report => {
+                    if (!report) { setStatus("No Coach timing snapshots saved yet."); return; }
+                    await Clipboard.setStringAsync(report);
+                    setStatus("Copied Coach timing snapshots");
+                  }).catch(() => setStatus("Could not copy timing snapshots."));
+                }}
+                style={{ paddingVertical: 12, alignItems: "center" }}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>Copy Coach timing snapshots</Text>
               </Pressable>
             </View>
           )}

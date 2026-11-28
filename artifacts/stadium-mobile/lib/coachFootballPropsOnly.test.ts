@@ -990,3 +990,16 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
   );
   assert.ok(staged.every((p) => /anytime_td|touchdown/i.test(String(p.propMarketKey ?? p.market))));
 });
+
+test("props-only ranking passes a duplicate athlete and fills from the next player", () => {
+  const legs = [
+    pick("player_reception_yds", "First Receiver", 39.5, { athleteId: "first" }),
+    pick("player_receptions", "First Receiver", 3.5, { athleteId: "first" }),
+    pick("player_reception_yds", "Next Receiver", 24.5, { athleteId: "next" }),
+  ].map((p, index) => stampPropsOnlyScoredLeg({
+    pick: p, evPct: 20 - index, edgePct: 20 - index, confidencePct: 70,
+    impliedProbPct: 52.4, lineShoppingScore: null, grade: "B", simHit: 0.74,
+    composite: 8 - index, rankScore: 8 - index, hitReliability: 0.8,
+  } as BoardScoredLeg, 0.74));
+  assert.deepEqual(stageFootballPropsOnlyLegs(legs, 2).map(p => p.athleteId), ["first", "next"]);
+});
