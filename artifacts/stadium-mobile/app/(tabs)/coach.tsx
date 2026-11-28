@@ -11,7 +11,6 @@ import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import * as Updates from "expo-updates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -130,7 +129,6 @@ export default function CoachScreen() {
   const researchTesterUnlocked =
     !!sub?.hydrated && !!sub.researchTesterAccess;
   const showComposer = !!isSignedIn && coachPremiumUnlocked;
-  const showBuildDuration = String(Updates.channel ?? "").trim().toLowerCase() === "preview";
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -411,7 +409,7 @@ export default function CoachScreen() {
         buildStatus: undefined,
         picks: storedPicks,
         buildDurationMs:
-          !opts.failed && opts.requestedLegs >= 2 && picks.length > 0 && sessionRef.current.startedAtMs > 0
+          opts.requestedLegs >= 2 && sessionRef.current.startedAtMs > 0
             ? Math.max(0, Date.now() - sessionRef.current.startedAtMs)
             : undefined,
         text: storedText,
@@ -1275,6 +1273,7 @@ export default function CoachScreen() {
                   <View style={{ paddingHorizontal: 16 }}>
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityHint="Shows held picks for research only"
                       accessibilityState={{ expanded: expandedHeldLines === item.id }}
                       onPress={() => setExpandedHeldLines(expandedHeldLines === item.id ? null : item.id)}
                     >
@@ -1285,14 +1284,22 @@ export default function CoachScreen() {
                         ].filter(Boolean).join(" · ")}
                       </Text>
                     </Pressable>
+                    {(item.picks?.length ?? 0) === 0 && expandedHeldLines !== item.id ? (
+                      <Pressable accessibilityRole="button" onPress={() => setExpandedHeldLines(item.id)}>
+                        <Text style={{ color: colors.primary, fontFamily: FONT.medium, paddingVertical: 8 }}>
+                          Show held picks as research only
+                        </Text>
+                      </Pressable>
+                    ) : null}
                     {expandedHeldLines === item.id ? (
                       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>
-                        {[...item.heldLines.spreads, ...item.heldLines.totals].join("\n")}
+                        {"Research only. Excluded from the ticket and combined odds.\n"}
+                        {[...item.heldLines.spreads, ...item.heldLines.totals].map(line => `Research · ${line}`).join("\n")}
                       </Text>
                     ) : null}
                   </View>
                 ) : null}
-                {showBuildDuration && !item.building && (item.picks?.length ?? 0) > 0 && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) ? (
+                {!item.building && item.buildDurationMs != null && Number.isFinite(item.buildDurationMs) ? (
                   <Text
                     accessibilityRole="text"
                     style={{ marginHorizontal: 16, marginTop: 6, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}
