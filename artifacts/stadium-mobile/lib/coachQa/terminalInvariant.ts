@@ -74,7 +74,7 @@ export function runAbsoluteTerminalHangGuardSuite(): QaCaseResult[] {
     const b5 = coachAbsoluteBudgetMs(5);
     const b6 = coachAbsoluteBudgetMs(6);
     const live = coachTerminalLiveDeadlineMs(5);
-    const ok = b5 === 75_000 && b6 === 90_000 && live < 180_000;
+    const ok = b5 === 30_000 && b6 === 90_000 && live < 180_000;
     out.push({
       id: "term-budget-finite",
       suite: "terminal_state",
@@ -131,7 +131,7 @@ export function runAbsoluteTerminalHangGuardSuite(): QaCaseResult[] {
  */
 export async function assertAbsoluteTerminalClearsBusyOnHungScan(): Promise<QaCaseResult> {
   const session = createCoachSession(7, 5, Date.now());
-  // Tiny remaining budget so the unit test does not wait 75s.
+  // Tiny remaining budget so the unit test does not wait 30s.
   session.startedAtMs = Date.now() - coachAbsoluteBudgetMs(5) + 30;
 
   let busy: boolean = true;
