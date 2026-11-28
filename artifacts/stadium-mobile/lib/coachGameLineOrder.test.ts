@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { coachGameLinePasses, coachGameSideCounts } from "./coachGameLineOrder.ts";
+import { coachCanStartRemainingGameLines, coachGameLinePasses, coachGameSideCounts } from "./coachGameLineOrder.ts";
 import { summarizeCoachGameLineDecisions } from "./coachGameLineProgress.ts";
 import { coachLineHoldReason } from "./coachSpreadPolicy.ts";
 
@@ -44,4 +44,29 @@ test("evaluated, scored and rejected sides have separate denominators", () => {
     evaluated: 5, scored: 4, rejected: 2,
     firstRejections: ["below grade floor 1", "simulation or grade unavailable 1"],
   });
+});
+
+test("alternates never start when the completed moneyline pass uses the scoring budget", () => {
+  const { moneylines, remaining } = coachGameLinePasses([
+    ["Game", [{ market: "Moneyline", pick: "Away" }, { market: "1H Moneyline", pick: "Home" }]],
+  ]);
+  const budgetMs = 30_000;
+  const options = {
+    aborted: false,
+    moneylinePassComplete: true,
+    gamePhaseRemainingMs: Infinity,
+    scoringRemainingMs: budgetMs,
+  };
+  const evaluated = [];
+  for (const lines of moneylines.values()) {
+    evaluated.push(...lines.map(line => line.pick));
+    options.scoringRemainingMs -= budgetMs;
+  }
+  if (coachCanStartRemainingGameLines(options)) {
+    evaluated.push(...[...remaining.values()].flat().map(line => line.pick));
+  }
+  assert.deepEqual(evaluated, ["Away"]);
+  assert.equal(remaining.size, 1);
+  assert.equal(coachCanStartRemainingGameLines({ ...options, scoringRemainingMs: 1 }), true);
+  assert.equal(coachCanStartRemainingGameLines({ ...options, scoringRemainingMs: 1, aborted: true }), false);
 });
