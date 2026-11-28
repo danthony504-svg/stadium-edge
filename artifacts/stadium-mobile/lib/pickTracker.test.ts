@@ -49,16 +49,18 @@ test("trackedPickFromParsedPick skips started games", () => {
 });
 
 test("captureCoachPicks dedupes by id and updates scores", () => {
-  const first = captureCoachPicks([], [basePick()]);
+  const pick = basePick();
+  const first = captureCoachPicks([], [pick]);
   assert.equal(first.length, 1);
   const updated = captureCoachPicks(first, [
-    basePick({
+    {
+      ...pick,
       scores: {
         grade: "B+",
         confidencePct: 62,
         edgePct: 4.1,
       },
-    }),
+    },
   ]);
   assert.equal(updated.length, 1);
   assert.equal(updated[0].aiGrade, "B+");
